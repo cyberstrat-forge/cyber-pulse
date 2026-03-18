@@ -5,8 +5,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-import httpx
-
 
 class BaseConnector(ABC):
     """Abstract base class for all connectors.
@@ -23,10 +21,9 @@ class BaseConnector(ABC):
             config: Connector-specific configuration dictionary
         """
         self.config = config
-        self._client: httpx.AsyncClient | None = None
 
     @abstractmethod
-    def fetch(self) -> List[Dict[str, Any]]:
+    async def fetch(self) -> List[Dict[str, Any]]:
         """Fetch items from the source.
 
         Returns:
@@ -37,6 +34,8 @@ class BaseConnector(ABC):
                 - published_at: Publication datetime (timezone-aware)
                 - content: Raw content
                 - content_hash: MD5 hash of content
+                - author: Author name (may be empty)
+                - tags: List of tags (may be empty)
 
         Raises:
             ConnectorError: If fetch fails
@@ -54,12 +53,6 @@ class BaseConnector(ABC):
             ValueError: If configuration is invalid
         """
         pass
-
-    def close(self) -> None:
-        """Close the HTTP client and release resources."""
-        if self._client is not None:
-            # For sync usage, we don't need async close
-            self._client = None
 
     @staticmethod
     def generate_content_hash(content: str) -> str:

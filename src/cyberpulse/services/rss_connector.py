@@ -37,7 +37,7 @@ class RSSConnector(BaseConnector):
 
         return True
 
-    def fetch(self) -> List[Dict[str, Any]]:
+    async def fetch(self) -> List[Dict[str, Any]]:
         """Fetch items from the RSS feed.
 
         Returns:
@@ -109,6 +109,14 @@ class RSSConnector(BaseConnector):
         # Generate content hash
         content_hash = self.generate_content_hash(content)
 
+        # Get author
+        author = entry.get("author", "")
+
+        # Get tags
+        tags = []
+        if hasattr(entry, "tags") and entry.tags:
+            tags = [t.term for t in entry.tags if hasattr(t, "term")]
+
         return {
             "external_id": external_id,
             "url": url,
@@ -116,6 +124,8 @@ class RSSConnector(BaseConnector):
             "published_at": published_at,
             "content": content,
             "content_hash": content_hash,
+            "author": author,
+            "tags": tags,
         }
 
     def _parse_date(self, entry: Any) -> datetime:

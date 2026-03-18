@@ -77,19 +77,23 @@ class TestRSSConnectorFetch:
         }
         return result
 
-    def test_fetch_success(self, mock_feedparser_result):
+    @pytest.mark.asyncio
+    async def test_fetch_success(self, mock_feedparser_result):
         """Test successful fetch returns items."""
         with patch("feedparser.parse", return_value=mock_feedparser_result):
             connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = connector.fetch()
+            items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["external_id"] == "guid-123"
         assert items[0]["url"] == "https://example.com/article/123"
         assert items[0]["title"] == "Test Article"
         assert items[0]["content"] == "This is the summary content"
+        assert items[0]["author"] == ""
+        assert items[0]["tags"] == []
 
-    def test_fetch_uses_link_as_external_id(self):
+    @pytest.mark.asyncio
+    async def test_fetch_uses_link_as_external_id(self):
         """Test that link is used as external_id when guid is missing."""
         entry = MockFeedEntry(
             guid=None,
@@ -110,12 +114,13 @@ class TestRSSConnectorFetch:
 
         with patch("feedparser.parse", return_value=result):
             connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = connector.fetch()
+            items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["external_id"] == "https://example.com/article/456"
 
-    def test_fetch_limits_to_max_items(self):
+    @pytest.mark.asyncio
+    async def test_fetch_limits_to_max_items(self):
         """Test that fetch limits results to MAX_ITEMS."""
         entries = []
         for i in range(60):
@@ -138,11 +143,12 @@ class TestRSSConnectorFetch:
 
         with patch("feedparser.parse", return_value=result):
             connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = connector.fetch()
+            items = await connector.fetch()
 
         assert len(items) == RSSConnector.MAX_ITEMS
 
-    def test_fetch_skips_entries_without_url(self):
+    @pytest.mark.asyncio
+    async def test_fetch_skips_entries_without_url(self):
         """Test that entries without URL are skipped."""
         entry_no_link = MockFeedEntry(
             guid="no-link-guid",
@@ -168,12 +174,13 @@ class TestRSSConnectorFetch:
 
         with patch("feedparser.parse", return_value=result):
             connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = connector.fetch()
+            items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["external_id"] == "with-link-guid"
 
-    def test_fetch_handles_bozo_feed(self):
+    @pytest.mark.asyncio
+    async def test_fetch_handles_bozo_feed(self):
         """Test that bozo feeds are still processed."""
         entry = MockFeedEntry(
             guid="bozo-guid",
@@ -194,17 +201,50 @@ class TestRSSConnectorFetch:
 
         with patch("feedparser.parse", return_value=result):
             connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = connector.fetch()
+            items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["external_id"] == "bozo-guid"
 
-    def test_fetch_raises_connector_error_on_parse_failure(self):
+    @pytest.mark.asyncio
+    async def test_fetch_raises_connector_error_on_parse_failure(self):
         """Test that fetch raises ConnectorError on parse failure."""
         with patch("feedparser.parse", side_effect=Exception("Network error")):
             connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
             with pytest.raises(ConnectorError, match="Failed to fetch RSS feed"):
-                connector.fetch()
+                await connector.fetch()
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_author_and_tags(self):
+        """Test that author and tags are extracted correctly."""
+        tag1 = MockFeedEntry(term="security")
+        tag2 = MockFeedEntry(term="python")
+
+        entry = MockFeedEntry(
+            guid="author-tags-test",
+            link="https://example.com/article",
+            title="Article with Author and Tags",
+            author="John Doe",
+            tags=[tag1, tag2],
+            published_parsed=time.struct_time(
+                (2024, 1, 15, 10, 30, 0, 0, 15, 0)
+            ),
+            summary="Content",
+            content=[],
+        )
+
+        result = {
+            "entries": [entry],
+            "bozo": False,
+        }
+
+        with patch("feedparser.parse", return_value=result):
+            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+            items = await connector.fetch()
+
+        assert len(items) == 1
+        assert items[0]["author"] == "John Doe"
+        assert items[0]["tags"] == ["security", "python"]
 
 
 class TestRSSConnectorParseDate:
@@ -338,7 +378,8 @@ class TestRSSConnectorContentHash:
 
         assert hash1 != hash2
 
-    def test_content_hash_in_fetch_result(self):
+    @pytest.mark.asyncio
+    async def test_content_hash_in_fetch_result(self):
         """Test that fetch result includes content_hash."""
         entry = MockFeedEntry(
             guid="hash-test",
@@ -358,23 +399,7 @@ class TestRSSConnectorContentHash:
 
         with patch("feedparser.parse", return_value=result):
             connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = connector.fetch()
+            items = await connector.fetch()
 
         assert "content_hash" in items[0]
         assert items[0]["content_hash"] == connector.generate_content_hash("Content for hashing")
-
-
-class TestRSSConnectorClose:
-    """Tests for close method."""
-
-    def test_close(self):
-        """Test that close method works without error."""
-        connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-        connector.close()  # Should not raise
-
-    def test_close_with_client(self):
-        """Test close with initialized client."""
-        connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-        connector._client = MagicMock()
-        connector.close()
-        assert connector._client is None
