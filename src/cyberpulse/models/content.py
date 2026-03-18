@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Integer, Index
+from sqlalchemy import Column, String, Text, DateTime, Integer, Index, Enum as SAEnum
 from enum import Enum
 from ..database import Base
 from .base import TimestampMixin
@@ -21,7 +21,7 @@ class Content(Base, TimestampMixin):
     first_seen_at = Column(DateTime, nullable=False)
     last_seen_at = Column(DateTime, nullable=False)
     source_count = Column(Integer, nullable=False, default=1)
-    status = Column(String(50), nullable=False, default="active")
+    status = Column(SAEnum(ContentStatus, name="contentstatus"), nullable=False, default=ContentStatus.ACTIVE)
 
     __table_args__ = (
         Index("ix_contents_first_seen", "first_seen_at"),

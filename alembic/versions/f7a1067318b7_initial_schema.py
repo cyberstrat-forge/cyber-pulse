@@ -71,7 +71,12 @@ def upgrade() -> None:
         sa.Column("first_seen_at", sa.DateTime, nullable=False),
         sa.Column("last_seen_at", sa.DateTime, nullable=False),
         sa.Column("source_count", sa.Integer, nullable=False, server_default="1"),
-        sa.Column("status", sa.String(50), nullable=False, server_default="active"),
+        sa.Column(
+            "status",
+            sa.Enum("active", "archived", name="contentstatus"),
+            nullable=False,
+            server_default="active",
+        ),
         sa.Column("created_at", sa.DateTime, server_default=sa.func.now(), nullable=False),
         sa.Column(
             "updated_at",
@@ -98,7 +103,12 @@ def upgrade() -> None:
         sa.Column("published_at", sa.DateTime, nullable=False),
         sa.Column("fetched_at", sa.DateTime, nullable=False),
         sa.Column("content_hash", sa.String(64), nullable=False),
-        sa.Column("status", sa.String(50), nullable=False, server_default="new"),
+        sa.Column(
+            "status",
+            sa.Enum("new", "normalized", "mapped", "rejected", name="itemstatus"),
+            nullable=False,
+            server_default="new",
+        ),
         sa.Column("raw_metadata", postgresql.JSONB, nullable=False, server_default="{}"),
         sa.Column("meta_completeness", sa.Float, nullable=True),
         sa.Column("content_completeness", sa.Float, nullable=True),
@@ -128,7 +138,12 @@ def upgrade() -> None:
         sa.Column("client_id", sa.String(64), primary_key=True),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("api_key", sa.String(128), nullable=False, unique=True),
-        sa.Column("status", sa.String(50), nullable=False, server_default="active"),
+        sa.Column(
+            "status",
+            sa.Enum("active", "suspended", "revoked", name="apiclientstatus"),
+            nullable=False,
+            server_default="active",
+        ),
         sa.Column("description", sa.Text, nullable=True),
         sa.Column("permissions", postgresql.JSONB, nullable=False, server_default="[]"),
         sa.Column("last_used_at", sa.DateTime, nullable=True),
@@ -173,5 +188,8 @@ def downgrade() -> None:
     op.drop_table("sources")
 
     # Drop enums
+    op.execute("DROP TYPE IF EXISTS apiclientstatus")
+    op.execute("DROP TYPE IF EXISTS itemstatus")
+    op.execute("DROP TYPE IF EXISTS contentstatus")
     op.execute("DROP TYPE IF EXISTS sourcestatus")
     op.execute("DROP TYPE IF EXISTS sourcetier")
