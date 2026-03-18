@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, Text, DateTime, Float, ForeignKey, Index, Enum as SAEnum, JSON
+from sqlalchemy import Column, String, Text, DateTime, Float, ForeignKey, Index, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from enum import Enum
 from ..database import Base
 from .base import TimestampMixin
@@ -27,7 +28,7 @@ class Item(Base, TimestampMixin):
     fetched_at = Column(DateTime, nullable=False, index=True)
     content_hash = Column(String(64), nullable=False)
     status = Column(SAEnum(ItemStatus, name="itemstatus"), nullable=False, default=ItemStatus.NEW)
-    raw_metadata = Column(JSON, nullable=False, default=dict)
+    raw_metadata = Column(JSONB, nullable=False, default=dict)
 
     # Quality metrics (filled after normalization)
     meta_completeness = Column(Float, nullable=True)
