@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -103,7 +103,7 @@ class TestAddSource:
         assert source.observation_until is not None
 
         # Check observation period is approximately 30 days
-        expected_until = datetime.utcnow() + timedelta(days=30)
+        expected_until = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=30)
         delta = abs((source.observation_until - expected_until).total_seconds())
         assert delta < 60  # Within 1 minute tolerance
 

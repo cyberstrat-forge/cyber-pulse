@@ -1,9 +1,6 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
-
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
 
 from .base import BaseService
 from ..models import Source, SourceTier, SourceStatus
@@ -51,7 +48,7 @@ class SourceService(BaseService):
 
         # Create new source with observation period
         source_id = self.generate_source_id()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         observation_until = now + timedelta(days=self.OBSERVATION_PERIOD_DAYS)
 
         source = Source(
