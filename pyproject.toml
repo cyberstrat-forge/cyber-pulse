@@ -59,8 +59,8 @@ Homepage = "https://github.com/your-username/cyber-pulse"
 Repository = "https://github.com/your-username/cyber-pulse"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["cyber_pulse*"]
+where = ["src"]
+include = ["cyberpulse*"]
 exclude = ["tests*"]
 
 [tool.black]
