@@ -1,12 +1,15 @@
 """RSS Connector implementation for RSS feed collection."""
 
 import email.utils
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import feedparser
 
 from .connector_service import BaseConnector, ConnectorError
+
+logger = logging.getLogger(__name__)
 
 
 class RSSConnector(BaseConnector):
@@ -53,7 +56,9 @@ class RSSConnector(BaseConnector):
         try:
             feed = feedparser.parse(feed_url)
         except Exception as e:
-            raise ConnectorError(f"Failed to fetch RSS feed: {e}")
+            raise ConnectorError(
+                f"Failed to fetch RSS feed '{feed_url}': {type(e).__name__}: {e}"
+            ) from e
 
         # Check for fatal errors (not bozo errors, which we tolerate)
         if feed.get("bozo") and not isinstance(
@@ -61,7 +66,9 @@ class RSSConnector(BaseConnector):
         ):
             # Log bozo errors but continue processing
             # Bozo feeds are allowed as per requirements
-            pass
+            logger.warning(
+                f"RSS feed '{feed_url}' has malformed content: {feed.get('bozo_exception')}"
+            )
 
         # Get entries, limited to MAX_ITEMS
         entries = feed.get("entries", [])[: self.MAX_ITEMS]
@@ -72,8 +79,17 @@ class RSSConnector(BaseConnector):
                 item = self._parse_entry(entry)
                 if item:
                     items.append(item)
-            except Exception:
-                # Skip malformed entries
+            except Exception as e:
+                # Skip malformed entries but log the error
+                entry_id = (
+                    entry.get("guid")
+                    or entry.get("id")
+                    or entry.get("link")
+                    or "unknown"
+                )
+                logger.warning(
+                    f"Skipping malformed RSS entry '{entry_id}' from '{feed_url}': {e}"
+                )
                 continue
 
         return items
@@ -161,6 +177,9 @@ class RSSConnector(BaseConnector):
                 pass
 
         # Fallback to current time
+        logger.debug(
+            "No valid publication date found in RSS entry, using current UTC time"
+        )
         return self.get_current_utc_time()
 
     def _get_content(self, entry: Any) -> str:

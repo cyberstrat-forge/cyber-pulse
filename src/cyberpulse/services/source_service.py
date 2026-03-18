@@ -11,6 +11,57 @@ class SourceService(BaseService):
 
     OBSERVATION_PERIOD_DAYS = 30
 
+    # Tier-score consistency per design spec:
+    # T0: score >= 80, T1: 60 <= score < 80, T2: 40 <= score < 60, T3: score < 40
+    TIER_SCORE_RANGES = {
+        SourceTier.T0: (80.0, float("inf")),
+        SourceTier.T1: (60.0, 80.0),
+        SourceTier.T2: (40.0, 60.0),
+        SourceTier.T3: (0.0, 40.0),
+    }
+
+    # Default score for each tier (middle of range)
+    TIER_DEFAULT_SCORES = {
+        SourceTier.T0: 90.0,
+        SourceTier.T1: 70.0,
+        SourceTier.T2: 50.0,
+        SourceTier.T3: 20.0,
+    }
+
+    def _get_tier_for_score(self, score: float) -> SourceTier:
+        """Determine the appropriate tier for a given score.
+
+        Args:
+            score: Quality score
+
+        Returns:
+            The tier that matches this score
+        """
+        if score >= 80:
+            return SourceTier.T0
+        elif score >= 60:
+            return SourceTier.T1
+        elif score >= 40:
+            return SourceTier.T2
+        else:
+            return SourceTier.T3
+
+    def _validate_tier_score(self, tier: SourceTier, score: float) -> None:
+        """Validate tier-score consistency per design spec.
+
+        Args:
+            tier: Source tier level
+            score: Source quality score
+
+        Raises:
+            ValueError: If score doesn't match tier requirements
+        """
+        min_score, max_score = self.TIER_SCORE_RANGES[tier]
+        if not (min_score <= score < max_score):
+            raise ValueError(
+                f"Tier {tier.value} requires score in [{min_score}, {max_score}), got {score}"
+            )
+
     def generate_source_id(self) -> str:
         """Generate a unique source ID.
 
@@ -23,9 +74,9 @@ class SourceService(BaseService):
         self,
         name: str,
         connector_type: str,
-        tier: SourceTier = SourceTier.T2,
+        tier: Optional[SourceTier] = None,
         config: Optional[Dict[str, Any]] = None,
-        score: float = 50.0,
+        score: Optional[float] = None,
     ) -> Tuple[Optional[Source], str]:
         """Add a new source.
 
@@ -34,9 +85,9 @@ class SourceService(BaseService):
         Args:
             name: Source name (must be unique)
             connector_type: Type of connector (rss, api, web_scraper, media_api)
-            tier: Source tier (default T2)
+            tier: Source tier (optional, derived from score if not provided)
             config: Connector configuration
-            score: Initial score (default 50.0)
+            score: Initial score (optional, defaults to tier's default if tier provided)
 
         Returns:
             Tuple of (source, message) where source is None if duplicate
@@ -45,6 +96,19 @@ class SourceService(BaseService):
         existing = self.db.query(Source).filter(Source.name == name).first()
         if existing:
             return None, f"Source with name '{name}' already exists"
+
+        # Determine tier and score based on what was provided
+        if score is not None and tier is None:
+            # Score provided, derive tier from score
+            tier = self._get_tier_for_score(score)
+        elif tier is not None and score is None:
+            # Tier provided, use tier's default score
+            score = self.TIER_DEFAULT_SCORES[tier]
+        elif tier is None and score is None:
+            # Neither provided, use defaults
+            tier = SourceTier.T2
+            score = self.TIER_DEFAULT_SCORES[SourceTier.T2]
+        # else: both provided, keep as is (user's choice)
 
         # Create new source with observation period
         source_id = self.generate_source_id()
@@ -85,6 +149,10 @@ class SourceService(BaseService):
         if not source:
             return None, f"Source with ID '{source_id}' not found"
 
+        # Prevent updates to removed sources
+        if source.status == SourceStatus.REMOVED:
+            return None, f"Cannot update removed source '{source_id}'"
+
         # Handle tier update
         if "tier" in kwargs and isinstance(kwargs["tier"], str):
             kwargs["tier"] = SourceTier(kwargs["tier"])
@@ -92,6 +160,14 @@ class SourceService(BaseService):
         # Handle status update
         if "status" in kwargs and isinstance(kwargs["status"], str):
             kwargs["status"] = SourceStatus(kwargs["status"])
+
+        # Auto-adjust tier/score to maintain consistency (tier is derived from score)
+        if "score" in kwargs:
+            # Score update takes precedence - auto-adjust tier
+            kwargs["tier"] = self._get_tier_for_score(kwargs["score"])
+        elif "tier" in kwargs:
+            # Only tier updated - adjust score to match tier's default
+            kwargs["score"] = self.TIER_DEFAULT_SCORES[kwargs["tier"]]
 
         # Update allowed fields
         allowed_fields = {
