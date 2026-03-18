@@ -1,6 +1,6 @@
 # cyber-pulse 单机原型版技术规格说明书
 
-**版本：** v1.0
+**版本：** v1.1
 **日期：** 2026-03-18
 **作者：** 老罗
 **状态：** 草案
@@ -11,12 +11,12 @@
 
 ### 1.1 目标与定位
 
-cyber-pulse 是一个**内部战略情报采集基础设施系统**，定位为"数据生产引擎层"，负责：
+cyber-pulse 是一个**内部战略情报采集与标准化系统**，定位为"数据生产引擎层"，负责：
 
 - 从多个情报源自动化采集数据
 - 内容抽取与结构化处理
-- **数据清洗与标准化（转为 Markdown）**
-- **数据结构质量控制**
+- 数据清洗与标准化（转为 Markdown）
+- 数据结构质量控制
 - 增量更新机制
 - 通过拉取式 API 向下游分析系统提供数据
 
@@ -75,7 +75,6 @@ cyber-pulse 是一个**内部战略情报采集基础设施系统**，定位为"
 │  │  • API (httpx)                • FreshRSS (订阅模式)   │  │
 │  │  • Web (trafilatura)          • Nifi (HTTP 推送)      │  │
 │  │  • Media (google-api)         • ...                   │  │
-│  │  • Platform (微信等)                                  │  │
 │  │                                                       │  │
 │  └───────────────┬───────────────────────┬───────────────┘  │
 │                  │                       │                  │
@@ -92,8 +91,8 @@ cyber-pulse 是一个**内部战略情报采集基础设施系统**，定位为"
 │  ┌───────────────▼───────────────────────────────────────┐  │
 │  │              PostgreSQL (核心存储)                     │  │
 │  │  • Source 表 (永久)                                    │  │
-│  │  • Item 表 (1年)                                       │  │
-│  │  • Content 表 (1年)                                    │  │
+│  │  • Item 表 (365 天)                                    │  │
+│  │  • Content 表 (365 天)                                 │  │
 │  │  • api_clients 表 (永久)                               │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                  │                                           │
@@ -106,8 +105,9 @@ cyber-pulse 是一个**内部战略情报采集基础设施系统**，定位为"
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │              APScheduler (调度器)                      │  │
 │  │      • 统一调度频率（原型阶段简化）                    │  │
-│  │      • 可配置时间间隔（默认每小时）                    │  │
-│  │      • 支持手动触发                                      │  │
+│  │      • 默认每小时一次（所有活跃 Source）               │  │
+│  │      • 支持手动触发                                    │  │
+│  │      • 保留 fetch_interval 配置（未来分级预留）       │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                  │                                           │
 │  ┌───────────────▼───────────────────────────────────────┐  │
@@ -152,6 +152,9 @@ cyber-pulse 是一个**内部战略情报采集基础设施系统**，定位为"
 ```
 用户添加 Source
     ↓
+[检查重复] - 检查 name 或 URL 是否已存在
+    ↓ (重复) 标记为重复，提示用户
+    ↓ (不存在)
 [快速准入评估]
   • 连接测试
   • 首次采集（5-10 条样本）
@@ -159,13 +162,13 @@ cyber-pulse 是一个**内部战略情报采集基础设施系统**，定位为"
     ↓
 达标 → 定级为 T2 → 立即加入调度队列
     ↓
-APScheduler 触发任务
+APScheduler 统一调度（每小时触发所有活跃 Source）
     ↓
 Connector 采集原始数据 → Item
     ↓
 Normalization（正文提取、清洗、转 Markdown）
     ↓
-Quality Gate（结构质量控制）
+Quality Gate（数据结构质量控制）
     ↓
 达标 → 关联/创建 Content → 写入数据库
     ↓
@@ -217,11 +220,17 @@ cyber-nexus 通过 Pull API 拉取增量数据
 
 [引用自 `docs/2026-03-17 cyber-pulse Source 分级模型设计说明.md`]
 
-| 等级 | 含义 | 采集频率 | 说明 |
-|------|------|---------|------|
-| **T0** | 核心战略源 | 每小时 | 高可信度、高战略相关性、长期持续输出 |
-| **T1** | 重要参考源 | 每日 | 有价值但存在波动，需要规则过滤 |
-| **T2** | 普通观察源 | 低频 | 潜在价值，不确定性高，用于趋势探索 |
+| 等级 | 含义 | 采集频率 | 评分范围 | 说明 |
+|------|------|---------|---------|------|
+| **T0** | 核心战略源 | 高频 | ≥ 80 | 高可信度、高战略相关性、长期持续输出 |
+| **T1** | 重要参考源 | 中频 | 60–80 | 有价值但存在波动，需要规则过滤 |
+| **T2** | 普通观察源 | 低频 | 40–60 | 潜在价值，不确定性高，用于趋势探索 |
+| **T3** | 观察/降频源 | 极低频或暂停 | < 40 | 质量不达标，需评估是否保留 |
+
+**原型阶段调度说明：**
+- ✅ **统一调度频率**：所有活跃 Source 统一每小时调度一次
+- ✅ **简化设计**：便于测试和调试
+- ✅ **未来预留**：Source 配置中保留 `fetch_interval` 字段，生产版可根据 `tier` 配置不同频率
 
 ---
 
@@ -234,6 +243,10 @@ cyber-nexus 通过 Pull API 拉取增量数据
 ```
 用户添加 Source
     ↓
+[检查重复] - 检查 name 或 URL 是否已存在
+    ↓ (存在)
+标记为重复，提示用户
+    ↓ (不存在)
 [连接测试] - 能否访问？
     ↓ (失败)
 标记为 pending_review，提示用户
@@ -299,18 +312,40 @@ cyber-nexus 通过 Pull API 拉取增量数据
 **强制复审：**
 - T0 来源：每 90 天自动复审一次，避免等级固化
 
-**降级通知与管理员操作：**
+---
 
-当 Source 降级时（特别是降为 T3），系统会：
+#### 4.1.4 评分低的提醒与管理员操作
 
-1. **自动通知**
-   - 状态栏显示警告：`⚠️ 2 个 Source 需要评估`
-   - 降级日志记录到 `log errors --type review-needed`
+[本次设计新增]
 
-2. **诊断报告**
+**自动降级流程：**
+```
+Source Score < 40
+    ↓
+自动降级为 T3（观察/降频源）
+    ↓
+标记为 pending_review
+    ↓
+状态栏显示警告 ⚠️
+```
+
+**降级触发条件：**
+- 连续 2 周评分低于阈值
+- 单周评分低于 30（严重情况立即降级）
+
+**管理员通知机制：**
+
+1. **状态栏警告**
+   ```
+   Status: 🟢 Running | ⚠️ 2 个 Source 需要评估
+   ```
+
+2. **诊断命令**
    ```bash
+   # 查看所有需要评估的 Source
    /diagnose sources --pending
 
+   # 输出示例
    → 需要评估的 Source (3 个):
       1. 安全客 (T3, Score: 35)
          - 原因: 连续 3 周评分下降
@@ -321,20 +356,36 @@ cyber-nexus 通过 Pull API 拉取增量数据
          - 建议: 考虑删除或更新采集规则
    ```
 
-3. **管理员操作选项**
+3. **日志告警**
    ```bash
-   # 删除 Source
-   /source remove <id>
-
-   # 更新配置
-   /source update <id> --url "新地址"
-
-   # 冻结（暂停采集，保留历史）
-   /source update <id> --status frozen
-
-   # 手动提升等级（需谨慎）
-   /source update <id> --tier T2 --reason "临时恢复"
+   /log errors --type review-needed
    ```
+
+**管理员操作选项：**
+```bash
+# 选项 1：删除 Source
+/source remove <id>
+
+# 选项 2：更新配置（如更换 URL、调整规则）
+/source update <id> --url "新地址"
+
+# 选项 3：手动提升等级（需谨慎）
+/source update <id> --tier T2 --reason "临时恢复"
+
+# 选项 4：冻结（暂停采集，保留历史）
+/source update <id> --status frozen
+```
+
+**建议的定期评估报告：**
+```bash
+# 定期生成评估报告
+/server maintenance --generate-review-report
+
+# 报告内容
+→ 30 天未更新的 Source: 5 个
+→ 评分持续下降的 Source: 3 个
+→ 建议删除的 Source: 2 个 (评分 < 20 且 60 天无更新)
+```
 
 ---
 
@@ -350,31 +401,150 @@ cyber-nexus 通过 Pull API 拉取增量数据
 | **APIConnector** | `httpx` | 通用 API 采集，支持认证、分页 |
 | **WebScraper** | `httpx` + `trafilatura` | 网页抓取 + 正文提取 |
 | **MediaAPIConnector** | `google-api-python-client` | YouTube/Twitter 等媒体平台 |
-| **PlatformConnector** | 定制实现 | 微信公众号等特定平台 |
 
-**接口设计：**
+**CLI 配置示例：**
 
-```python
-class BaseConnector(ABC):
-    @abstractmethod
-    def fetch(self, source: Source) -> List[Item]:
-        """采集数据，返回 Item 列表"""
-        pass
+**1. RSS Connector**
+```bash
+./cli source add \
+  --name "安全客" \
+  --connector rss \
+  --url "https://www.anquanke.com/rss" \
+  --tier T1
+```
 
-    @abstractmethod
-    def test_connection(self, source: Source) -> bool:
-        """测试连接"""
-        pass
+**自动生成配置：**
+```yaml
+config:
+  feed_url: "https://www.anquanke.com/rss"
+  use_auto_discovery: true  # 自动发现 RSS
+```
+
+**2. API Connector**
+```bash
+./cli source add \
+  --name "GitHub Security" \
+  --connector api \
+  --url "https://api.github.com/security-advisories" \
+  --auth-type bearer \
+  --auth-token "xxx" \
+  --pagination page \
+  --tier T0
+```
+
+**自动生成配置：**
+```yaml
+config:
+  base_url: "https://api.github.com/security-advisories"
+  auth_type: "bearer"
+  auth_token: "xxx"  # 加密存储
+  pagination_type: "page"
+  page_param: "page"
+  per_page: 100
+```
+
+**3. Web Scraper**
+```bash
+./cli source add \
+  --name "某博客" \
+  --connector web \
+  --url "https://example.com/blog" \
+  --extraction-mode auto \
+  --tier T2
+```
+
+**自动生成配置：**
+```yaml
+config:
+  base_url: "https://example.com/blog"
+  extraction_mode: "auto"  # auto 或 manual (XPath/CSS)
+  link_pattern: "/blog/.*"
+  update_frequency: "daily"
+```
+
+**4. Media API (YouTube)**
+```bash
+./cli source add \
+  --name "某 YouTube 频道" \
+  --connector media \
+  --platform youtube \
+  --channel-id "UCxxx" \
+  --api-key "xxx" \
+  --tier T1
+```
+
+**自动生成配置：**
+```yaml
+config:
+  platform: "youtube"
+  channel_id: "UCxxx"
+  api_key: "xxx"  # 加密存储
+  check_captions: true  # 检查字幕是否存在
 ```
 
 ---
 
-#### 4.2.2 外部服务集成（可选扩展）
+#### 4.2.2 微信公众号采集方案
+
+[本次设计新增]
+
+**挑战：**
+- 微信无公开 API，需要登录态和 Cookie
+- 反爬虫机制严格
+
+**推荐方案：使用 RSSHub 包装**
+
+```
+┌─────────────────────────────────────────────┐
+│          cyber-pulse                        │
+├─────────────────────────────────────────────┤
+│                                             │
+│  ┌──────────────┐     ┌─────────────────┐  │
+│  │ RSS Connector│     │  RSSHub 服务    │  │
+│  │ (内置)       │     │  (独立部署)     │  │
+│  └──────┬───────┘     └────────┬────────┘  │
+│         │                      │           │
+│         └──────────┬───────────┘           │
+│                    │                       │
+│         微信公众号 RSS 地址                  │
+│  http://localhost:1200/wechat/xxx          │
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+**操作流程：**
+
+```bash
+# 1. 部署 RSSHub
+docker run -d --name rsshub -p 1200:1200 diygod/rsshub
+
+# 2. 添加微信公众号到 cyber-pulse
+./cli source add \
+  --name "安全内参" \
+  --connector rss \
+  --url "http://localhost:1200/wechat/ershicimi/公众号ID" \
+  --tier T1 \
+  --test
+
+# 3. 验证采集
+./cli source test "安全内参"
+```
+
+**优势：**
+- ✅ 无需微信账号
+- ✅ 社区维护，支持广泛
+- ✅ 符合"外部服务 Connector"设计理念
+
+---
+
+#### 4.2.3 外部服务集成（可选扩展）
 
 **场景：** 将无 RSS 网站包装为 RSS
 
 **推荐工具：**
 - **RSSHub**：最流行的 RSS 生成器，支持 1000+ 网站
+  - 包括微信公众号、微博、知乎、GitHub 等平台
+  - **微信公众号路由**：`/wechat/ershicimi/:id` （公众号名称或 ID）
 - **FreshRSS**：自托管 RSS 阅读器
 
 **集成方式：**
@@ -383,17 +553,35 @@ class BaseConnector(ABC):
 ```
 
 **操作流程：**
-```bash
-# 1. 部署 RSSHub（独立服务）
-docker run -d --name rsshub -p 1200:1200 diygod/rsshub
 
-# 2. 配置 cyber-pulse 订阅 RSSHub
+**1. 部署 RSSHub（独立服务）**
+```bash
+docker run -d --name rsshub -p 1200:1200 diygod/rsshub
+```
+
+**2. 配置 cyber-pulse 订阅 RSSHub**
+
+```bash
+# 示例 1：GitHub Trending
 ./cli source add \
   --name "GitHub Trending" \
   --connector rss \
   --tier T1 \
   --config 'feed_url=http://localhost:1200/github/trending/daily'
+
+# 示例 2：微信公众号
+./cli source add \
+  --name "安全内参" \
+  --connector rss \
+  --tier T1 \
+  --config 'feed_url=http://localhost:1200/wechat/ershicimi/安全内参'
 ```
+
+**优势：**
+- ✅ 无需微信账号，避免封号风险
+- ✅ 社区维护，支持广泛的平台
+- ✅ cyber-pulse 无需特殊处理，统一使用 RSSConnector
+- ✅ 符合"外部服务 Connector"设计理念
 
 ---
 
@@ -603,6 +791,13 @@ Authorization: Bearer sk_live_xxx
       "source_id": "src_456",
       "source_name": "安全客",
       "source_tier": "T1",
+      "source_score": 75.5,
+      "source_quality_metrics": {
+        "content_completeness": 0.92,
+        "noise_ratio": 0.08,
+        "update_frequency": "daily",
+        "stability": 0.95
+      },
       "original_title": "XXX 漏洞分析",
       "publish_time": "2026-03-18T10:00:00Z",
       "processed_time": "2026-03-18T10:05:00Z",
@@ -621,6 +816,10 @@ Authorization: Bearer sk_live_xxx
   "server_timestamp": "2026-03-18T10:30:00Z"
 }
 ```
+
+**关键字段说明：**
+- `source_score`：0-100 评分，为 cyber-nexus 提供情报可信度评估依据
+- `source_quality_metrics`：可选详细质量指标，用于细粒度可信度计算
 
 ---
 
@@ -679,6 +878,133 @@ CREATE TABLE api_clients (
 
 ---
 
+#### 4.5.5 消费者实现样例（cyber-nexus）
+
+[本次设计新增]
+
+```python
+# cyber-nexus 消费者实现
+import requests
+import json
+import time
+
+class CyberPulseConsumer:
+    def __init__(self, api_url, api_key):
+        self.api_url = api_url
+        self.headers = {"Authorization": f"Bearer {api_key}"}
+        self.cursor = self._load_cursor()  # 从本地文件加载
+
+    def _load_cursor(self):
+        """从本地文件加载 cursor"""
+        try:
+            with open("cursor.txt", "r") as f:
+                return int(f.read().strip())
+        except:
+            return 0  # 首次运行
+
+    def _save_cursor(self, cursor):
+        """保存 cursor 到本地文件"""
+        with open("cursor.txt", "w") as f:
+            f.write(str(cursor))
+
+    def fetch_incremental(self, limit=100):
+        """拉取增量数据"""
+        params = {
+            "cursor": self.cursor,
+            "limit": limit
+        }
+
+        response = requests.get(
+            f"{self.api_url}/api/v1/content",
+            headers=self.headers,
+            params=params
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            contents = data["data"]
+
+            if contents:
+                # 处理数据（去重、写入 iNBox）
+                self._process_contents(contents)
+
+                # 更新 cursor
+                self.cursor = data["next_cursor"]
+                self._save_cursor(self.cursor)
+
+                print(f"✓ Fetched {len(contents)} items, new cursor: {self.cursor}")
+
+            return contents
+        else:
+            print(f"✗ Error: {response.status_code}")
+            return []
+
+    def _process_contents(self, contents):
+        """处理内容（去重、写入 iNBox）"""
+        for content in contents:
+            content_id = content["content_id"]
+
+            # 幂等性检查（基于 content_id）
+            if not self._exists_in_inbox(content_id):
+                # 写入 iNBox
+                self._write_to_inbox(content)
+
+    def _exists_in_inbox(self, content_id):
+        """检查是否已存在（幂等性）"""
+        # 实现：检查本地数据库或文件
+        pass
+
+    def _write_to_inbox(self, content):
+        """写入 iNBox"""
+        # 实现：保存为 Markdown 文件
+        filename = f"inbox/{content['content_id']}.md"
+        with open(filename, "w") as f:
+            f.write(self._format_markdown(content))
+
+    def _format_markdown(self, content):
+        """格式化为 Markdown"""
+        md = f"""# {content['original_title']}
+
+来源: {content['source_name']} ({content['source_tier']})
+Score: {content.get('source_score', 'N/A')}
+发布时间: {content['publish_time']}
+
+{content['normalized_markdown']}
+"""
+        return md
+
+    def run_forever(self, interval=300):
+        """持续运行，定期拉取"""
+        while True:
+            try:
+                self.fetch_incremental()
+                time.sleep(interval)  # 每 5 分钟拉取一次
+            except KeyboardInterrupt:
+                print("Stopped by user")
+                break
+            except Exception as e:
+                print(f"Error: {e}")
+                time.sleep(60)  # 错误后等待 1 分钟
+
+# 使用示例
+if __name__ == "__main__":
+    consumer = CyberPulseConsumer(
+        api_url="http://localhost:8000",
+        api_key="sk_live_xxx"
+    )
+
+    # 启动消费者
+    consumer.run_forever(interval=300)
+```
+
+**关键要点：**
+- Cursor 本地持久化（文件存储）
+- 基于 `content_id` 幂等处理
+- 定期轮询（建议 5-10 分钟）
+- 错误重试机制
+
+---
+
 ### 4.6 CLI 工具
 
 #### 4.6.1 命令结构
@@ -698,7 +1024,7 @@ cyber-pulse> /<模块> <子命令> [参数]
 #### 4.6.2 模块与子命令
 
 ```
-cyber-pulse CLI (v1.0)
+cyber-pulse CLI (v1.1)
 ├── source [子命令]
 │   ├── list [--tier T0|T1|T2]
 │   ├── add --name <name> --url <url> ...
@@ -715,7 +1041,7 @@ cyber-pulse CLI (v1.0)
 │
 ├── content [子命令]
 │   ├── list [--limit 10]
-│   ├── get <content-id>
+│   ├── get [--id <content-id>] [--since <timestamp>] [--until <timestamp>] [--source <name>] [--tier <T0|T1|T2>] [--limit <number>] [--format <json|markdown>]
 │   └── stats
 │
 ├── client [子命令]
@@ -741,7 +1067,7 @@ cyber-pulse CLI (v1.0)
 │
 ├── diagnose [子命令]
 │   ├── system
-│   ├── sources
+│   ├── sources [--pending]
 │   ├── source <id>
 │   └── errors
 │
@@ -750,7 +1076,8 @@ cyber-pulse CLI (v1.0)
 │   ├── stop
 │   ├── restart
 │   ├── status
-│   └── health
+│   ├── health
+│   └── maintenance --generate-review-report
 │
 ├── help
 ├── version
@@ -761,37 +1088,160 @@ cyber-pulse CLI (v1.0)
 
 #### 4.6.3 交互式界面设计
 
-**布局：**
+[本次设计新增]
+
+**布局结构：**
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  🚀 cyber-pulse CLI (v1.0)                              │
+│  🚀 cyber-pulse CLI (v1.1)                              │
 │  Type '/help' for available commands                    │
 ├─────────────────────────────────────────────────────────┤
 │                                                          │
-│  [2026-03-18 10:30:15] ✓ Source "安全客" added (T2)    │
-│  [2026-03-18 10:30:16] 🔄 Testing connection...         │
-│  [2026-03-18 10:30:18] ✓ Connection successful          │
-│  [2026-03-18 10:30:19] 📊 Quality score: 85/100         │
-│  [2026-03-18 10:30:20] 🎯 Auto-assigned to T2           │
-│  [2026-03-18 10:30:21] 📅 Scheduled for daily fetch     │
+│  [Output Area: 命令执行结果/历史记录]                   │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
-│  cyber-pulse> /source list --tier T2                    │
+│  cyber-pulse> [Input Area]                              │
 ├─────────────────────────────────────────────────────────┤
-│  Status: 🟢 Running | API: 8000 | DB: Connected | Jobs: 2 │
+│  Status: 🟢 Running | API: 8000 | DB: Connected | Jobs: X │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**特性：**
-- ✅ **分区域布局**：输出区（上）、输入区（中）、状态栏（下）
-- ✅ **命令历史**：↑↓ 键浏览历史，Ctrl+R 搜索
-- ✅ **自动补全**：Tab 键补全命令/参数
-- ✅ **语法高亮**：命令、参数、输出不同颜色
-- ✅ **实时状态**：底部状态栏显示系统状态
+**初始进入时显示：**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  🚀 cyber-pulse CLI (v1.1)                              │
+│  Type '/help' for available commands                    │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  Welcome to cyber-pulse!                                │
+│                                                          │
+│  System Status:                                         │
+│  • API Server: 🟢 Running on port 8000                  │
+│  • Database: 🟢 Connected                                │
+│  • Redis: 🟢 Connected                                   │
+│  • Active Sources: 12 (T0: 2, T1: 5, T2: 5)             │
+│  • Scheduled Jobs: 1                                     │
+│                                                          │
+│  Recent Activity:                                       │
+│  [2026-03-18 10:30:15] ✓ Source "安全客" added (T2)    │
+│  [2026-03-18 10:30:20] 📅 Scheduled for collection      │
+│                                                          │
+│  Tips:                                                  │
+│  • Run '/source list' to see all sources                │
+│  • Run '/diagnose system' to check system health        │
+│  • Run '/help' to see all commands                      │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+│  cyber-pulse>                                            │
+├─────────────────────────────────────────────────────────┤
+│  Status: 🟢 Running | API: 8000 | DB: Connected | Jobs: 1 │
+└─────────────────────────────────────────────────────────┘
+```
+
+**命令执行后显示：**
+
+**场景 1：成功执行（表格输出）**
+```
+cyber-pulse> /source list --tier T1
+
+┌──────────────────────────────────────────────┐
+│  Sources (T1) - 5 items                      │
+├──────────────────────────────────────────────┤
+│  1. 安全客                                    │
+│     URL: https://www.anquanke.com            │
+│     Status: active | Score: 75.5             │
+│                                              │
+│  2. FreeBuf                                  │
+│     URL: https://www.freebuf.com             │
+│     Status: active | Score: 82.3             │
+│                                              │
+│  ...                                         │
+└──────────────────────────────────────────────┘
+
+Status: 🟢 Running | API: 8000 | DB: Connected | Jobs: 1
+```
+
+**场景 2：失败执行（错误提示）**
+```
+cyber-pulse> /source test invalid-id
+
+❌ Error: Source not found
+
+💡 Suggestion:
+   • Run '/source list' to see available sources
+   • Check the source ID or name
+
+Status: 🟢 Running | API: 8000 | DB: Connected | Jobs: 1
+```
+
+**场景 3：长时间任务（进度显示）**
+```
+cyber-pulse> /job run security-news
+
+🔄 Starting job for "安全客"...
+⏳ Fetching data from source...
+⏳ Processing 8 items...
+✓ Job completed successfully
+  • Retrieved: 8 items
+  • Passed QC: 8 items
+  • Failed: 0 items
+
+Status: 🟢 Running | API: 8000 | DB: Connected | Jobs: 0
+```
+
+**场景 4：实时日志（流式输出）**
+```
+cyber-pulse> /log tail -f
+
+[2026-03-18 14:30:05] INFO     Task started: source_security-news
+[2026-03-18 14:30:06] INFO     Fetching from RSS feed...
+[2026-03-18 14:30:08] INFO     Retrieved 8 items
+[2026-03-18 14:30:10] INFO     Normalizing content...
+[2026-03-18 14:30:12] INFO     Quality check passed: 8/8
+[2026-03-18 14:30:13] INFO     Task completed successfully
+^C (Ctrl+C to stop)
+
+Status: 🟢 Running | API: 8000 | DB: Connected | Jobs: 0
+```
+
+**界面行为规范：**
+
+| 行为 | 说明 |
+|------|------|
+| **初始显示** | 欢迎信息 + 系统状态 + 最近活动 + 使用提示 |
+| **命令执行** | 显示执行结果（表格/列表/错误信息） |
+| **实时输出** | 长时间任务显示进度，日志显示实时流 |
+| **错误提示** | 红色文字 ❌ + 修复建议 |
+| **成功提示** | 绿色勾号 ✓ + 统计信息 |
+| **命令历史** | ↑↓ 键浏览历史，Ctrl+R 搜索 |
+| **自动补全** | Tab 键补全命令/参数 |
 
 **状态栏字段：**
 ```
 Status: 🟢 Running | API: 8000 | DB: Connected | Jobs: 2 | Memory: 256MB
+```
+
+**content get 命令详细参数：**
+
+```bash
+Usage: /content get [OPTIONS]
+
+Options:
+  --id <content-id>           # 按 ID 精确查询
+  --since <timestamp>         # 起始时间（含），支持相对时间如 "2h"、"1d"
+  --until <timestamp>         # 结束时间（含）
+  --source <name>             # 按 Source 过滤
+  --tier <T0|T1|T2>           # 按等级过滤
+  --limit <number>            # 返回数量限制（默认 100，最大 1000）
+  --format <json|markdown>    # 输出格式（默认 json）
+
+Examples:
+  /content get cnt_123                    # 精确查询
+  /content get --since "2h"               # 最近 2 小时
+  /content get --since "2026-03-18"       # 某天之后
+  /content get --source "安全客" --limit 5
+  /content get --tier T0 --limit 10       # 最新的 T0 内容
 ```
 
 ---
@@ -819,6 +1269,7 @@ database:
 scheduler:
   enabled: true
   timezone: "Asia/Shanghai"
+  unified_interval: "1h"  # 原型阶段统一调度间隔
 
 retention:
   item_days: 365
@@ -827,6 +1278,10 @@ retention:
 logging:
   level: "INFO"
   format: "json"
+
+wechat:
+  use_rsshub: true  # 是否使用 RSSHub 包装微信公众号
+  rsshub_url: "http://localhost:1200"
 ```
 
 **CLI 操作：**
@@ -891,7 +1346,7 @@ logging:
 
 ---
 
-#### 4.7.2 错误提示机制
+#### 4.7.3 错误提示机制
 
 **三层提示设计：**
 
@@ -929,7 +1384,7 @@ cyber-pulse> /diagnose sources
 
 ---
 
-#### 4.7.3 日志格式
+#### 4.7.4 日志格式
 
 **结构化 JSON 日志：**
 
@@ -960,7 +1415,7 @@ cyber-pulse> /diagnose sources
 
 ---
 
-#### 4.7.4 诊断工具
+#### 4.7.5 诊断工具
 
 **命令：**
 
@@ -1117,6 +1572,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    mem_limit: 1g
+    cpus: 1.0
 
   redis:
     image: redis:7
@@ -1125,6 +1582,8 @@ services:
       - redis_data:/data
     ports:
       - "6379:6379"
+    mem_limit: 512m
+    cpus: 0.5
 
   app:
     build: .
@@ -1139,7 +1598,8 @@ services:
       - ./logs:/app/logs
     ports:
       - "8000:8000"
-    command: ./cli server start
+    mem_limit: 1g
+    cpus: 2.0
 
 volumes:
   postgres_data:
@@ -1201,6 +1661,105 @@ psql -U cyber cyber_pulse < backup_20260318.sql
 
 # 恢复配置文件
 cp backup_config.yaml ~/.cyber-pulse/config.yaml
+```
+
+---
+
+### 6.4 硬件要求
+
+[本次设计新增]
+
+#### 最低配置（开发/测试环境）
+
+```
+CPU: 2 核
+内存: 4 GB
+磁盘: 20 GB (SSD 推荐)
+网络: 100 Mbps
+操作系统: Linux / macOS / Windows (WSL2)
+```
+
+**适用场景：**
+- 开发调试
+- 小规模测试（< 50 个 Source）
+- 日处理量 < 1,000 条
+
+---
+
+#### 推荐配置（原型验证环境）
+
+```
+CPU: 4 核
+内存: 8 GB
+磁盘: 50 GB SSD
+网络: 1 Gbps
+操作系统: Linux (Ubuntu 20.04+)
+```
+
+**适用场景：**
+- 单机原型运行
+- 200-500 个 Source
+- 日处理量 1,000-10,000 条
+
+---
+
+#### 高性能配置（接近生产）
+
+```
+CPU: 8 核
+内存: 16 GB
+磁盘: 100 GB SSD + 500 GB HDD (数据存储)
+网络: 1 Gbps
+操作系统: Linux (CentOS 7+ / Ubuntu 20.04+)
+```
+
+**适用场景：**
+- 500+ 个 Source
+- 日处理量 10,000+ 条
+- 需要长时间稳定运行
+
+---
+
+#### 资源占用估算
+
+| 组件 | 内存 | 磁盘 | 说明 |
+|------|------|------|------|
+| PostgreSQL | 512 MB | 10 GB | 根据数据量增长 |
+| Redis | 256 MB | 1 GB | 缓存和队列 |
+| App (Python) | 512 MB | 5 GB | 代码 + 运行时 |
+| 原始数据存储 | - | 20 GB | 1 年数据估算 |
+| 日志文件 | - | 5 GB | 结构化日志 |
+
+**总计：**
+- 内存：~1.5 GB (运行时)
+- 磁盘：~40 GB (1 年数据 + 系统)
+
+---
+
+#### 网络带宽估算
+
+**日采集 10,000 条：**
+- 平均每条 50 KB (HTML + 图片)
+- 日流量：~500 MB
+- 月流量：~15 GB
+
+**建议：**
+- 宽带：至少 100 Mbps
+- 流量：月 50 GB 以上套餐
+
+---
+
+#### 监控建议
+
+```bash
+# 系统资源监控
+docker stats  # 实时查看容器资源
+
+# 磁盘空间
+df -h  # 查看磁盘使用
+
+# 内存
+free -h  # 查看内存使用
 ```
 
 ---
@@ -1325,6 +1884,7 @@ cp backup_config.yaml ~/.cyber-pulse/config.yaml
 | **Cursor** | 增量游标，用于标记消费位置 |
 | **Source Score** | 情报来源评分系统 |
 | **T0/T1/T2** | Source 分级（核心/重要/普通） |
+| **iNBox** | cyber-nexus 的本地数据目录 |
 
 ---
 
@@ -1394,177 +1954,18 @@ pydantic>=2.0.0
 | 版本 | 日期 | 作者 | 说明 |
 |------|------|------|------|
 | v1.0 | 2026-03-18 | 老罗 | 初始版本 |
+| v1.1 | 2026-03-18 | 老罗 | 整合 Q&A 澄清，修正术语，完善细节 |
+
+**v1.1 主要更新：**
+- ✅ 统一调度频率（原型阶段简化）
+- ✅ Source 评分低的提醒机制
+- ✅ API 响应增加 `source_score` 和 `source_quality_metrics`
+- ✅ 微信公众号采集方案（RSSHub）
+- ✅ 消费者实现样例（cyber-nexus）
+- ✅ content get 命令增强（时间过滤、多条件）
+- ✅ 交互式界面详细行为规范
+- ✅ 硬件要求文档
 
 ---
-
-## 11. 问题澄清与补充说明
-
-本文档针对设计评审中提出的问题进行澄清和补充。
-
-### 11.1 单机原型的调度频率
-
-**问题：** 情报来源数量不多，是否不用对不同等级实施不同的采集频度？
-
-**答复：** 原型阶段采用**统一调度频率**（默认每小时），理由：
-
-- 简化设计，便于测试
-- 单机原型情报源数量有限（200-500 个）
-- 在 Source 配置中保留 `fetch_interval` 字段，为未来分级采集预留
-
-**未来扩展：** 生产版可根据 `tier` 配置不同频率（T0 每小时、T1 每日、T2 每周）。
-
----
-
-### 11.2 Source 评分低的提醒机制
-
-**问题：** 评分低时如何提醒管理员评估和判断是否删除？
-
-**答复：** 系统提供多层提醒机制：
-
-1. **状态栏警告**
-   ```
-   Status: 🟢 Running | ⚠️ 2 个 Source 需要评估
-   ```
-
-2. **诊断命令**
-   ```bash
-   /diagnose sources --pending
-   ```
-
-3. **管理员操作选项**
-   - `/source remove <id>` - 删除
-   - `/source update <id> --status frozen` - 冻结
-   - `/source update <id> --url "新地址"` - 更新配置
-
-详见 4.1.3 节"降级通知与管理员操作"。
-
----
-
-### 11.3 Source 评分通过 API 传递
-
-**问题：** Source 评分是否作为元数据传递给 cyber-nexus？
-
-**答复：** **建议新增字段**：
-
-```json
-{
-  "source_score": 75.5,           // 0-100 评分
-  "source_quality_metrics": {     // 可选，详细指标
-    "content_completeness": 0.92,
-    "noise_ratio": 0.08
-  }
-}
-```
-
-这为 cyber-nexus 提供情报可信度评估依据。
-
----
-
-### 11.4 微信公众号采集方案
-
-**问题：** 微信公众号如何添加和采集？
-
-**答复：** 采用 **RSSHub 包装方案**：
-
-```bash
-# 1. 部署 RSSHub
-docker run -d --name rsshub -p 1200:1200 diygod/rsshub
-
-# 2. 添加到 cyber-pulse
-./cli source add \
-  --name "公众号名称" \
-  --connector rss \
-  --url "http://localhost:1200/wechat/ershicimi/公众号ID"
-```
-
-详见 4.2.2 节"微信公众号采集方案"。
-
----
-
-### 11.5 消费者实现样例
-
-**问题：** cyber-nexus 如何实现消费者职责（维护 cursor 等）？
-
-**答复：** 建议补充 Python 消费者实现样例，包括：
-
-- Cursor 本地持久化（文件存储）
-- 基于 content_id 的幂等性处理
-- 定期轮询（5-10 分钟）
-- 错误重试机制
-
-**后续更新：** 将在 v1.1 版本中补充详细的实现样例代码。
-
----
-
-### 11.6 content get 命令增强
-
-**问题：** 是否增加时间维度等常用参数？
-
-**答复：** **建议增强命令**：
-
-```bash
-/content get --since "2h"                    # 最近 2 小时
-/content get --source "安全客" --limit 5     # 某 Source 最新 5 条
-/content get --tier T0 --limit 10           # 最新 T0 内容
-```
-
-**后续更新：** 将在 v1.1 版本中实现。
-
----
-
-### 11.7 交互式界面详细行为
-
-**问题：** 初始显示什么内容？执行命令后显示什么？
-
-**答复：** **界面行为规范**：
-
-**初始进入：**
-- 欢迎信息 + 系统状态 + 最近活动 + 使用提示
-
-**命令执行后：**
-- 成功：绿色勾号 ✓ + 统计信息
-- 失败：红色文字 ❌ + 修复建议
-- 长时间任务：实时进度显示
-- 日志：实时流输出
-
-**后续更新：** 将在 v1.1 版本中补充详细的界面规范。
-
----
-
-### 11.8 硬件要求
-
-**问题：** 设备性能要求的建议？
-
-**答复：** **推荐配置**：
-
-| 环境 | CPU | 内存 | 磁盘 | 适用场景 |
-|------|-----|------|------|---------|
-| **最低配置** | 2 核 | 4 GB | 20 GB | 开发/测试 |
-| **推荐配置** | 4 核 | 8 GB | 50 GB SSD | 原型验证（200-500 Source） |
-| **高性能配置** | 8 核 | 16 GB | 100 GB SSD | 接近生产 |
-
-**资源占用估算：**
-- 运行时内存：~1.5 GB
-- 1 年数据磁盘：~40 GB
-- 月网络流量：~15 GB（10,000 条/日）
-
-**后续更新：** 将在 v1.1 版本的"6. 部署与运维"章节增加"6.4 硬件要求"小节。
-
----
-
-## 12. 后续更新计划
-
-| 项目 | 状态 | 预计版本 |
-|------|------|---------|
-| API 响应增加 source_score | 待实现 | v1.1 |
-| 消费者实现样例代码 | 待实现 | v1.1 |
-| content get 命令增强 | 待实现 | v1.1 |
-| 交互式界面详细规范 | 待实现 | v1.1 |
-| 硬件要求文档 | 待实现 | v1.1 |
-| 微信公众号采集详细文档 | 待实现 | v1.1 |
-
----
-
-**文档结束**
 
 **文档结束**
