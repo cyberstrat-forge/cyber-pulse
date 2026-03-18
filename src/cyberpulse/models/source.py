@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, Boolean, Text, Enum, DateTime
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, String, Integer, Float, Boolean, Text, Enum, DateTime, JSON
 from enum import Enum as PyEnum
 from ..database import Base
 from .base import TimestampMixin
@@ -35,7 +34,7 @@ class Source(Base, TimestampMixin):
     pending_review = Column(Boolean, nullable=False, default=False)
     review_reason = Column(Text, nullable=True)
     fetch_interval = Column(Integer, nullable=True)
-    config = Column(JSONB, nullable=False, default=dict)
+    config = Column(JSON, nullable=False, default=dict)
 
     # Statistics
     last_fetched_at = Column(DateTime, nullable=True)
