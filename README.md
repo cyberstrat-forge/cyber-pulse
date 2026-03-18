@@ -1,32 +1,32 @@
 # Cyber Pulse
 
-Cyber Pulse is a strategic intelligence collection system that gathers data from multiple sources, normalizes it, and provides a pull-based API for downstream analysis systems.
+Cyber Pulse 是一个内部战略情报采集与标准化系统。从多个情报源采集数据，进行标准化处理，并通过拉取式 API 向下游分析系统提供清洗后的数据。
 
-## Features
+## 功能特性
 
-- Source governance and scoring
-- Multi-source data collection (RSS, APIs, Web Scraping, Media APIs, Platform-specific)
-- Data normalization and quality gating
-- Pull-based cursor API with at-least-once semantics
-- Batch processing with configurable scheduling
+- 情报源管理与评分
+- 多源数据采集（RSS、API、Web 抓取、媒体 API、平台专用）
+- 数据标准化与质量控制
+- 拉取式游标 API（至少一次语义）
+- 批处理模式，支持可配置调度
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
+### 前置条件
 
 - Python 3.11+
 - PostgreSQL
 - Redis
 
-### Installation
+### 安装
 
-1. Clone the repository:
+1. 克隆仓库：
 ```bash
 git clone https://github.com/your-username/cyber-pulse.git
 cd cyber-pulse
 ```
 
-2. Create a virtual environment and install dependencies:
+2. 创建虚拟环境并安装依赖：
 ```bash
 python3.11 -m venv venv
 source venv/bin/activate
@@ -34,31 +34,31 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-3. Set up environment variables:
+3. 配置环境变量：
 ```bash
 cp .env.example .env
-# Edit .env with your configuration
+# 编辑 .env 文件，填入你的配置
 ```
 
-4. Start the service:
+4. 启动服务：
 ```bash
 uvicorn cyber_pulse.main:app --host 0.0.0.0 --port 8000
 ```
 
-5. Run tests:
+5. 运行测试：
 ```bash
 pytest
 ```
 
-## Architecture
+## 系统架构
 
-Cyber Pulse follows a batch processing model with the following components:
+Cyber Pulse 采用批处理模型，包含以下组件：
 
-- **Source Governance**: Manages source metadata, scoring, and configuration
-- **Task Scheduler**: Coordinates ingestion tasks based on source priority
-- **Connectors**: Implement source-specific data collection logic
-- **Normalizer**: Standardizes collected data into a common format
-- **Quality Gate**: Validates data structure before publication
-- **API Service**: Provides pull-based access to normalized data
+- **Source Governance**：管理情报源元数据、评分和配置
+- **Task Scheduler**：基于源优先级协调采集任务
+- **Connectors**：实现特定来源的数据采集逻辑
+- **Normalizer**：将采集数据标准化为统一格式
+- **Quality Gate**：发布前验证数据结构
+- **API Service**：提供拉取式数据访问接口
 
-For detailed architecture documentation, see the `docs/` directory.
+详细架构文档见 `docs/` 目录。
