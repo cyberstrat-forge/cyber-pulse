@@ -32,6 +32,14 @@ dependencies = [
     "markdownify>=0.11.6",
     "feedparser>=6.0.10",
     "youtube-transcript-api>=0.6.0",
+    "feedfinder2>=0.0.4",
+    "google-api-python-client>=2.100.0",
+    "prompt-toolkit>=3.0.0",
+    "python-dateutil>=2.8.0",
+    "python-multipart>=0.0.6",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "trafilatura>=1.5.0",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +51,10 @@ dev = [
     "flake8>=6.1.0",
     "mypy>=1.6.1",
     "pre-commit>=3.5.0",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.26.0",
+    "faker>=21.0.0",
+    "factory-boy>=3.3.0",
 ]
 
 [project.urls]
