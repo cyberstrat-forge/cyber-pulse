@@ -19,6 +19,7 @@ class Item(Base, TimestampMixin):
 
     item_id = Column(String(64), primary_key=True, index=True)
     source_id = Column(String(64), ForeignKey("sources.source_id"), nullable=False, index=True)
+    content_id = Column(String(64), ForeignKey("contents.content_id"), nullable=True, index=True)
     external_id = Column(String(255), nullable=False, index=True)
     url = Column(String(1024), nullable=False, index=True)
     title = Column(String(1024), nullable=False)
