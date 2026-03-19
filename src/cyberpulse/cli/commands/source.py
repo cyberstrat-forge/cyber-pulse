@@ -434,7 +434,6 @@ def test_source(
 
     db = SessionLocal()
     try:
-        service = SourceService(db)
         score_service = SourceScoreService(db)
 
         # Get source
@@ -452,7 +451,8 @@ def test_source(
         # Test 1: Connection
         console.print("\n[bold]1. Connection Test...[/bold]")
         try:
-            connector = get_connector(source.connector_type, source.config)
+            # SQLAlchemy Column attributes resolve to actual types at runtime
+            connector = get_connector(source.connector_type, source.config)  # type: ignore[arg-type]
             connector.validate_config()
             console.print("   [green]Configuration valid[/green]")
 
@@ -461,7 +461,7 @@ def test_source(
                 TextColumn("[progress.description]{task.description}"),
                 console=console,
             ) as progress:
-                task = progress.add_task("   Fetching items...", total=None)
+                progress.add_task("   Fetching items...", total=None)
                 items = asyncio.run(connector.fetch())
 
             console.print(f"   [green]Connection successful! Found {len(items)} items.[/green]")
@@ -585,8 +585,9 @@ def source_stats(
             for source in sources:
                 tier_counts[source.tier.value] += 1
                 status_counts[source.status.value] += 1
-                total_items += source.total_items
-                total_contents += source.total_contents
+                # SQLAlchemy Column attributes resolve to actual types at runtime
+                total_items += source.total_items  # type: ignore[assignment]
+                total_contents += source.total_contents  # type: ignore[assignment]
                 if source.is_in_observation:
                     observation_count += 1
 
