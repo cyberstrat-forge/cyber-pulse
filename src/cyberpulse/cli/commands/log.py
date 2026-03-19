@@ -238,7 +238,7 @@ def error_logs(
                     if log_dt < since_dt:
                         continue
                 except ValueError:
-                    pass
+                    logger.debug(f"Could not parse timestamp: {parsed['timestamp']}")
 
             if source and source not in parsed['logger']:
                 continue

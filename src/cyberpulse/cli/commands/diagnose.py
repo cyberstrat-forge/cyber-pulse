@@ -313,17 +313,16 @@ def diagnose_errors(
             error_pattern = r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\S+) - (ERROR|CRITICAL) - (.+)$'
             errors = []
             for match in re.finditer(error_pattern, content, re.MULTILINE):
-                timestamp_str, logger, level, message = match.groups()
+                timestamp_str, logger_name, level, message = match.groups()
                 try:
                     log_dt = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
                     if since_dt and log_dt < since_dt:
                         continue
                 except ValueError:
-                    logger.debug(f"Could not parse log timestamp: {timestamp_str}")
-                    pass
+                    pass  # Skip entries with invalid timestamps
                 errors.append({
                     'timestamp': timestamp_str,
-                    'logger': logger,
+                    'logger': logger_name,
                     'level': level,
                     'message': message
                 })
