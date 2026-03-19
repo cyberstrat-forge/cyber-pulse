@@ -2,7 +2,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 import hashlib
 
-from cyberpulse.models import Item, ItemStatus, Source, SourceTier, SourceStatus
+from cyberpulse.models import ItemStatus, Source, SourceTier, SourceStatus
 from cyberpulse.services import ItemService
 
 

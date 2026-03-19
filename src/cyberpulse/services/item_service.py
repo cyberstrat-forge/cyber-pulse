@@ -1,11 +1,16 @@
 """Item service for managing item lifecycle."""
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
+from sqlalchemy.exc import IntegrityError
+
 from .base import BaseService
 from ..models import Item, ItemStatus
+
+logger = logging.getLogger(__name__)
 
 
 class ItemService(BaseService):
@@ -86,10 +91,30 @@ class ItemService(BaseService):
         )
 
         self.db.add(item)
-        self.db.commit()
-        self.db.refresh(item)
-
-        return item
+        try:
+            self.db.commit()
+            self.db.refresh(item)
+            return item
+        except IntegrityError as e:
+            # Race condition - another request created an item with same
+            # (source_id, external_id) or (source_id, url)
+            logger.debug(f"IntegrityError during item creation, checking for existing: {e}")
+            self.db.rollback()
+            # Re-check for existing item
+            existing = self.db.query(Item).filter(
+                Item.source_id == source_id,
+                Item.external_id == external_id,
+            ).first()
+            if existing:
+                return existing
+            existing = self.db.query(Item).filter(
+                Item.source_id == source_id,
+                Item.url == url,
+            ).first()
+            if existing:
+                return existing
+            # If still not found, re-raise the exception
+            raise
 
     def get_items_by_source(
         self,

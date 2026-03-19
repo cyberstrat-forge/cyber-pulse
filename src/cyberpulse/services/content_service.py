@@ -116,6 +116,9 @@ class ContentService(BaseService):
                 self.db.commit()
                 self.db.refresh(existing)
                 return existing, False
+            # Clear item.content_id to avoid state inconsistency
+            # before re-raising the unexpected IntegrityError
+            item.content_id = None
             raise
 
     def get_contents(
