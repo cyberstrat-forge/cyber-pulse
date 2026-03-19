@@ -189,6 +189,13 @@ class APIConnector(BaseConnector):
                 header_name = self.config.get("api_key_header", "X-API-Key")
                 headers[header_name] = self.config["api_key"]
 
+        elif auth_type == "basic":
+            import base64
+
+            credentials = f"{self.config['username']}:{self.config['password']}"
+            encoded = base64.b64encode(credentials.encode()).decode()
+            headers["Authorization"] = f"Basic {encoded}"
+
         # Build params
         params = dict(self.config.get("query_params", {}))
 

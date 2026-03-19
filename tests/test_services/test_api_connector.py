@@ -311,6 +311,51 @@ class TestAPIConnectorFetchBearerAuth:
         assert params.get("key") == "my-api-key"
         assert len(items) == 1
 
+    @pytest.mark.asyncio
+    async def test_fetch_basic_auth(self):
+        """Test fetch with basic authentication."""
+        import base64
+
+        mock_response_data = {
+            "items": [
+                {
+                    "id": "basic-auth-item",
+                    "url": "https://example.com/basic-auth-article",
+                    "title": "Basic Auth Article",
+                    "published_at": "2024-01-15T10:30:00Z",
+                    "content": "Protected content",
+                },
+            ],
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = mock_response_data
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            connector = APIConnector({
+                "base_url": "https://api.example.com",
+                "auth_type": "basic",
+                "username": "testuser",
+                "password": "testpass",
+            })
+            items = await connector.fetch()
+
+        # Verify basic auth header was used
+        call_args = mock_client.get.call_args
+        headers = call_args.kwargs.get("headers", {})
+        expected_credentials = base64.b64encode(b"testuser:testpass").decode()
+        assert headers.get("Authorization") == f"Basic {expected_credentials}"
+        assert len(items) == 1
+        assert items[0]["external_id"] == "basic-auth-item"
+
 
 class TestAPIConnectorFetchPagination:
     """Tests for fetch method with pagination."""
