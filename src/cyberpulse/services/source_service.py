@@ -201,7 +201,7 @@ class SourceService(BaseService):
         if source.status == SourceStatus.REMOVED:
             return True, f"Source '{source.name}' is already removed"
 
-        source.status = SourceStatus.REMOVED
+        source.status = SourceStatus.REMOVED  # type: ignore[assignment]
         self.db.commit()
 
         return True, f"Source '{source.name}' removed successfully"

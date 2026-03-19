@@ -249,6 +249,33 @@ class ApiClientService:
         logger.info(f"Revoked API client: {client_id}")
         return True
 
+    def activate_client(self, client_id: str) -> bool:
+        """
+        Activate (or reactivate) an API client.
+
+        Args:
+            client_id: The client ID to activate
+
+        Returns:
+            True if activated, False if client not found
+        """
+        client = self.db.query(ApiClient).filter(
+            ApiClient.client_id == client_id
+        ).first()
+
+        if not client:
+            return False
+
+        client.status = ApiClientStatus.ACTIVE  # type: ignore[assignment]
+        try:
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to activate client {client_id}: {e}")
+            self.db.rollback()
+            raise
+        logger.info(f"Activated API client: {client_id}")
+        return True
+
     def suspend_client(self, client_id: str) -> bool:
         """
         Suspend an API client's access.
