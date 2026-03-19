@@ -39,10 +39,9 @@ class NormalizationService:
         """Normalize content.
 
         Pipeline:
-        1. Extract main content using trafilatura
+        1. Extract main content using trafilatura (markdown output)
         2. Clean HTML tags, ads, navigation
-        3. Convert to Markdown
-        4. Calculate canonical_hash
+        3. Calculate canonical_hash
 
         Args:
             title: The title of the content
@@ -55,18 +54,8 @@ class NormalizationService:
         # Clean the title
         normalized_title = self._clean_text(title)
 
-        # Extract main content
-        extracted = self._extract_content(raw_content, url)
-
-        if extracted:
-            # Content was successfully extracted
-            extraction_method = "trafilatura"
-            # trafilatura can output markdown directly
-            markdown_body = self._to_markdown(extracted, raw_content, url)
-        else:
-            # Fallback to raw content if extraction fails
-            extraction_method = "raw"
-            markdown_body = self._clean_html(raw_content)
+        # Extract main content directly as markdown (single trafilatura call)
+        markdown_body, extraction_method = self._extract_markdown(raw_content, url)
 
         # Calculate canonical hash for deduplication
         canonical_hash = self._calculate_canonical_hash(
@@ -88,32 +77,40 @@ class NormalizationService:
             extraction_method=extraction_method,
         )
 
-    def _extract_content(self, raw_content: str, url: Optional[str]) -> Optional[str]:
-        """Extract main content using trafilatura.
+    def _extract_markdown(
+        self, raw_content: str, url: Optional[str]
+    ) -> tuple[str, str]:
+        """Extract content as markdown using trafilatura.
+
+        Single call to trafilatura with markdown output format.
 
         Args:
             raw_content: Raw HTML content
             url: Optional URL for context
 
         Returns:
-            Extracted text content or None if extraction fails
+            Tuple of (markdown_body, extraction_method)
         """
         if not raw_content:
-            return None
+            return "", "raw"
 
-        # Use trafilatura to extract main content
-        # include_comments=False: Remove user comments
-        # include_tables=True: Keep table content
-        # favor_precision=True: Favor precision over recall
-        extracted = trafilatura.extract(
+        # Use trafilatura to extract content as markdown in a single call
+        markdown = trafilatura.extract(
             raw_content,
             url=url,
+            output_format="markdown",
             include_comments=False,
             include_tables=True,
             favor_precision=True,
         )
 
-        return extracted
+        if markdown:
+            # Clean up excessive whitespace
+            markdown = self._normalize_markdown(markdown)
+            return markdown, "trafilatura"
+
+        # Fallback to raw content cleaning if extraction fails
+        return self._clean_html(raw_content), "raw"
 
     def _clean_html(self, content: str) -> str:
         """Remove HTML tags, ads, navigation.
@@ -159,42 +156,6 @@ class NormalizationService:
         cleaned = self._clean_text(cleaned)
 
         return cleaned
-
-    def _to_markdown(
-        self, extracted_text: str, raw_content: str, url: Optional[str]
-    ) -> str:
-        """Convert HTML to Markdown.
-
-        Uses trafilatura's markdown output format for better conversion.
-
-        Args:
-            extracted_text: Already extracted text
-            raw_content: Original raw HTML content
-            url: Optional URL for context
-
-        Returns:
-            Markdown formatted content
-        """
-        if not raw_content:
-            return extracted_text
-
-        # Use trafilatura to get markdown output directly
-        markdown = trafilatura.extract(
-            raw_content,
-            url=url,
-            output_format="markdown",
-            include_comments=False,
-            include_tables=True,
-            favor_precision=True,
-        )
-
-        if markdown:
-            # Clean up excessive whitespace
-            markdown = self._normalize_markdown(markdown)
-            return markdown
-
-        # Fallback to extracted text
-        return extracted_text
 
     def _calculate_canonical_hash(self, title: str, body: str) -> str:
         """Calculate hash for deduplication.

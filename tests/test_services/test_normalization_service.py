@@ -101,8 +101,8 @@ class TestNormalize:
         assert "console.log" not in result.normalized_body
 
 
-class TestExtractContent:
-    """Tests for _extract_content method."""
+class TestExtractMarkdown:
+    """Tests for _extract_markdown method."""
 
     def test_extract_with_trafilatura(self, normalization_service):
         """Test content extraction using trafilatura."""
@@ -118,10 +118,10 @@ class TestExtractContent:
         </html>
         """
 
-        extracted = normalization_service._extract_content(html, None)
+        markdown, method = normalization_service._extract_markdown(html, None)
 
-        assert extracted is not None
-        assert "main content" in extracted.lower()
+        assert method == "trafilatura"
+        assert "main content" in markdown.lower()
 
     def test_extract_removes_navigation(self, normalization_service):
         """Test that navigation elements are removed."""
@@ -139,25 +139,26 @@ class TestExtractContent:
         </html>
         """
 
-        extracted = normalization_service._extract_content(html, None)
+        markdown, method = normalization_service._extract_markdown(html, None)
 
-        if extracted:
+        if markdown:
             # Navigation links should not be in extracted content
-            assert "Home" not in extracted or "Actual content" in extracted
+            assert "Home" not in markdown or "Actual content" in markdown
 
     def test_extract_empty_content(self, normalization_service):
         """Test extraction from empty content."""
-        extracted = normalization_service._extract_content("", None)
-        assert extracted is None
+        markdown, method = normalization_service._extract_markdown("", None)
+        assert markdown == ""
+        assert method == "raw"
 
     def test_extract_plain_text(self, normalization_service):
         """Test extraction from plain text (non-HTML)."""
         text = "This is plain text content."
 
-        extracted = normalization_service._extract_content(text, None)
+        markdown, method = normalization_service._extract_markdown(text, None)
 
-        # Trafilatura may return None for non-HTML content
-        # The service handles this gracefully
+        # Trafilatura may return None for non-HTML content, falls back to raw
+        assert markdown is not None
 
 
 class TestCanonicalHash:
@@ -304,33 +305,31 @@ class TestCleanHtml:
         assert "&gt;" not in cleaned
 
 
-class TestToMarkdown:
-    """Tests for _to_markdown method."""
+class TestMarkdownOutput:
+    """Tests for markdown output from _extract_markdown method."""
 
-    def test_to_markdown_headers(self, normalization_service):
+    def test_markdown_headers(self, normalization_service):
         """Test HTML headers converted to markdown."""
         html = """
         <h1>Main Title</h1>
         <h2>Subtitle</h2>
         <h3>Section</h3>
         """
-        extracted = "Main Title\n\nSubtitle\n\nSection"
 
-        markdown = normalization_service._to_markdown(extracted, html, None)
+        markdown, method = normalization_service._extract_markdown(html, None)
 
         # Markdown should contain the content
         assert "Main Title" in markdown or "main" in markdown.lower()
 
-    def test_to_markdown_paragraphs(self, normalization_service):
+    def test_markdown_paragraphs(self, normalization_service):
         """Test HTML paragraphs in markdown."""
         html = "<p>First paragraph.</p><p>Second paragraph.</p>"
-        extracted = "First paragraph. Second paragraph."
 
-        markdown = normalization_service._to_markdown(extracted, html, None)
+        markdown, method = normalization_service._extract_markdown(html, None)
 
         assert "paragraph" in markdown.lower()
 
-    def test_to_markdown_lists(self, normalization_service):
+    def test_markdown_lists(self, normalization_service):
         """Test HTML lists in markdown."""
         html = """
         <ul>
@@ -338,9 +337,8 @@ class TestToMarkdown:
             <li>Item two</li>
         </ul>
         """
-        extracted = "Item one Item two"
 
-        markdown = normalization_service._to_markdown(extracted, html, None)
+        markdown, method = normalization_service._extract_markdown(html, None)
 
         # Content should be preserved
         assert markdown is not None
