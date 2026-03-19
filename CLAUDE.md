@@ -103,6 +103,26 @@ python -m venv .venv
 - **类型引用**: 使用 `TYPE_CHECKING` 避免循环导入
 - **测试组织**: 按类分组（如 `TestCreateItem`）
 
+### 错误处理
+
+**禁止静默失败**：
+
+```python
+# ❌ 错误：吞掉异常，无法追踪问题
+except Exception:
+    pass
+
+# ✅ 正确：记录日志，保留异常上下文
+except Exception as e:
+    logging.warning(f"Operation failed, using fallback: {e}")
+```
+
+**规则**：
+- 所有 `except` 块必须记录日志或显式处理
+- 禁止空的 `except: pass`
+- 使用 `logging.debug/warning/error` 记录异常上下文
+- 下沉异常时保留原始异常信息
+
 ### 目录结构
 
 ```
@@ -163,15 +183,30 @@ git worktree remove .worktrees/feature-xxx
 
 ## 代码质量
 
-- **测试覆盖率**: ≥ 80%
-- **Lint**: `ruff check` 必须通过
-- **类型检查**: `mypy` 必须通过
-- **PR 要求**: 所有测试通过、代码审查通过
+**检查命令**：
+```bash
+.venv/bin/ruff check src/ tests/     # Lint（含未使用变量检测）
+.venv/bin/mypy src/                  # 类型检查
+.venv/bin/pytest                      # 测试
+```
+
+**提交前检查清单**：
+- [ ] `ruff check src/ tests/` 通过
+- [ ] `mypy src/` 通过
+- [ ] `pytest` 通过
+- [ ] 测试覆盖率 ≥ 80%
+
+**PR 要求**：
+- 所有检查通过
+- 代码审查通过
+- 无静默失败（空 except 块）
 
 ## 文档
 
 **最新设计**: `docs/superpowers/specs/2026-03-18-cyber-pulse-design.md`
 
-**实现计划**: `docs/superpowers/plans/2026-03-19-cyber-pulse-phase2-implementation.md`
+**实现计划**:
+- Phase 1: `docs/superpowers/plans/2026-03-18-cyber-pulse-phase1-implementation.md`
+- Phase 2: `docs/superpowers/plans/2026-03-19-cyber-pulse-phase2-implementation.md`
 
 历史设计文档见 `docs/` 目录。
