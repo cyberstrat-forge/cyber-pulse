@@ -116,6 +116,7 @@ Python 3.11+ | PostgreSQL 15 | FastAPI | SQLAlchemy | APScheduler | Dramatiq | R
 - **ID 格式**: `item_{uuid8}`, `cnt_{YYYYMMDDHHMMSS}_{uuid8}`, `src_{uuid8}`
 - **API Key 格式**: `cp_live_{32_hex_chars}`（避免使用 `sk_live_`，会触发 GitHub push protection 误报）
 - **去重模式**: `create_or_get` 需处理 `IntegrityError` 竞态条件
+- **路径参数**: 验证格式，无效返回 400（如 `client_id` 需匹配 `cli_[a-f0-9]{16}`）
 - **类型引用**: 使用 `TYPE_CHECKING` 避免循环导入
 - **测试组织**: 按类分组（如 `TestCreateItem`）
 
@@ -190,6 +191,10 @@ except Exception as e:
     logger.error(f"Unexpected: {e}")
     raise
 ```
+
+**规则**：
+- 外部库同理：捕获库特定异常（如 `SQLAlchemyError`、bcrypt 的 `ValueError`）
+- 数据库 commit 失败时需 `rollback()` 后处理（关键操作 re-raise，非关键可继续）
 
 #### 4. 测试质量
 
