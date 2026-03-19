@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from cyberpulse.models import Source, SourceStatus, SourceTier
 
@@ -256,3 +257,130 @@ class TestFetchItems:
 
         with pytest.raises(Exception, match="Connection failed"):
             await _fetch_items(mock_connector)
+
+
+class TestIntegrityErrorHandling:
+    """Tests for IntegrityError handling during item creation."""
+
+    def test_ingest_source_handles_integrity_error(self, test_source, test_items_data):
+        """Test that IntegrityError during item creation is handled gracefully."""
+        mock_db = MagicMock()
+
+        # Mock query chain for source lookup
+        mock_source_query = MagicMock()
+        mock_source_query.filter.return_value = mock_source_query
+        mock_source_query.first.return_value = test_source
+        mock_db.query.return_value = mock_source_query
+
+        with patch(
+            "cyberpulse.tasks.ingestion_tasks.SessionLocal", return_value=mock_db
+        ):
+            with patch(
+                "cyberpulse.tasks.ingestion_tasks.get_connector_for_source"
+            ) as mock_get_connector:
+                mock_connector = MagicMock()
+                mock_connector.fetch = AsyncMock(return_value=test_items_data)
+                mock_get_connector.return_value = mock_connector
+
+                with patch(
+                    "cyberpulse.tasks.ingestion_tasks.ItemService"
+                ) as mock_item_service_class:
+                    # Mock ItemService to raise IntegrityError on first call
+                    mock_item_service = MagicMock()
+                    mock_item_service_class.return_value = mock_item_service
+
+                    # First call raises IntegrityError, second succeeds
+                    mock_item = MagicMock()
+                    mock_item.status.value = "new"
+                    mock_item.item_id = "item_001"
+                    mock_item_service.create_item.side_effect = [
+                        IntegrityError("statement", {}, None),
+                        mock_item,
+                    ]
+
+                    with patch(
+                        "cyberpulse.tasks.ingestion_tasks.broker.get_actor"
+                    ) as mock_get_actor:
+                        mock_normalize_actor = MagicMock()
+                        mock_get_actor.return_value = mock_normalize_actor
+
+                        from cyberpulse.tasks.ingestion_tasks import ingest_source
+
+                        ingest_source(test_source.source_id)
+
+            # Verify commit was still called (task continues after IntegrityError)
+            mock_db.commit.assert_called()
+
+            # Verify normalization was only queued for the successful item
+            assert mock_normalize_actor.send.call_count == 1
+
+
+class TestDatabaseConnectionFailure:
+    """Tests for database connection failure handling."""
+
+    def test_ingest_source_database_unavailable(self, test_source):
+        """Test handling when database is unavailable during source lookup."""
+        with patch(
+            "cyberpulse.tasks.ingestion_tasks.SessionLocal"
+        ) as mock_session_local:
+            mock_db = MagicMock()
+            mock_session_local.return_value = mock_db
+
+            # Simulate database connection failure
+            mock_db.query.side_effect = OperationalError(
+                "connection failed", {}, None
+            )
+
+            from cyberpulse.tasks.ingestion_tasks import ingest_source
+
+            with pytest.raises(OperationalError):
+                ingest_source(test_source.source_id)
+
+            # Verify rollback was called
+            mock_db.rollback.assert_called()
+
+            # Verify session was closed
+            mock_db.close.assert_called()
+
+    def test_ingest_source_database_error_during_item_creation(
+        self, test_source, test_items_data
+    ):
+        """Test that SQLAlchemyError during item creation propagates correctly."""
+        mock_db = MagicMock()
+
+        # Mock query chain for source lookup
+        mock_source_query = MagicMock()
+        mock_source_query.filter.return_value = mock_source_query
+        mock_source_query.first.return_value = test_source
+        mock_db.query.return_value = mock_source_query
+
+        with patch(
+            "cyberpulse.tasks.ingestion_tasks.SessionLocal", return_value=mock_db
+        ):
+            with patch(
+                "cyberpulse.tasks.ingestion_tasks.get_connector_for_source"
+            ) as mock_get_connector:
+                mock_connector = MagicMock()
+                mock_connector.fetch = AsyncMock(return_value=test_items_data)
+                mock_get_connector.return_value = mock_connector
+
+                with patch(
+                    "cyberpulse.tasks.ingestion_tasks.ItemService"
+                ) as mock_item_service_class:
+                    from sqlalchemy.exc import SQLAlchemyError
+
+                    mock_item_service = MagicMock()
+                    mock_item_service_class.return_value = mock_item_service
+
+                    # Raise SQLAlchemyError (not IntegrityError)
+                    mock_item_service.create_item.side_effect = SQLAlchemyError(
+                        "Database error"
+                    )
+
+                    from cyberpulse.tasks.ingestion_tasks import ingest_source
+
+                    with pytest.raises(SQLAlchemyError, match="Database error"):
+                        ingest_source(test_source.source_id)
+
+            # Verify rollback was called
+            mock_db.rollback.assert_called()

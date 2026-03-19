@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
 import dramatiq
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ..database import SessionLocal
 from ..models import Source
@@ -58,6 +59,7 @@ def ingest_source(source_id: str) -> None:
         # Create ItemService and process items
         item_service = ItemService(db)
         new_items = []
+        failed_count = 0
 
         for item_data in items_data:
             try:
@@ -81,21 +83,39 @@ def ingest_source(source_id: str) -> None:
                 if item and item.status.value == "new":
                     new_items.append(item)
 
-            except Exception as e:
+            except IntegrityError as e:
+                # Duplicate item - expected, log and continue
                 logger.warning(
-                    f"Failed to create item from source {source_id}: {e}",
+                    f"Duplicate item detected from source {source_id}: {e}",
                     exc_info=True
                 )
                 continue
+            except (ValueError, KeyError, TypeError) as e:
+                # Invalid item data - log and continue
+                logger.warning(
+                    f"Invalid item data from source {source_id}: {e}",
+                    exc_info=True
+                )
+                failed_count += 1
+                continue
+            except SQLAlchemyError as e:
+                # Database error - log and re-raise for main handler
+                logger.error(
+                    f"Database error creating item from source {source_id}: {e}",
+                    exc_info=True
+                )
+                raise
 
         # Update source statistics
         source.last_fetched_at = datetime.now(timezone.utc).replace(tzinfo=None)  # type: ignore[assignment]
         source.total_items = (source.total_items or 0) + len(new_items)  # type: ignore[assignment]
         db.commit()
 
+        duplicate_count = len(items_data) - len(new_items) - failed_count
         logger.info(
             f"Ingestion complete for {source.name}: "
-            f"{len(new_items)} new items, {len(items_data) - len(new_items)} duplicates"
+            f"{len(new_items)} new items, {duplicate_count} duplicates, "
+            f"{failed_count} failed"
         )
 
         # Queue normalization for each new item

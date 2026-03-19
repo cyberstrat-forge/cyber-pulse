@@ -3,6 +3,7 @@
 import logging
 
 import dramatiq
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..database import SessionLocal
 from ..models import Item
@@ -97,12 +98,14 @@ def normalize_item_with_result(item_id: str) -> dict:
     """Normalize an item and return the result.
 
     This is a variant that stores the result in Redis for retrieval.
+    Note: Only expected errors (ValueError, KeyError, TypeError) return
+    error dicts. Database errors and unexpected exceptions are re-raised.
 
     Args:
         item_id: The item ID to normalize.
 
     Returns:
-        Dictionary with normalization result.
+        Dictionary with normalization result or error.
     """
     db = SessionLocal()
     try:
@@ -131,9 +134,20 @@ def normalize_item_with_result(item_id: str) -> dict:
             "extraction_method": result.extraction_method,
         }
 
-    except Exception as e:
-        logger.error(f"Normalization failed for item {item_id}: {e}", exc_info=True)
+    except (ValueError, KeyError, TypeError) as e:
+        # Expected errors - return error dict for caller to handle
+        logger.warning(f"Normalization failed for item {item_id}: {e}", exc_info=True)
         db.rollback()
         return {"error": str(e), "item_id": item_id}
+    except SQLAlchemyError as e:
+        # Database error - log and re-raise
+        logger.error(f"Database error during normalization for item {item_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        # Unexpected errors - log and re-raise
+        logger.error(f"Unexpected error during normalization for item {item_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
     finally:
         db.close()

@@ -201,7 +201,7 @@ class TestNormalizeItemWithResult:
         assert result["item_id"] == "item_nonexistent"
 
     def test_normalize_item_with_result_failure(self, test_item):
-        """Test normalization with result failure."""
+        """Test normalization with result failure for expected errors."""
         mock_db = MagicMock()
         mock_item_query = MagicMock()
         mock_item_query.filter.return_value = mock_item_query
@@ -215,7 +215,8 @@ class TestNormalizeItemWithResult:
                 "cyberpulse.tasks.normalization_tasks.NormalizationService"
             ) as MockNormService:
                 mock_service = MagicMock()
-                mock_service.normalize.side_effect = RuntimeError("Processing error")
+                # ValueError is an expected error, returns error dict
+                mock_service.normalize.side_effect = ValueError("Invalid content")
                 MockNormService.return_value = mock_service
 
                 from cyberpulse.tasks.normalization_tasks import normalize_item_with_result
@@ -223,4 +224,31 @@ class TestNormalizeItemWithResult:
                 result = normalize_item_with_result(test_item.item_id)
 
         assert "error" in result
-        assert "Processing error" in result["error"]
+        assert "Invalid content" in result["error"]
+
+    def test_normalize_item_with_result_unexpected_error_reraises(self, test_item):
+        """Test that unexpected errors are re-raised, not returned as error dict."""
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        with patch(
+            "cyberpulse.tasks.normalization_tasks.SessionLocal", return_value=mock_db
+        ):
+            with patch(
+                "cyberpulse.tasks.normalization_tasks.NormalizationService"
+            ) as MockNormService:
+                mock_service = MagicMock()
+                # RuntimeError is unexpected, should re-raise
+                mock_service.normalize.side_effect = RuntimeError("Processing error")
+                MockNormService.return_value = mock_service
+
+                from cyberpulse.tasks.normalization_tasks import normalize_item_with_result
+
+                with pytest.raises(RuntimeError, match="Processing error"):
+                    normalize_item_with_result(test_item.item_id)
+
+        # Verify rollback was called
+        mock_db.rollback.assert_called()
