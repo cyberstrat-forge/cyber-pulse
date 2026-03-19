@@ -360,6 +360,34 @@ class TestApiClientService:
         db_session.refresh(client)
         assert client.status == ApiClientStatus.SUSPENDED
 
+    def test_activate_client_success(self, service, db_session):
+        """Test activating a suspended client."""
+        client, _ = service.create_client(name="Test Client")
+        service.suspend_client(client.client_id)
+
+        result = service.activate_client(client.client_id)
+
+        assert result is True
+        db_session.refresh(client)
+        assert client.status == ApiClientStatus.ACTIVE
+
+    def test_activate_client_revoked(self, service, db_session):
+        """Test activating a revoked client."""
+        client, _ = service.create_client(name="Test Client")
+        service.revoke_client(client.client_id)
+
+        result = service.activate_client(client.client_id)
+
+        assert result is True
+        db_session.refresh(client)
+        assert client.status == ApiClientStatus.ACTIVE
+
+    def test_activate_client_not_found(self, service, db_session):
+        """Test activating a non-existent client."""
+        result = service.activate_client("cli_nonexistent")
+
+        assert result is False
+
     def test_get_client_found(self, service, db_session):
         """Test getting an existing client."""
         created, _ = service.create_client(name="Test Client")
