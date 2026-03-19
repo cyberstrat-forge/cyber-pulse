@@ -1,6 +1,7 @@
 """API Connector implementation for REST API data collection."""
 
 import asyncio
+import base64
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -61,6 +62,13 @@ class APIConnector(BaseConnector):
 
         # Validate auth configuration
         auth_type = self.config.get("auth_type", "none")
+
+        # Validate auth_type is a known value
+        valid_auth_types = {"none", "bearer", "api_key", "basic"}
+        if auth_type not in valid_auth_types:
+            raise ValueError(
+                f"Invalid auth_type '{auth_type}'. Must be one of: {', '.join(sorted(valid_auth_types))}"
+            )
 
         if auth_type == "bearer":
             if "auth_token" not in self.config:
@@ -190,8 +198,6 @@ class APIConnector(BaseConnector):
                 headers[header_name] = self.config["api_key"]
 
         elif auth_type == "basic":
-            import base64
-
             credentials = f"{self.config['username']}:{self.config['password']}"
             encoded = base64.b64encode(credentials.encode()).decode()
             headers["Authorization"] = f"Basic {encoded}"
@@ -329,12 +335,6 @@ class APIConnector(BaseConnector):
         # HTTP status errors
         if isinstance(error, httpx.HTTPStatusError):
             status_code = error.response.status_code
-
-            # Rate limit (429) - retry with long delay
-            if status_code == 429:
-                retry_after = error.response.headers.get("Retry-After")
-                delay = float(retry_after) if retry_after else self.RATE_LIMIT_DELAY
-                return True, delay
 
             # Server errors (500, 503) - retry
             if status_code in (500, 502, 503, 504):

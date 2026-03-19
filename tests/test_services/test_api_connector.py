@@ -91,6 +91,24 @@ class TestAPIConnectorValidateConfig:
         with pytest.raises(ValueError, match="basic auth requires 'username' and 'password'"):
             connector.validate_config()
 
+    def test_validate_config_invalid_auth_type(self):
+        """Test validation fails with invalid auth_type value."""
+        connector = APIConnector({
+            "base_url": "https://api.example.com",
+            "auth_type": "oauth",
+        })
+        with pytest.raises(ValueError, match="Invalid auth_type 'oauth'"):
+            connector.validate_config()
+
+    def test_validate_config_unknown_auth_type(self):
+        """Test validation fails with unknown auth_type value."""
+        connector = APIConnector({
+            "base_url": "https://api.example.com",
+            "auth_type": "invalid",
+        })
+        with pytest.raises(ValueError, match="Invalid auth_type 'invalid'"):
+            connector.validate_config()
+
 
 class TestAPIConnectorFetchNoAuth:
     """Tests for fetch method with no authentication."""
