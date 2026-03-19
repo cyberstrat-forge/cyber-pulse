@@ -271,8 +271,9 @@ class TestCheckOptionalFields:
 
         warnings = quality_gate_service._check_optional_fields(valid_item)
 
-        # Should handle None gracefully
-        assert "author" in warnings[0].lower() if warnings else True
+        # Should handle None gracefully and produce a warning
+        assert len(warnings) == 1
+        assert "author" in warnings[0].lower()
 
 
 class TestCalculateMetrics:

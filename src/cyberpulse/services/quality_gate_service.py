@@ -1,11 +1,14 @@
 """Quality gate service for content validation."""
 
 import re
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Dict, List, Optional
-
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
+from typing import TYPE_CHECKING, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from cyberpulse.models.item import Item
+    from cyberpulse.services.normalization_service import NormalizationResult
 
 
 class QualityDecision(str, Enum):
@@ -113,7 +116,9 @@ class QualityGateService:
             metrics=metrics,
         )
 
-    def _validate_required_fields(self, item, norm) -> List[str]:
+    def _validate_required_fields(
+        self, item: "Item", norm: "NormalizationResult"
+    ) -> List[str]:
         """Validate required fields, return list of errors.
 
         Args:
@@ -143,7 +148,7 @@ class QualityGateService:
 
         return errors
 
-    def _check_optional_fields(self, item) -> List[str]:
+    def _check_optional_fields(self, item: "Item") -> List[str]:
         """Check optional fields, return list of warnings.
 
         Args:
@@ -161,7 +166,9 @@ class QualityGateService:
 
         return warnings
 
-    def _calculate_metrics(self, item, norm) -> Dict[str, float]:
+    def _calculate_metrics(
+        self, item: "Item", norm: "NormalizationResult"
+    ) -> Dict[str, float]:
         """Calculate quality metrics.
 
         Metrics calculated:
@@ -224,7 +231,7 @@ class QualityGateService:
         # Check date is not too far in the future
         max_future = datetime.now().replace(
             hour=23, minute=59, second=59, microsecond=999999
-        ) + __import__("datetime").timedelta(days=self.MAX_FUTURE_DAYS)
+        ) + timedelta(days=self.MAX_FUTURE_DAYS)
 
         if date_value > max_future:
             return False
