@@ -27,12 +27,13 @@ async def health_check(db: Session = Depends(get_db)) -> dict:
     try:
         db.execute(text("SELECT 1"))
     except (SQLAlchemyError, DBAPIError) as e:
-        logger.warning(f"Database health check failed: {e}")
-        db_status = f"unhealthy: {e}"
+        # Log the full error for debugging, but don't expose to users
+        logger.warning(f"Database health check failed: {e}", exc_info=True)
+        db_status = "unhealthy"
     except Exception as e:
-        # Unexpected error - log at error level and re-raise
-        logger.error(f"Unexpected error during health check: {e}")
-        raise
+        # Unexpected error - log for debugging but return generic message
+        logger.error(f"Unexpected error during health check: {e}", exc_info=True)
+        db_status = "unhealthy"
 
     return {
         "status": "healthy" if db_status == "healthy" else "degraded",
