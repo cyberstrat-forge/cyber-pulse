@@ -193,13 +193,16 @@ class NormalizationService:
     def _detect_language(self, content: str) -> Optional[str]:
         """Detect content language.
 
-        Uses trafilatura's built-in language detection.
+        Uses trafilatura's built-in language detection with fallback
+        to character-based heuristics for common languages.
 
         Args:
             content: Text content to analyze
 
         Returns:
-            ISO 639-1 language code (e.g., 'en', 'zh') or None if detection fails
+            ISO 639-1 language code (e.g., 'en', 'zh', 'ja', 'ru') or None
+            if detection fails. Returns None instead of guessing to avoid
+            misclassification for multi-language intelligence sources.
         """
         if not content or len(content.strip()) < 20:
             # Need sufficient content for language detection
@@ -223,18 +226,38 @@ class NormalizationService:
             # Language detection via trafilatura failed, use heuristic fallback
             logger.debug(f"Trafilatura language detection failed: {e}")
 
-        # Fallback: simple character-based detection for Chinese
-        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", content))
+        # Fallback: character-based detection for common languages
         total_chars = len(content.strip())
+        if total_chars == 0:
+            return None
 
-        if total_chars > 0 and chinese_chars / total_chars > 0.3:
+        # Chinese (CJK Unified Ideographs)
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", content))
+        if chinese_chars / total_chars > 0.2:
             return "zh"
 
-        # Default to English if no other language detected
-        # This is a heuristic and may not always be correct
-        if total_chars > 50:
-            return "en"
+        # Japanese (Hiragana and Katakana)
+        japanese_chars = len(re.findall(r"[\u3040-\u309f\u30a0-\u30ff]", content))
+        if japanese_chars / total_chars > 0.1:
+            return "ja"
 
+        # Korean (Hangul)
+        korean_chars = len(re.findall(r"[\uac00-\ud7af]", content))
+        if korean_chars / total_chars > 0.1:
+            return "ko"
+
+        # Russian (Cyrillic)
+        cyrillic_chars = len(re.findall(r"[\u0400-\u04ff]", content))
+        if cyrillic_chars / total_chars > 0.2:
+            return "ru"
+
+        # Arabic
+        arabic_chars = len(re.findall(r"[\u0600-\u06ff]", content))
+        if arabic_chars / total_chars > 0.2:
+            return "ar"
+
+        # Cannot reliably detect - return None instead of guessing
+        # Downstream systems can handle unknown language appropriately
         return None
 
     def _count_words(self, content: str) -> int:

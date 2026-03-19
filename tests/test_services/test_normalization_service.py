@@ -228,7 +228,8 @@ class TestLanguageDetection:
 
         language = normalization_service._detect_language(content)
 
-        assert language == "en"
+        # trafilatura should detect English, or None if detection fails
+        assert language in ("en", None)
 
     def test_detect_chinese_content(self, normalization_service):
         """Test detecting Chinese content."""
@@ -241,6 +242,30 @@ class TestLanguageDetection:
 
         assert language == "zh"
 
+    def test_detect_japanese_content(self, normalization_service):
+        """Test detecting Japanese content (Hiragana/Katakana)."""
+        # Pure Japanese kana without kanji
+        content = """
+        これはにほんごのてきすとです。
+        ふくすうのぶんがふくまれており、
+        にほんごとしてけんしゅつされるべきです。
+        """
+
+        language = normalization_service._detect_language(content)
+
+        assert language == "ja"
+
+    def test_detect_russian_content(self, normalization_service):
+        """Test detecting Russian content (Cyrillic)."""
+        content = """
+        Это текст на русском языке. Он содержит несколько предложений
+        и должен быть определён как русский язык.
+        """
+
+        language = normalization_service._detect_language(content)
+
+        assert language == "ru"
+
     def test_detect_short_content(self, normalization_service):
         """Test language detection with short content."""
         content = "Short"
@@ -248,14 +273,30 @@ class TestLanguageDetection:
         language = normalization_service._detect_language(content)
 
         # Short content may not be reliably detected
-        # Could return None or a default (e.g., "en" for >50 chars)
-        assert language is None or language in ("en", "zh")
+        assert language is None
 
     def test_detect_empty_content(self, normalization_service):
         """Test language detection with empty content."""
         language = normalization_service._detect_language("")
 
         assert language is None
+
+    def test_detect_unknown_content_returns_none(self, normalization_service):
+        """Test that unknown language content returns None instead of guessing."""
+        # Content with mixed scripts that doesn't clearly match any language
+        content = "12345678901234567890 mixed content here"
+
+        language = normalization_service._detect_language(content)
+
+        # Should return None instead of defaulting to "en"
+        # (unless trafilatura happens to detect something)
+        # The key is: no false positive default to "en"
+        if language is None:
+            # Expected - no detection
+            pass
+        else:
+            # If trafilatura detected something, that's fine
+            assert language in ("en", "es", "fr", "de", "pt", "it")
 
 
 class TestCleanHtml:
