@@ -44,6 +44,12 @@ python -m venv .venv
 # 数据库
 .venv/bin/alembic upgrade head                # 迁移
 .venv/bin/alembic revision --autogenerate -m "description"  # 创建迁移
+
+# Docker
+docker-compose up -d                          # 启动所有服务
+docker-compose up -d --build                  # 重建并启动
+docker-compose logs -f                        # 查看日志
+docker-compose down                           # 停止服务
 ```
 
 ## 项目结构

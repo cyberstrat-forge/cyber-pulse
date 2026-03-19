@@ -69,6 +69,47 @@ ruff check src/ tests/
 mypy src/ --ignore-missing-imports
 ```
 
+### 部署运行
+
+#### Docker Compose 部署（推荐）
+
+```bash
+# 启动所有服务
+docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f api
+
+# 停止服务
+docker-compose down
+```
+
+#### 服务组件
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| API | 8000 | FastAPI REST API |
+| Worker | - | Dramatiq 任务处理 |
+| Scheduler | - | APScheduler 定时调度 |
+| PostgreSQL | 5432 | 数据库 |
+| Redis | 6379 | 任务队列 + 缓存 |
+
+#### 手动启动（开发环境）
+
+```bash
+# 终端 1: 启动 API
+.venv/bin/uvicorn cyberpulse.api.main:app --reload
+
+# 终端 2: 启动 Worker
+.venv/bin/dramatiq cyberpulse.tasks --processes 1 --threads 2
+
+# 终端 3: 启动 Scheduler
+.venv/bin/python -m cyberpulse.scheduler.main
+```
+
 ## 架构概览
 
 ```
