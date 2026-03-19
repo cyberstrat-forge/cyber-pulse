@@ -428,6 +428,12 @@ class APIConnector(BaseConnector):
 
     REQUIRED_CONFIG_KEYS = ["base_url"]
 
+    # Error handling configuration
+    MAX_RETRIES = 3
+    CONNECT_TIMEOUT = 30.0  # seconds
+    READ_TIMEOUT = 30.0     # seconds
+    RETRY_DELAYS = [10, 20, 40]  # exponential backoff in seconds
+
     async def fetch(self) -> List[Dict[str, Any]]:
         """Fetch items from API with pagination support."""
         pass
@@ -438,6 +444,25 @@ class APIConnector(BaseConnector):
 
     def _parse_response(self, data: Dict) -> List[Dict[str, Any]]:
         """Parse API response to standard format."""
+        pass
+
+    def _handle_error(self, error: Exception, retry_count: int) -> bool:
+        """
+        Handle errors with retry logic.
+
+        Returns:
+            True if should retry, False if permanent error
+
+        Temporary errors (retry):
+        - Network timeout
+        - HTTP 429 (rate limit) - wait 60s
+        - HTTP 500/503 (server error)
+
+        Permanent errors (no retry):
+        - HTTP 401/403 (auth failure)
+        - HTTP 404 (not found)
+        - Parse errors
+        """
         pass
 ```
 
@@ -452,11 +477,23 @@ class APIConnector(BaseConnector):
 - `offset`: Offset-based pagination
 - `cursor`: Cursor-based pagination
 
+**Error Handling (per Spec 4.7.2):**
+| Error Type | Action | Retry Delay |
+|------------|--------|-------------|
+| Network timeout | Retry 3x | Exponential (10s, 20s, 40s) |
+| HTTP 429 | Wait + Retry | 60s |
+| HTTP 500/503 | Retry 3x | Exponential |
+| HTTP 401/403 | No retry, mark source pending_review | N/A |
+| HTTP 404 | No retry, log error | N/A |
+
 **Tests:**
 - test_fetch_no_auth
 - test_fetch_bearer_auth
 - test_fetch_with_pagination
 - test_validate_config
+- test_retry_on_timeout
+- test_no_retry_on_auth_failure
+- test_rate_limit_handling
 
 ---
 
@@ -474,6 +511,12 @@ class WebScraperConnector(BaseConnector):
 
     REQUIRED_CONFIG_KEYS = ["base_url"]
 
+    # Error handling configuration (per Spec 4.7.2)
+    MAX_RETRIES = 3
+    CONNECT_TIMEOUT = 60.0  # seconds (web pages may load slowly)
+    READ_TIMEOUT = 60.0     # seconds
+    RETRY_DELAYS = [10, 20, 40]  # exponential backoff in seconds
+
     async def fetch(self) -> List[Dict[str, Any]]:
         """Scrape web pages and extract content."""
         pass
@@ -489,17 +532,42 @@ class WebScraperConnector(BaseConnector):
     def _extract_content(self, html: str, url: str) -> Dict:
         """Extract content from article page using trafilatura."""
         pass
+
+    def _handle_error(self, error: Exception, retry_count: int) -> bool:
+        """
+        Handle errors with retry logic.
+
+        Temporary errors (retry):
+        - Network timeout
+        - HTTP 500/503 (server error)
+
+        Permanent errors (no retry):
+        - HTTP 401/403 (auth failure)
+        - HTTP 404 (not found)
+        - Parse failures (use trafilatura fallback)
+        """
+        pass
 ```
 
 **Extraction Modes:**
 - `auto`: Auto-detect using trafilatura
 - `manual`: Use XPath/CSS selectors from config
 
+**Error Handling (per Spec 4.7.2):**
+| Error Type | Action | Retry Delay |
+|------------|--------|-------------|
+| Network timeout | Retry 3x | Exponential (10s, 20s, 40s) |
+| HTTP 500/503 | Pause 30s + Retry | 30s |
+| Parse failure | Use trafilatura fallback, log warning | N/A |
+| HTTP 401/403 | No retry, mark source pending_review | N/A |
+
 **Tests:**
 - test_fetch_auto_mode
 - test_extract_links
 - test_extract_content
 - test_handle_pagination
+- test_retry_on_timeout
+- test_fallback_on_parse_failure
 
 ---
 
@@ -517,6 +585,12 @@ class MediaAPIConnector(BaseConnector):
 
     REQUIRED_CONFIG_KEYS = ["platform", "api_key"]
 
+    # Error handling configuration (per Spec 4.7.2)
+    MAX_RETRIES = 3
+    CONNECT_TIMEOUT = 30.0  # seconds
+    READ_TIMEOUT = 30.0     # seconds
+    RETRY_DELAYS = [10, 20, 40]  # exponential backoff in seconds
+
     async def fetch(self) -> List[Dict[str, Any]]:
         """Fetch items from media API."""
         pass
@@ -528,15 +602,28 @@ class MediaAPIConnector(BaseConnector):
     def _check_captions(self, video_id: str) -> bool:
         """Check if video has captions."""
         pass
+
+    def _handle_error(self, error: Exception, retry_count: int) -> bool:
+        """Handle errors with retry logic (same as APIConnector)."""
+        pass
 ```
 
 **Supported Platforms:**
 - `youtube`: YouTube Data API v3
 
+**Error Handling (per Spec 4.7.2):**
+| Error Type | Action |
+|------------|--------|
+| YouTube quota exceeded | Wait and retry |
+| Invalid API key | No retry, mark source pending_review |
+| Channel not found | No retry, log error |
+
 **Tests:**
 - test_fetch_youtube
 - test_check_captions
 - test_validate_config
+- test_retry_on_quota_exceeded
+- test_no_retry_on_invalid_key
 
 ---
 
@@ -555,17 +642,18 @@ class MediaAPIConnector(BaseConnector):
 # connector_factory.py
 from typing import Dict, Type
 from .connector_service import BaseConnector
-from .rss_connector import RSSConnector
+from .rss_connector import RSSConnector  # Implemented in Phase 1
 from .api_connector import APIConnector
 from .web_connector import WebScraperConnector
 from .media_connector import MediaAPIConnector
 
 # Connector type registry
+# Note: RSSConnector is already implemented from Phase 1
 CONNECTOR_REGISTRY: Dict[str, Type[BaseConnector]] = {
-    "rss": RSSConnector,
-    "api": APIConnector,
-    "web": WebScraperConnector,
-    "media": MediaAPIConnector,
+    "rss": RSSConnector,      # Phase 1
+    "api": APIConnector,       # Phase 2B
+    "web": WebScraperConnector,  # Phase 2B
+    "media": MediaAPIConnector,  # Phase 2B
 }
 
 
@@ -732,22 +820,113 @@ async def health_check(db: Session = Depends(get_db)) -> dict:
 **Spec:**
 
 ```python
+import secrets
+import hashlib
+from datetime import datetime
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from passlib.context import CryptContext
 
 security = HTTPBearer()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def generate_api_key() -> str:
+    """
+    Generate a new API key.
+
+    Format: sk_live_{random_32_chars}
+    Example: sk_live_<32_hex_characters>
+
+    The key is returned ONCE when created and cannot be retrieved again.
+    """
+    random_part = secrets.token_hex(16)  # 32 hex chars
+    return f"sk_live_{random_part}"
+
+
+def hash_api_key(api_key: str) -> str:
+    """
+    Hash an API key for storage.
+
+    Uses bcrypt for secure one-way hashing.
+    The original key cannot be recovered from the hash.
+    """
+    return pwd_context.hash(api_key)
+
+
+def verify_api_key(plain_key: str, hashed_key: str) -> bool:
+    """Verify an API key against its hash."""
+    return pwd_context.verify(plain_key, hashed_key)
+
 
 async def get_current_client(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> ApiClient:
-    """Validate API key and return client."""
+    """
+    Validate API key and return client.
+
+    1. Extract Bearer token from Authorization header
+    2. Look up client by hashed API key
+    3. Check if client is active
+    4. Update last_used_at timestamp
+    5. Return client object
+
+    Raises:
+        HTTPException 401: Invalid or expired API key
+    """
     pass
 
+
 async def require_permissions(permissions: List[str]):
-    """Dependency for permission checking."""
+    """
+    Dependency for permission checking.
+
+    Usage:
+        @router.get("/admin-only")
+        async def admin_endpoint(
+            client: ApiClient = Depends(require_permissions(["admin"]))
+        ):
+            ...
+    """
     pass
+
+
+class ApiClientService:
+    """Service for managing API clients"""
+
+    def create_client(self, name: str, permissions: List[str] = None) -> Tuple[ApiClient, str]:
+        """
+        Create a new API client.
+
+        Returns:
+            Tuple of (ApiClient, plain_api_key)
+            The plain_api_key should be shown to user ONCE and never stored.
+        """
+        pass
+
+    def validate_client(self, api_key: str) -> Optional[ApiClient]:
+        """Validate API key and return client if valid."""
+        pass
+
+    def revoke_client(self, client_id: str) -> bool:
+        """Revoke an API client's access."""
+        pass
 ```
+
+**API Key Security (per Spec 8.3):**
+- Format: `sk_live_{32_hex_chars}`
+- Storage: Bcrypt hashed (original key never stored in plaintext)
+- Validation: Constant-time comparison to prevent timing attacks
+- Rate limiting: Per-client rate limits enforced
+
+**Tests:**
+- test_generate_api_key_format
+- test_hash_and_verify_api_key
+- test_get_current_client_valid
+- test_get_current_client_invalid_key
+- test_get_current_client_revoked
+- test_create_client_returns_key_once
 
 ---
 
@@ -949,7 +1128,8 @@ src/cyberpulse/
 - Create: `src/cyberpulse/scheduler/__init__.py`
 - Create: `src/cyberpulse/scheduler/scheduler.py`
 - Create: `src/cyberpulse/scheduler/jobs.py`
-- Create: `tests/test_scheduler/`
+- Create: `tests/test_scheduler/__init__.py`
+- Create: `tests/test_scheduler/test_scheduler.py`
 
 **Spec:**
 
@@ -987,7 +1167,8 @@ class SchedulerService:
 **Files:**
 - Create: `src/cyberpulse/tasks/__init__.py`
 - Create: `src/cyberpulse/tasks/worker.py`
-- Create: `tests/test_tasks/`
+- Create: `tests/test_tasks/__init__.py`
+- Create: `tests/test_tasks/test_worker.py`
 
 **Spec:**
 
@@ -1355,8 +1536,32 @@ def add_source(
     connector: str,
     url: str,
     tier: str = "T2",
+    test: bool = True,  # Run onboarding by default
 ):
-    """Add a new source."""
+    """
+    Add a new source with full onboarding flow.
+
+    Onboarding Flow (per Spec 4.1.2):
+    1. [Duplicate Check] - Check if name or URL already exists
+       - If exists: show error, suggest existing source
+
+    2. [Connection Test] - Can we reach the source?
+       - If failed: mark as pending_review, show error with suggestions
+
+    3. [First Collection] - Fetch 5-10 sample items
+       - Use appropriate connector based on type
+
+    4. [Quality Assessment] - Evaluate samples
+       - meta_completeness >= 80%?
+       - content_completeness >= 70%?
+       - noise_ratio <= 30%?
+
+    5. [Auto-tiering]
+       - If pass: Set tier T2, mark observation period (30 days)
+       - If fail: Mark pending_review, show quality report
+
+    6. [Schedule] - Add to APScheduler for periodic collection
+    """
     pass
 
 @app.command("update")
@@ -1375,7 +1580,15 @@ def remove_source(source_id: str):
 
 @app.command("test")
 def test_source(source_id: str):
-    """Test source connectivity."""
+    """
+    Test source connectivity and quality.
+
+    Runs:
+    1. Connection test
+    2. Sample fetch (5 items)
+    3. Quality assessment
+    4. Display results with recommendations
+    """
     pass
 
 @app.command("stats")
@@ -1384,9 +1597,38 @@ def source_stats():
     pass
 ```
 
+**Integration with Phase 1 SourceService:**
+- `add_source` command integrates with `SourceService.add_source()` from Phase 1
+- Phase 1 already handles: duplicate check, observation period setup
+- This task adds: CLI interface, onboarding display, quality checks
+
+**Onboarding Output Example:**
+```
+🔍 Adding source "安全客"...
+
+Step 1/5: Checking for duplicates... ✓ No duplicates found
+Step 2/5: Testing connection... ✓ Connected (0.8s)
+Step 3/5: Fetching samples... ✓ Retrieved 8 items
+Step 4/5: Assessing quality...
+  • Meta completeness: 92% ✓
+  • Content completeness: 88% ✓
+  • Noise ratio: 12% ✓
+Step 5/5: Setting up schedule... ✓ Scheduled (hourly)
+
+✓ Source added successfully!
+  • ID: src_a1b2c3d4
+  • Tier: T2 (observation period: 30 days)
+  • Next collection: in 1 hour
+
+Run '/source test src_a1b2c3d4' to re-verify at any time.
+```
+
 **Tests:**
 - test_source_list
-- test_source_add
+- test_source_add_success
+- test_source_add_duplicate
+- test_source_add_connection_failed
+- test_source_add_quality_failed
 - test_source_update
 - test_source_remove
 - test_source_test
@@ -1663,6 +1905,33 @@ def diagnose_errors():
 | 2F | 7 | ~25 | 1 |
 
 **总计：** 24 个模块，~100 个测试，6 次提交
+
+---
+
+## 端到端验证
+
+完成所有 Phase 后，建议执行以下端到端验证流程：
+
+```bash
+# 1. 添加一个 RSS 源
+./cli source add --name "Test Source" --connector rss --url "https://example.com/rss"
+
+# 2. 手动触发采集
+./cli job run src_xxx
+
+# 3. 检查采集结果
+./cli content list --limit 10
+
+# 4. 通过 API 获取内容
+curl -H "Authorization: Bearer sk_live_xxx" http://localhost:8000/api/v1/content
+```
+
+**验证检查点：**
+- [ ] Source 添加成功，显示入门流程结果
+- [ ] 采集任务执行成功，创建 Item 记录
+- [ ] 标准化处理完成，创建 Content 记录
+- [ ] 质量检查通过率达到预期
+- [ ] API 返回正确的增量数据
 
 ---
 
