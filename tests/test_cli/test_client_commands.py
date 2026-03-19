@@ -1,7 +1,7 @@
 """Tests for CLI client commands."""
 import re
 from typer.testing import CliRunner
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from cyberpulse.cli.app import app
 from cyberpulse.models.api_client import ApiClientStatus
@@ -14,8 +14,6 @@ class TestClientCreate:
 
     def test_client_create_success(self, db_session) -> None:
         """Test creating a client successfully."""
-        from cyberpulse.api.auth import ApiClientService
-
         with patch("cyberpulse.cli.commands.client.SessionLocal") as mock_session:
             mock_session.return_value = db_session
 
