@@ -184,3 +184,27 @@ src/cyberpulse/
 ├── services/        # 业务逻辑层
 └── database.py      # DB 配置
 ```
+
+## 开发工作流
+
+本项目采用 **superpowers** 插件的开发流程：
+
+| 阶段 | Skill | 产出 |
+|------|-------|------|
+| 需求分析 | `brainstorming` | 设计文档 `docs/superpowers/specs/` |
+| 计划编写 | `writing-plans` | 实现计划 `docs/superpowers/plans/` |
+| 计划执行 | `subagent-driven-development` | 代码实现 |
+| 代码审查 | `requesting-code-review` | 审查报告 |
+| 分支完成 | `finishing-a-development-branch` | PR/Merge |
+
+### 工具使用偏好
+
+- **GitHub 操作**: 优先使用 GitHub MCP 工具（创建 PR、评论、合并等）
+- **代码导航**: 优先使用 LSP 工具（goToDefinition、findReferences、hover）
+  - 已安装: `pyright-lsp`, `typescript-lsp`
+
+### 文档维护
+
+- **设计文档**: 放在 `docs/superpowers/specs/`，使用 `YYYY-MM-DD` 前缀
+- **实现计划**: 放在 `docs/superpowers/plans/`，使用 `YYYY-MM-DD` 前缀
+- **代码变更**: 通过 PR 提交，PR 描述应清晰说明变更内容
