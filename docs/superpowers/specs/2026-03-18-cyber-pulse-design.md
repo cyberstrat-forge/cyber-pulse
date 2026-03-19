@@ -217,20 +217,7 @@ cyber-nexus 通过 Pull API 拉取增量数据
 
 ---
 
-### B. 参考文档索引
-
-| 文档 | 说明 |
-|------|------|
-| `docs/2026-03-17 cyber-pulse 系统架构.md` | 整体架构 |
-| `docs/2026-03-17 cyber-pulse Core Data Model 设计.md` | 核心数据模型 |
-| `docs/2026-03-17 cyber-pulse Source Governance Model.md` | 源治理模型 |
-| `docs/2026-03-17 cyber-pulse Source Score v2.2.md` | 源评分体系 |
-| `docs/2026-03-17 cyber-pulse 数据服务接口规范.md` | API 规范 |
-| `docs/2026-03-17 cyber-pulse NFR Specification v1.0.md` | 非功能需求 |
-
----
-
-### C. 技术栈依赖清单
+### B. 技术栈依赖清单
 
 **Python 依赖（requirements.txt）：**
 
