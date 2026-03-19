@@ -2,6 +2,10 @@
 
 本文件为 Claude Code (claude.ai/code) 提供项目指导。
 
+## 项目信息
+
+**仓库**: `cyberstrat-forge/cyber-pulse`
+
 ## 项目状态
 
 **开发阶段** - Phase 1 核心基础设施和 Phase 2A 数据处理管道已实现。
@@ -208,3 +212,46 @@ src/cyberpulse/
 - **设计文档**: 放在 `docs/superpowers/specs/`，使用 `YYYY-MM-DD` 前缀
 - **实现计划**: 放在 `docs/superpowers/plans/`，使用 `YYYY-MM-DD` 前缀
 - **代码变更**: 通过 PR 提交，PR 描述应清晰说明变更内容
+
+### Git Worktree 使用
+
+项目使用 git worktree 进行隔离开发，**所有开发必须在 feature 分支上进行，禁止直接在 main 分支开发**。
+
+**Worktree 目录**: `.worktrees/`（已加入 .gitignore）
+
+**创建 Worktree（使用 superpowers:using-git-worktrees skill）：**
+```bash
+# 自动创建（推荐）
+# skill 会自动：创建目录 → 创建分支 → 验证 .gitignore
+
+# 手动创建
+git worktree add .worktrees/feature-xxx -b feature/xxx
+```
+
+**⚠️ 重要：验证工作目录**
+
+创建 worktree 后，必须确认当前工作目录正确：
+```bash
+# 检查当前目录
+pwd  # 应该显示 .worktrees/xxx
+
+# 检查当前分支
+git branch --show-current  # 应该显示 feature/xxx，不是 main
+
+# 如果错误地在 main 上，立即停止并切换：
+cd .worktrees/feature-xxx
+```
+
+**分支命名规范：**
+- `feature/{name}` - 新功能
+- `bugfix/{name}` - Bug 修复
+- `refactor/{name}` - 重构
+
+**清理 Worktree：**
+```bash
+# 开发完成后
+git worktree remove .worktrees/feature-xxx
+
+# 查看所有 worktrees
+git worktree list
+```
