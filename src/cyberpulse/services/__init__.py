@@ -6,6 +6,7 @@ from .connector_service import BaseConnector, ConnectorError
 from .rss_connector import RSSConnector
 from .api_connector import APIConnector
 from .web_connector import WebScraperConnector
+from .media_connector import MediaAPIConnector
 from .normalization_service import NormalizationService, NormalizationResult
 from .quality_gate_service import QualityGateService, QualityDecision, QualityResult
 
@@ -19,6 +20,7 @@ __all__ = [
     "RSSConnector",
     "APIConnector",
     "WebScraperConnector",
+    "MediaAPIConnector",
     "NormalizationService",
     "NormalizationResult",
     "QualityGateService",
