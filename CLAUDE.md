@@ -12,13 +12,52 @@
 - ✅ Phase 2B: 多源采集（APIConnector, WebScraperConnector, MediaAPIConnector, Connector Factory）
 - 🚧 Phase 2C-2F: API 服务、调度系统、评分系统、CLI 工具
 
+## 快速开始
+
+### 环境配置
+
+```bash
+# 环境变量（必需）
+DATABASE_URL=postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse
+REDIS_URL=redis://localhost:6379/0
+
+# 初始化开发环境
+python -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/alembic upgrade head
+```
+
+### 常用命令
+
+```bash
+# 测试
+.venv/bin/pytest                              # 全部测试
+.venv/bin/pytest tests/test_services/ -v      # 特定目录
+
+# 代码检查
+.venv/bin/ruff check src/ tests/              # Lint（含未使用变量检测）
+.venv/bin/mypy src/ --ignore-missing-imports  # 类型检查
+
+# 数据库
+.venv/bin/alembic upgrade head                # 迁移
+.venv/bin/alembic revision --autogenerate -m "description"  # 创建迁移
+```
+
+## 项目结构
+
+```
+src/cyberpulse/
+├── models/          # SQLAlchemy 模型
+├── services/        # 业务逻辑层
+├── database.py      # DB 配置
+└── config.py        # 配置管理
+```
+
 ## 概述
 
 cyber-pulse 是一个内部战略情报采集与标准化系统。采用批处理模式，从多个情报源采集数据，进行标准化处理，通过拉取式游标 API 向下游分析系统提供清洗后的数据。
 
 **规模**: 200-500 个情报源，日处理 1,000-10,000 条。
-
-## 核心概念
 
 ### 数据模型
 
@@ -52,49 +91,20 @@ Job（调度动作）→ Task（最小执行单元）
 
 **范围外**: 情报分类、战略分析、聚类、决策支持
 
-## 设计原则
+### 设计原则
 
 - 批处理优先（非实时）
 - 稳定性优先于性能
 - 最终一致性
 - 源优先：控制进入什么，而非如何处理
 
-## 技术栈
+### 技术栈
 
 Python 3.11+ | PostgreSQL 15 | FastAPI | SQLAlchemy | APScheduler | Dramatiq | Redis | trafilatura | httpx | Typer
 
 详细设计见: `docs/superpowers/specs/2026-03-18-cyber-pulse-design.md`
 
-## 开发指南
-
-### 环境配置
-
-```bash
-# 环境变量（必需）
-DATABASE_URL=postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse
-REDIS_URL=redis://localhost:6379/0
-
-# 初始化开发环境
-python -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-.venv/bin/alembic upgrade head
-```
-
-### 常用命令
-
-```bash
-# 测试
-.venv/bin/pytest                              # 全部测试
-.venv/bin/pytest tests/test_services/ -v      # 特定目录
-
-# 代码检查
-.venv/bin/ruff check src/                     # Lint
-.venv/bin/mypy src/ --ignore-missing-imports  # 类型检查
-
-# 数据库
-.venv/bin/alembic upgrade head                # 迁移
-.venv/bin/alembic revision --autogenerate -m "description"  # 创建迁移
-```
+## 编码规范
 
 ### 代码模式
 
@@ -104,7 +114,7 @@ python -m venv .venv
 - **类型引用**: 使用 `TYPE_CHECKING` 避免循环导入
 - **测试组织**: 按类分组（如 `TestCreateItem`）
 
-### 错误处理
+### 错误处理规范
 
 **禁止静默失败**：
 
@@ -182,39 +192,17 @@ except Exception as e:
 - 关键错误处理路径必须有测试
 - 避免使用 `__bases__[0]` 等脆弱模式
 
-### 目录结构
+### 提交前检查清单
 
-```
-src/cyberpulse/
-├── models/          # SQLAlchemy 模型
-├── services/        # 业务逻辑层
-├── database.py      # DB 配置
-└── config.py        # 配置管理
-```
+- [ ] `ruff check src/ tests/` 通过
+- [ ] `mypy src/` 通过
+- [ ] `pytest` 通过
+- [ ] 测试覆盖率 ≥ 80%
+- [ ] 无静默失败（空 except 块）
 
-## 开发工作流
+## Git 工作流
 
-### Superpowers 流程
-
-| 阶段 | Skill | 产出 |
-|------|-------|------|
-| 需求分析 | `brainstorming` | `docs/superpowers/specs/YYYY-MM-DD-*.md` |
-| 计划编写 | `writing-plans` | `docs/superpowers/plans/YYYY-MM-DD-*.md` |
-| 计划执行 | `subagent-driven-development` | 代码实现 |
-| 代码审查 | `requesting-code-review` | 审查报告 |
-| 分支完成 | `finishing-a-development-branch` | PR/Merge |
-
-### 工具偏好
-
-- **GitHub 操作**: 优先使用 GitHub MCP 工具
-- **代码导航**: 优先使用 LSP（goToDefinition、findReferences、hover）
-  - 已安装: `pyright-lsp`, `typescript-lsp`
-  - **例外**: 在 worktree 子代理中，LSP 无法识别 worktree 虚拟环境，应使用 CLI 替代：
-    - 类型检查: `.venv/bin/pyright <file>`
-    - 查找定义: `grep -r "def <name>" src/`
-    - 查找引用: `grep -r "<symbol>" src/`
-
-### Git 规范
+### 分支规范
 
 **分支命名**: `feature/*` | `bugfix/*` | `refactor/*`
 
@@ -228,7 +216,7 @@ src/cyberpulse/
 | `refactor` | 重构 |
 | `test` | 测试 |
 
-### Git Worktree
+### Worktree 使用
 
 **所有开发必须在 feature 分支进行，禁止直接在 main 分支开发。**
 
@@ -293,27 +281,34 @@ git push origin --delete feature/xxx
 
 **注意**: 此步骤在 skill 流程之外，PR 合并后需主动执行。
 
-## 代码质量
+## 开发工作流
 
-**检查命令**：
-```bash
-.venv/bin/ruff check src/ tests/     # Lint（含未使用变量检测）
-.venv/bin/mypy src/                  # 类型检查
-.venv/bin/pytest                      # 测试
-```
+### Superpowers 流程
 
-**提交前检查清单**：
-- [ ] `ruff check src/ tests/` 通过
-- [ ] `mypy src/` 通过
-- [ ] `pytest` 通过
-- [ ] 测试覆盖率 ≥ 80%
+| 阶段 | Skill | 产出 |
+|------|-------|------|
+| 需求分析 | `brainstorming` | `docs/superpowers/specs/YYYY-MM-DD-*.md` |
+| 计划编写 | `writing-plans` | `docs/superpowers/plans/YYYY-MM-DD-*.md` |
+| 计划执行 | `subagent-driven-development` | 代码实现 |
+| 代码审查 | `requesting-code-review` | 审查报告 |
+| 分支完成 | `finishing-a-development-branch` | PR/Merge |
+
+### 工具偏好
+
+- **GitHub 操作**: 优先使用 GitHub MCP 工具
+- **代码导航**: 优先使用 LSP（goToDefinition、findReferences、hover）
+  - 已安装: `pyright-lsp`, `typescript-lsp`
+  - **例外**: 在 worktree 子代理中，LSP 无法识别 worktree 虚拟环境，应使用 CLI 替代：
+    - 类型检查: `.venv/bin/pyright <file>`
+    - 查找定义: `grep -r "def <name>" src/`
+    - 查找引用: `grep -r "<symbol>" src/`
 
 **PR 要求**：
 - 所有检查通过
 - 代码审查通过
 - 无静默失败（空 except 块）
 
-## 文档
+## 文档索引
 
 **最新设计**: `docs/superpowers/specs/2026-03-18-cyber-pulse-design.md`
 
