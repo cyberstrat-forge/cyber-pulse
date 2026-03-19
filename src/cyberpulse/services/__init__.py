@@ -9,6 +9,7 @@ from .web_connector import WebScraperConnector
 from .media_connector import MediaAPIConnector
 from .normalization_service import NormalizationService, NormalizationResult
 from .quality_gate_service import QualityGateService, QualityDecision, QualityResult
+from .connector_factory import CONNECTOR_REGISTRY, get_connector, get_connector_for_source
 
 __all__ = [
     "BaseService",
@@ -26,4 +27,7 @@ __all__ = [
     "QualityGateService",
     "QualityDecision",
     "QualityResult",
+    "CONNECTOR_REGISTRY",
+    "get_connector",
+    "get_connector_for_source",
 ]
