@@ -281,25 +281,38 @@ class TestJobFunctions:
 
     def test_collect_source(self):
         """Test collect_source job function."""
-        result = collect_source("src_test123")
+        with patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest:
+            mock_ingest.send = MagicMock()
 
-        assert result["source_id"] == "src_test123"
-        assert result["status"] == "queued"
-        assert "placeholder" in result["message"].lower()
+            result = collect_source("src_test123")
+
+            assert result["source_id"] == "src_test123"
+            assert result["status"] == "queued"
+            mock_ingest.send.assert_called_once_with("src_test123")
 
     def test_run_scheduled_collection(self):
         """Test run_scheduled_collection job function."""
-        result = run_scheduled_collection()
+        with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local:
+            mock_session = MagicMock()
+            mock_session_local.return_value = mock_session
+            mock_session.query.return_value.filter.return_value.all.return_value = []
 
-        assert result["status"] == "queued"
-        assert "placeholder" in result["message"].lower()
+            result = run_scheduled_collection()
+
+            assert result["status"] == "completed"
+            assert result["sources_count"] == 0
 
     def test_update_source_scores(self):
         """Test update_source_scores job function."""
-        result = update_source_scores()
+        with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local:
+            mock_session = MagicMock()
+            mock_session_local.return_value = mock_session
+            mock_session.query.return_value.filter.return_value.all.return_value = []
 
-        assert result["status"] == "completed"
-        assert "placeholder" in result["message"].lower()
+            result = update_source_scores()
+
+            assert result["status"] == "completed"
+            assert result["sources_updated"] == 0
 
 
 class TestSchedulerIntegration:

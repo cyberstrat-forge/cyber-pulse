@@ -1,90 +1,114 @@
 """Job functions for the scheduler.
 
 This module contains the job functions that are scheduled by APScheduler.
-These jobs will trigger Dramatiq tasks for actual processing.
+These jobs trigger Dramatiq tasks for actual processing.
 """
 
 import logging
+from typing import Dict, Any
+
+from ..database import SessionLocal
+from ..models import Source, SourceStatus
+from ..tasks.ingestion_tasks import ingest_source
+from ..services.source_score_service import SourceScoreService
 
 logger = logging.getLogger(__name__)
 
 
-def collect_source(source_id: str) -> dict:
-    """Collect items from a source.
-
-    This job function triggers the ingestion pipeline for a source.
-    In Phase 2D.3, this will send a message to Dramatiq worker.
+def collect_source(source_id: str) -> Dict[str, Any]:
+    """Collect items from a source via Dramatiq task.
 
     Args:
         source_id: The ID of the source to collect from.
 
     Returns:
         Dictionary with job result status.
-
-    Note:
-        This is a placeholder implementation. The actual Dramatiq task
-        integration will be added in Task 2D.3.
     """
-    logger.info(f"Collecting items from source: {source_id}")
+    logger.info(f"Queueing collection for source: {source_id}")
 
-    # Placeholder: In Task 2D.3, this will call:
-    # from ..tasks.ingestion_tasks import ingest_source
-    # ingest_source.send(source_id)
+    # Send to Dramatiq task queue
+    ingest_source.send(source_id)
 
     return {
         "source_id": source_id,
         "status": "queued",
-        "message": "Collection job queued (placeholder - Dramatiq integration pending)",
+        "message": "Collection job queued successfully",
     }
 
 
-def run_scheduled_collection() -> dict:
+def run_scheduled_collection() -> Dict[str, Any]:
     """Run scheduled collection for all active sources.
 
-    This job is run periodically to collect from all active sources.
-    It queries the database for active sources and queues collection
+    Queries database for active sources and queues collection
     jobs for each.
 
     Returns:
         Dictionary with job result status.
-
-    Note:
-        This is a placeholder implementation. The actual implementation
-        will query sources from the database and trigger Dramatiq tasks.
     """
     logger.info("Running scheduled collection for all active sources")
 
-    # Placeholder: In Task 2D.3, this will:
-    # 1. Query all active sources from database
-    # 2. For each source, call ingest_source.send(source_id)
+    db = SessionLocal()
+    try:
+        # Query all active sources
+        sources = db.query(Source).filter(
+            Source.status == SourceStatus.ACTIVE
+        ).all()
 
-    return {
-        "status": "queued",
-        "sources_count": 0,
-        "message": "Scheduled collection queued (placeholder)",
-    }
+        queued_count = 0
+        failed_count = 0
+        for source in sources:
+            try:
+                ingest_source.send(source.source_id)
+                queued_count += 1
+            except Exception as e:
+                logger.error(f"Failed to queue source {source.source_id}: {e}")
+                failed_count += 1
+                continue
+
+        logger.info(f"Queued {queued_count} sources for collection ({failed_count} failed)")
+
+        return {
+            "status": "completed",
+            "sources_count": queued_count,
+            "failed_count": failed_count,
+            "message": f"Queued {queued_count} sources for collection ({failed_count} failed)",
+        }
+    finally:
+        db.close()
 
 
-def update_source_scores() -> dict:
+def update_source_scores() -> Dict[str, Any]:
     """Update scores for all sources.
 
-    This job recalculates source scores based on collection statistics.
+    Recalculates source scores based on collection statistics.
 
     Returns:
         Dictionary with job result status.
-
-    Note:
-        This is a placeholder implementation. The actual implementation
-        will use SourceScoreService from Phase 2E.
     """
     logger.info("Updating source scores")
 
-    # Placeholder: In Phase 2E, this will:
-    # from ..services.source_score_service import SourceScoreService
-    # Recalculate scores for all sources
+    db = SessionLocal()
+    try:
+        sources = db.query(Source).filter(
+            Source.status == SourceStatus.ACTIVE
+        ).all()
 
-    return {
-        "status": "completed",
-        "sources_updated": 0,
-        "message": "Source scores updated (placeholder)",
-    }
+        score_service = SourceScoreService(db)
+        updated_count = 0
+
+        for source in sources:
+            try:
+                score_service.update_tier(source.source_id)
+                updated_count += 1
+            except ValueError as e:
+                logger.warning(f"Could not update score for {source.source_id}: {e}")
+
+        logger.info(f"Updated scores for {updated_count} sources")
+
+        return {
+            "status": "completed",
+            "sources_updated": updated_count,
+            "message": f"Updated scores for {updated_count} sources",
+        }
+    finally:
+        db.close()
