@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy dependency files first for better caching
 COPY pyproject.toml ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -e ".[dev]"
+# Install Python dependencies (production only, no dev tools)
+RUN pip install --no-cache-dir -e "."
 
 # Copy source code
 COPY src/ ./src/

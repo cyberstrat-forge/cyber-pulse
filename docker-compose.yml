@@ -2,13 +2,14 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: cyberpulse
-      POSTGRES_PASSWORD: cyberpulse123
+      POSTGRES_USER: ${POSTGRES_USER:-cyberpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cyberpulse123}
       POSTGRES_DB: cyberpulse
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Port exposed only for development/debugging - comment out for production
+    # ports:
+    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cyberpulse -d cyberpulse"]
       interval: 10s
@@ -20,8 +21,9 @@ services:
     image: redis:7
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
+    # Port exposed only for development/debugging - comment out for production
+    # ports:
+    #   - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -34,7 +36,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql://cyberpulse:cyberpulse123@postgres:5432/cyberpulse
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
@@ -54,7 +56,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql://cyberpulse:cyberpulse123@postgres:5432/cyberpulse
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./data:/app/data
@@ -72,7 +74,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql://cyberpulse:cyberpulse123@postgres:5432/cyberpulse
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./data:/app/data
