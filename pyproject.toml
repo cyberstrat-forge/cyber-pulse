@@ -55,6 +55,9 @@ dev = [
     "factory-boy>=3.3.0",
 ]
 
+[project.scripts]
+cyber-pulse = "cyberpulse.cli.app:app"
+
 [project.urls]
 Homepage = "https://github.com/your-username/cyber-pulse"
 Repository = "https://github.com/your-username/cyber-pulse"
