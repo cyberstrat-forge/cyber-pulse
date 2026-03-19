@@ -4,6 +4,7 @@ from .item_service import ItemService
 from .connector_service import BaseConnector, ConnectorError
 from .rss_connector import RSSConnector
 from .normalization_service import NormalizationService, NormalizationResult
+from .quality_gate_service import QualityGateService, QualityDecision, QualityResult
 
 __all__ = [
     "BaseService",
@@ -14,4 +15,7 @@ __all__ = [
     "RSSConnector",
     "NormalizationService",
     "NormalizationResult",
+    "QualityGateService",
+    "QualityDecision",
+    "QualityResult",
 ]
