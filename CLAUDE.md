@@ -209,6 +209,10 @@ src/cyberpulse/
 - **GitHub 操作**: 优先使用 GitHub MCP 工具
 - **代码导航**: 优先使用 LSP（goToDefinition、findReferences、hover）
   - 已安装: `pyright-lsp`, `typescript-lsp`
+  - **例外**: 在 worktree 子代理中，LSP 无法识别 worktree 虚拟环境，应使用 CLI 替代：
+    - 类型检查: `.venv/bin/pyright <file>`
+    - 查找定义: `grep -r "def <name>" src/`
+    - 查找引用: `grep -r "<symbol>" src/`
 
 ### Git 规范
 
@@ -254,6 +258,19 @@ git worktree remove .worktrees/feature-xxx
 2. **项目已配置 Pyright**（见 `pyproject.toml`）：`venvPath = "."` 确保 LSP 在当前目录查找 `.venv`。
 
 3. **LSP 诊断异常时**：确认终端工作目录是 worktree 路径，而非主项目路径。
+
+**⚠️ subagent-driven-development 场景**
+
+当使用 `subagent-driven-development` skill 派发子代理在 worktree 中工作时，**LSP 无法动态切换虚拟环境**。子代理应使用以下替代方法：
+
+| 功能 | LSP 方法 | CLI 替代 |
+|------|---------|---------|
+| 类型检查 | `LSP hover` | `.venv/bin/pyright <file>` |
+| 查找定义 | `LSP goToDefinition` | `grep -r "def <name>" src/` |
+| 查找引用 | `LSP findReferences` | `grep -r "<symbol>" src/` |
+| 查找文件 | - | `glob` 工具 |
+
+**经验规则**：在 worktree 子代理中，优先使用 CLI 工具（`pyright`、`grep`、`glob`）而非 LSP。
 
 ### PR 合并后清理
 
