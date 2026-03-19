@@ -9,7 +9,8 @@
 **进度**:
 - ✅ Phase 1: 核心基础设施（Models, Database, SourceService, RSSConnector）
 - ✅ Phase 2A: 数据处理管道（ItemService, NormalizationService, QualityGateService, ContentService）
-- 🚧 Phase 2B-2F: 多源采集、API 服务、调度系统、评分系统、CLI 工具
+- ✅ Phase 2B: 多源采集（APIConnector, WebScraperConnector, MediaAPIConnector, Connector Factory）
+- 🚧 Phase 2C-2F: API 服务、调度系统、评分系统、CLI 工具
 
 ## 概述
 
@@ -180,6 +181,21 @@ git branch --show-current  # 应显示 feature/xxx
 # 清理
 git worktree remove .worktrees/feature-xxx
 ```
+
+**⚠️ Worktree LSP 配置**
+
+在 worktree 中工作时，Pyright 需要正确识别虚拟环境：
+
+1. **创建 worktree 后，初始化虚拟环境**：
+   ```bash
+   cd .worktrees/feature-xxx
+   python3 -m venv .venv
+   .venv/bin/pip install -e ".[dev]"
+   ```
+
+2. **项目已配置 Pyright**（见 `pyproject.toml`）：`venvPath = "."` 确保 LSP 在当前目录查找 `.venv`。
+
+3. **LSP 诊断异常时**：确认终端工作目录是 worktree 路径，而非主项目路径。
 
 ### PR 合并后清理
 

@@ -80,3 +80,10 @@ env = [
     "DATABASE_URL=postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse_test",
     "TEST_DATABASE_URL=postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse_test",
 ]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingTypeStubs = false
