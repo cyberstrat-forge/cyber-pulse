@@ -49,3 +49,6 @@ htmlcov/
 
 # OS
 .DS_Store
+
+# Worktrees
+.worktrees/
