@@ -6,6 +6,7 @@ This module provides CLI commands to manage scheduled collection jobs:
 - cancel: Cancel/remove a scheduled job
 - status: Get details of a specific job
 """
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -15,6 +16,7 @@ from rich.table import Table
 
 from ...scheduler.scheduler import SchedulerService
 
+logger = logging.getLogger(__name__)
 app = typer.Typer(
     name="job",
     help="Manage collection jobs",
@@ -110,6 +112,7 @@ def list_jobs(
         console.print(f"\n[dim]Total: {len(jobs)} job(s)[/dim]")
 
     except Exception as e:
+        logger.error(f"Error listing jobs: {e}")
         console.print(f"[red]Error listing jobs: {e}[/red]")
         raise typer.Exit(1)
 
@@ -177,6 +180,7 @@ def run_job(
     except typer.Exit:
         raise
     except Exception as e:
+        logger.error(f"Error running job: {e}")
         console.print(f"[red]Error running job: {e}[/red]")
         raise typer.Exit(1)
 
@@ -219,6 +223,7 @@ def cancel_job(
     except typer.Exit:
         raise
     except Exception as e:
+        logger.error(f"Error cancelling job: {e}")
         console.print(f"[red]Error cancelling job: {e}[/red]")
         raise typer.Exit(1)
 
@@ -278,6 +283,7 @@ def job_status(
     except typer.Exit:
         raise
     except Exception as e:
+        logger.error(f"Error getting job status: {e}")
         console.print(f"[red]Error getting job status: {e}[/red]")
         raise typer.Exit(1)
 
@@ -332,6 +338,7 @@ def schedule_job(
         console.print(f"[red]Validation error: {e}[/red]")
         raise typer.Exit(1)
     except Exception as e:
+        logger.error(f"Error scheduling job: {e}")
         console.print(f"[red]Error scheduling job: {e}[/red]")
         raise typer.Exit(1)
 
@@ -357,6 +364,7 @@ def unschedule_job(
             console.print(f"[yellow]No scheduled collection found for source: {source_id}[/yellow]")
 
     except Exception as e:
+        logger.error(f"Error unscheduling job: {e}")
         console.print(f"[red]Error unscheduling job: {e}[/red]")
         raise typer.Exit(1)
 

@@ -34,6 +34,7 @@ from prompt_toolkit.widgets import Box, Label
 from rich.console import Console
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 # Define styles
 STYLE = Style.from_dict(
@@ -283,6 +284,7 @@ class CyberPulseTUI:
             if result.stderr:
                 self.state.add_output(result.stderr.strip(), style="error")
         except Exception as e:
+            logger.error(f"Error executing command: {e}")
             self.state.add_output(f"Error: {e}", style="error")
 
     def run(self) -> None:

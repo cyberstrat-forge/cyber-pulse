@@ -1,6 +1,7 @@
 """Source command module for managing intelligence sources."""
 
 import asyncio
+import logging
 import typer
 from typing import Optional, List
 
@@ -19,6 +20,7 @@ from ...services import (
 )
 from ...models import Source, SourceTier, SourceStatus
 
+logger = logging.getLogger(__name__)
 app = typer.Typer(name="source", help="Manage intelligence sources")
 console = Console()
 
@@ -495,7 +497,8 @@ def test_source(
             else:
                 console.print("   [green]Tier is consistent with score[/green]")
 
-        except Exception as e:
+        except ValueError as e:
+            logger.debug(f"Quality assessment error: {e}")
             console.print(f"   [yellow]Quality assessment skipped: {e}[/yellow]")
 
         # Test 3: Sample Items
@@ -536,7 +539,8 @@ def source_stats(
             # Get score components
             try:
                 components = score_service.get_score_components(source_id)
-            except ValueError:
+            except ValueError as e:
+                logger.debug(f"Could not get score components: {e}")
                 components = None
 
             tier_color = _get_tier_color(stats["tier"])

@@ -1,4 +1,5 @@
 """Diagnose command module."""
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -11,6 +12,7 @@ from ...database import SessionLocal
 from ...config import settings
 from ...models import Source, SourceStatus, Item, ItemStatus
 
+logger = logging.getLogger(__name__)
 app = typer.Typer(
     name="diagnose",
     help="System diagnostics and health checks",
@@ -317,6 +319,7 @@ def diagnose_errors(
                     if since_dt and log_dt < since_dt:
                         continue
                 except ValueError:
+                    logger.debug(f"Could not parse log timestamp: {timestamp_str}")
                     pass
                 errors.append({
                     'timestamp': timestamp_str,
@@ -333,7 +336,8 @@ def diagnose_errors(
                     console.print(f"  [{color}]{err['level']}[/{color}] [dim]{err['timestamp']}[/dim] {err['message'][:80]}")
             else:
                 console.print("  [green]No errors found in logs[/green]")
-        except Exception as e:
+        except OSError as e:
+            logger.warning(f"Could not read log file: {e}")
             console.print(f"  [yellow]Could not read log file: {e}[/yellow]")
     else:
         console.print("  [dim]Log file not found[/dim]")

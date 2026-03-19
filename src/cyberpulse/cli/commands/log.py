@@ -1,4 +1,5 @@
 """Log command module."""
+import logging
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -10,6 +11,8 @@ from rich.table import Table
 from rich.panel import Panel
 
 from ...config import settings
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     name="log",
@@ -103,7 +106,8 @@ def read_log_lines(log_path: Path, n: int = 50, from_end: bool = True) -> list[s
                     if line.strip():
                         lines.append(line.strip())
                 return lines
-    except OSError:
+    except OSError as e:
+        logger.warning(f"Failed to read log file {log_path}: {e}")
         return []
 
 

@@ -1,4 +1,5 @@
 """Config command module."""
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -9,6 +10,7 @@ from rich.table import Table
 
 from ...config import Settings
 
+logger = logging.getLogger(__name__)
 app = typer.Typer(
     name="config",
     help="Manage configuration",
@@ -186,7 +188,8 @@ def set_config(
         console.print(f"[green]Set {key} = {masked}[/green]")
         console.print(f"[dim]Written to: {env_path}[/dim]")
         console.print("[yellow]Note:[/yellow] Restart the application for changes to take effect")
-    except Exception as e:
+    except OSError as e:
+        logger.error(f"Error writing to .env file: {e}")
         console.print(f"[red]Error writing to .env file:[/red] {e}")
         raise typer.Exit(1)
 

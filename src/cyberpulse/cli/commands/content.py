@@ -1,6 +1,7 @@
 """Content command module for managing collected content."""
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -12,6 +13,7 @@ from rich.panel import Panel
 from ...database import SessionLocal
 from ...services import ContentService
 
+logger = logging.getLogger(__name__)
 app = typer.Typer(
     name="content",
     help="Manage collected content",
@@ -148,6 +150,7 @@ def list_content(
             console.print(table)
 
     except Exception as e:
+        logger.error(f"Error listing content: {e}")
         console.print(f"[red]Error listing content: {e}[/red]")
         raise typer.Exit(1)
     finally:
@@ -252,6 +255,7 @@ def get_content(
     except typer.Exit:
         raise
     except Exception as e:
+        logger.error(f"Error getting content: {e}")
         console.print(f"[red]Error getting content: {e}[/red]")
         raise typer.Exit(1)
     finally:
@@ -296,6 +300,7 @@ def content_stats(
             console.print(table)
 
     except Exception as e:
+        logger.error(f"Error getting content statistics: {e}")
         console.print(f"[red]Error getting content statistics: {e}[/red]")
         raise typer.Exit(1)
     finally:
