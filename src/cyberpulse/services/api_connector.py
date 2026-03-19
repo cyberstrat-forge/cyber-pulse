@@ -31,6 +31,7 @@ class APIConnector(BaseConnector):
     READ_TIMEOUT = 30.0  # seconds
     RETRY_DELAYS = [10.0, 20.0, 40.0]  # exponential backoff in seconds
     RATE_LIMIT_DELAY = 60.0  # seconds to wait on 429
+    MAX_RATE_LIMIT_RETRIES = 3  # max consecutive 429 responses before giving up
 
     # Default field mapping
     DEFAULT_FIELD_MAPPING = {
@@ -247,6 +248,7 @@ class APIConnector(BaseConnector):
             ConnectorError: If request fails after all retries
         """
         last_error: Optional[Exception] = None
+        rate_limit_count = 0
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -258,9 +260,16 @@ class APIConnector(BaseConnector):
 
                 # Handle rate limiting (429)
                 if response.status_code == 429:
+                    rate_limit_count += 1
+                    if rate_limit_count > self.MAX_RATE_LIMIT_RETRIES:
+                        raise ConnectorError(
+                            f"API '{request['url']}' rate limit exceeded "
+                            f"after {self.MAX_RATE_LIMIT_RETRIES} retries"
+                        )
                     retry_after = float(response.headers.get("Retry-After", self.RATE_LIMIT_DELAY))
                     logger.warning(
-                        f"Rate limited by API '{request['url']}', waiting {retry_after}s"
+                        f"Rate limited by API '{request['url']}', "
+                        f"waiting {retry_after}s (attempt {rate_limit_count}/{self.MAX_RATE_LIMIT_RETRIES})"
                     )
                     await asyncio.sleep(retry_after)
                     continue

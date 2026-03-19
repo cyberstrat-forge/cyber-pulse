@@ -33,6 +33,7 @@ class WebScraperConnector(BaseConnector):
     READ_TIMEOUT = 60.0  # seconds
     RETRY_DELAYS = [10.0, 20.0, 40.0]  # exponential backoff in seconds
     SERVER_ERROR_DELAY = 30.0  # seconds to wait on server errors
+    MAX_RATE_LIMIT_RETRIES = 3  # max consecutive 429 responses before giving up
 
     def validate_config(self) -> bool:
         """Validate the connector configuration.
@@ -148,9 +149,14 @@ class WebScraperConnector(BaseConnector):
 
                 except ConnectorError:
                     raise
-                except Exception as e:
-                    logger.warning(f"Error processing '{current_url}': {e}")
+                except (ValueError, KeyError, TypeError) as e:
+                    # Parsing/data extraction errors - skip this URL but continue
+                    logger.warning(f"Data error processing '{current_url}': {e}")
                     continue
+                except Exception as e:
+                    # Unexpected errors - log and re-raise for debugging
+                    logger.error(f"Unexpected error processing '{current_url}': {e}")
+                    raise
 
         return all_items[: self.MAX_ITEMS]
 
@@ -168,6 +174,7 @@ class WebScraperConnector(BaseConnector):
             ConnectorError: If fetch fails after all retries
         """
         last_error: Optional[Exception] = None
+        rate_limit_count = 0
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -178,8 +185,17 @@ class WebScraperConnector(BaseConnector):
 
                 # Handle rate limiting (429)
                 if response.status_code == 429:
+                    rate_limit_count += 1
+                    if rate_limit_count > self.MAX_RATE_LIMIT_RETRIES:
+                        raise ConnectorError(
+                            f"Web scraper '{url}' rate limit exceeded "
+                            f"after {self.MAX_RATE_LIMIT_RETRIES} retries"
+                        )
                     retry_after = float(response.headers.get("Retry-After", 60))
-                    logger.warning(f"Rate limited by '{url}', waiting {retry_after}s")
+                    logger.warning(
+                        f"Rate limited by '{url}', waiting {retry_after}s "
+                        f"(attempt {rate_limit_count}/{self.MAX_RATE_LIMIT_RETRIES})"
+                    )
                     await asyncio.sleep(retry_after)
                     continue
 

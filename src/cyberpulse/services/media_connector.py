@@ -353,9 +353,9 @@ class MediaAPIConnector(BaseConnector):
             raise
         except YouTubeRetryableError:
             raise
-        except Exception:
-            # Not a YouTube error, let it fall through to generic handling
-            pass
+        except Exception as e:
+            # Not a structured YouTube error, log and fall through to generic handling
+            logger.debug(f"Could not parse YouTube error response: {e}")
 
     def _handle_error(self, error: Exception, retry_count: int) -> tuple[bool, float]:
         """Handle errors with retry logic.

@@ -13,6 +13,7 @@ from cyberpulse.services import (
     get_connector,
     get_connector_for_source,
 )
+from cyberpulse.services.connector_service import BaseConnector
 
 
 class TestGetConnector:
@@ -136,6 +137,6 @@ class TestConnectorRegistry:
     def test_registry_values_are_connector_classes(self):
         """Test all registry values are connector classes."""
         for connector_type, connector_class in CONNECTOR_REGISTRY.items():
-            assert issubclass(connector_class, RSSConnector.__bases__[0]), (
+            assert issubclass(connector_class, BaseConnector), (
                 f"{connector_type} connector class should be a subclass of BaseConnector"
             )
