@@ -1,11 +1,15 @@
 """Normalization service for content processing."""
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
 
 import trafilatura
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -215,8 +219,9 @@ class NormalizationService:
             if result and hasattr(result, "language") and result.language:
                 return result.language
 
-        except Exception:
-            pass
+        except Exception as e:
+            # Language detection via trafilatura failed, use heuristic fallback
+            logger.debug(f"Trafilatura language detection failed: {e}")
 
         # Fallback: simple character-based detection for Chinese
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", content))

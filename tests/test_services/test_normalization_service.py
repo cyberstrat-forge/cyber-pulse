@@ -248,7 +248,8 @@ class TestLanguageDetection:
         language = normalization_service._detect_language(content)
 
         # Short content may not be reliably detected
-        # Could return None or a default
+        # Could return None or a default (e.g., "en" for >50 chars)
+        assert language is None or language in ("en", "zh")
 
     def test_detect_empty_content(self, normalization_service):
         """Test language detection with empty content."""
