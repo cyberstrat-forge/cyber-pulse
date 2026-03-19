@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple
 
+from sqlalchemy.exc import IntegrityError
+
 from .base import BaseService
 from ..models import Content, ContentStatus, Item
 
@@ -96,10 +98,25 @@ class ContentService(BaseService):
         item.content_id = content_id
 
         self.db.add(content)
-        self.db.commit()
-        self.db.refresh(content)
-
-        return content, True
+        try:
+            self.db.commit()
+            self.db.refresh(content)
+            return content, True
+        except IntegrityError:
+            # Race condition - another request created the content
+            self.db.rollback()
+            existing = self.db.query(Content).filter(
+                Content.canonical_hash == canonical_hash
+            ).first()
+            if existing:
+                # Link item and update existing content
+                item.content_id = existing.content_id
+                existing.source_count += 1
+                existing.last_seen_at = now
+                self.db.commit()
+                self.db.refresh(existing)
+                return existing, False
+            raise
 
     def get_contents(
         self,
@@ -179,6 +196,9 @@ class ContentService(BaseService):
             func.count(Content.content_id).label("total_contents"),
             func.sum(Content.source_count).label("total_source_references"),
         ).first()
+
+        if result is None:
+            return {"total_contents": 0, "total_source_references": 0}
 
         return {
             "total_contents": result.total_contents or 0,
