@@ -11,7 +11,8 @@
 - ✅ Phase 2A: 数据处理管道（ItemService, NormalizationService, QualityGateService, ContentService）
 - ✅ Phase 2B: 多源采集（APIConnector, WebScraperConnector, MediaAPIConnector, Connector Factory）
 - ✅ Phase 2C: API 服务（FastAPI REST API, API Key 认证, Content/Source/Client API）
-- 🚧 Phase 2D-2F: 调度系统、评分系统、CLI 工具
+- ✅ Phase 2D: 调度系统（APScheduler + Dramatiq）
+- 🚧 Phase 2E-2F: 评分系统、CLI 工具
 
 ## 快速开始
 
@@ -228,10 +229,27 @@ except Exception as e:
 
 ### Worktree 使用
 
+**⚠️ 开发偏好：跳过 Worktree**
+
+对于单任务开发场景（无并行开发任务），**直接在主仓库创建分支**，不使用 worktree。
+原因：利用 LSP 能力（Pyright 类型检查、代码导航）。
+
+```bash
+# 单任务开发流程
+git checkout -b feature/xxx
+# 开发完成后
+git checkout main && git merge feature/xxx
+```
+
+**使用 worktree 的场景**：
+- 多个并行开发任务
+- 需要隔离测试环境
+- 长期运行的 feature 分支
+
 **所有开发必须在 feature 分支进行，禁止直接在 main 分支开发。**
 
 ```bash
-# 创建 worktree
+# 创建 worktree（仅在并行开发时使用）
 git worktree add .worktrees/feature-xxx -b feature/xxx
 
 # ⚠️ 验证工作目录
@@ -242,7 +260,7 @@ git branch --show-current  # 应显示 feature/xxx
 git worktree remove .worktrees/feature-xxx
 ```
 
-**⚠️ Worktree LSP 配置**
+**⚠️ Worktree LSP 配置（如使用 worktree）**
 
 在 worktree 中工作时，Pyright 需要正确识别虚拟环境：
 
@@ -257,7 +275,7 @@ git worktree remove .worktrees/feature-xxx
 
 3. **LSP 诊断异常时**：确认终端工作目录是 worktree 路径，而非主项目路径。
 
-**⚠️ subagent-driven-development 场景**
+**⚠️ subagent-driven-development 场景（如使用 worktree）**
 
 当使用 `subagent-driven-development` skill 派发子代理在 worktree 中工作时，**LSP 无法动态切换虚拟环境**。子代理应使用以下替代方法：
 
@@ -268,7 +286,9 @@ git worktree remove .worktrees/feature-xxx
 | 查找引用 | `LSP findReferences` | `grep -r "<symbol>" src/` |
 | 查找文件 | - | `glob` 工具 |
 
-**经验规则**：在 worktree 子代理中，优先使用 CLI 工具（`pyright`、`grep`、`glob`）而非 LSP。
+**经验规则**：
+- 单任务开发：直接在主仓库开发，使用 LSP
+- 多任务并行：使用 worktree，子代理使用 CLI 工具
 
 ### PR 合并后清理
 

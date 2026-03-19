@@ -21,6 +21,7 @@ Layout:
 +-----------------------------------------+
 """
 import logging
+import shlex
 from typing import Any
 
 from prompt_toolkit import Application
@@ -161,7 +162,6 @@ class CyberPulseTUI:
                 self.input_buffer.text = ""
             else:
                 self.state.add_output("Use /exit or /quit to exit")
-                self._update_output()
 
         @self.key_bindings.add("tab")
         def _(event: Any) -> None:
@@ -175,7 +175,6 @@ class CyberPulseTUI:
                     self.input_buffer.cursor_position = len(self.input_buffer.text)
                 elif len(matches) > 1:
                     self.state.add_output("  ".join(matches))
-                    self._update_output()
             else:
                 # Complete CLI commands
                 matches = [cmd for cmd in ["source", "job", "content", "client", "config", "log", "diagnose", "version"] if cmd.startswith(text)]
@@ -184,7 +183,6 @@ class CyberPulseTUI:
                     self.input_buffer.cursor_position = len(self.input_buffer.text)
                 elif len(matches) > 1:
                     self.state.add_output("  ".join(matches))
-                    self._update_output()
 
         # Build layout
         self._build_layout()
@@ -245,11 +243,6 @@ class CyberPulseTUI:
             )
         )
 
-    def _update_output(self) -> None:
-        """Update the output display."""
-        # Force layout redraw
-        pass
-
     def _execute_command(self, command: str) -> None:
         """Execute a command."""
         self.state.add_output(f"> {command}")
@@ -281,7 +274,7 @@ class CyberPulseTUI:
             import sys
 
             result = subprocess.run(
-                [sys.executable, "-m", "cyberpulse.cli.app"] + command.split(),
+                [sys.executable, "-m", "cyberpulse.cli.app"] + shlex.split(command),
                 capture_output=True,
                 text=True,
             )
@@ -317,7 +310,6 @@ class CyberPulseTUI:
                     self.input_buffer.text = ""
                 else:
                     self.state.add_output("Use /exit or /quit to exit")
-                    self._update_output()
 
 
 def run_tui() -> None:

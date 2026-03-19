@@ -1,7 +1,6 @@
 """
 Tests for CLI main entry point.
 """
-import pytest
 from typer.testing import CliRunner
 
 from cyberpulse.cli.app import app
@@ -133,7 +132,7 @@ class TestTUI:
 
     def test_tui_start(self) -> None:
         """Test TUI can be initialized."""
-        from cyberpulse.cli.tui import CyberPulseTUI, run_tui, COMMANDS
+        from cyberpulse.cli.tui import CyberPulseTUI
 
         # Test TUI state initialization
         tui = CyberPulseTUI()
