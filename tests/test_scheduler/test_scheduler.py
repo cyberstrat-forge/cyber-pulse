@@ -335,18 +335,36 @@ class TestSchedulerIntegration:
             service.stop()
             assert service.is_running() is False
 
-    def test_job_event_listener(self):
-        """Test job event listener for logging."""
+    def test_job_event_listener_success(self, caplog):
+        """Test job event listener logs successful execution."""
+        import logging
+
         service = SchedulerService.__new__(SchedulerService)
         service._running = False
         service.database_url = "test"
 
-        # Test successful job event
         event = MagicMock()
         event.job_id = "test_job"
         event.exception = None
-        service._job_executed_listener(event)
 
-        # Test failed job event
+        with caplog.at_level(logging.INFO):
+            service._job_executed_listener(event)
+
+        assert "executed successfully" in caplog.text or "test_job" in caplog.text
+
+    def test_job_event_listener_failure(self, caplog):
+        """Test job event listener logs failed execution."""
+        import logging
+
+        service = SchedulerService.__new__(SchedulerService)
+        service._running = False
+        service.database_url = "test"
+
+        event = MagicMock()
+        event.job_id = "test_job"
         event.exception = Exception("Test error")
-        service._job_executed_listener(event)
+
+        with caplog.at_level(logging.ERROR):
+            service._job_executed_listener(event)
+
+        assert "failed" in caplog.text.lower() or "error" in caplog.text.lower()

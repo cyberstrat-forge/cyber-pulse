@@ -60,7 +60,9 @@ def run_scheduled_collection() -> Dict[str, Any]:
             try:
                 ingest_source.send(source.source_id)
                 queued_count += 1
-            except Exception as e:
+            except (OSError, ConnectionError) as e:
+                # Catch broker/connection errors specifically
+                # Let system errors (MemoryError, etc.) propagate
                 logger.error(f"Failed to queue source {source.source_id}: {e}")
                 failed_count += 1
                 continue
@@ -95,6 +97,7 @@ def update_source_scores() -> Dict[str, Any]:
 
         score_service = SourceScoreService(db)
         updated_count = 0
+        failed_count = 0
 
         for source in sources:
             try:
@@ -102,13 +105,15 @@ def update_source_scores() -> Dict[str, Any]:
                 updated_count += 1
             except ValueError as e:
                 logger.warning(f"Could not update score for {source.source_id}: {e}")
+                failed_count += 1
 
-        logger.info(f"Updated scores for {updated_count} sources")
+        logger.info(f"Updated scores for {updated_count} sources ({failed_count} failed)")
 
         return {
             "status": "completed",
             "sources_updated": updated_count,
-            "message": f"Updated scores for {updated_count} sources",
+            "failed_count": failed_count,
+            "message": f"Updated scores for {updated_count} sources ({failed_count} failed)",
         }
     finally:
         db.close()
