@@ -278,9 +278,9 @@ class TestDeleteClient:
 
     def test_delete_client_success(self, client, db_session):
         """Test revoking a client."""
-        # Create a client to delete
+        # Create a client to delete (valid client_id format: cli_ + 16 hex chars)
         client_obj = ApiClient(
-            client_id="cli_delete_test",
+            client_id="cli_aaaa1111bbbb2222",
             name="Client to Delete",
             api_key="hashed_delete",
             status=ApiClientStatus.ACTIVE,
@@ -292,7 +292,7 @@ class TestDeleteClient:
         from cyberpulse.api.dependencies import get_db
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.delete("/api/v1/clients/cli_delete_test")
+            response = client.delete("/api/v1/clients/cli_aaaa1111bbbb2222")
 
             assert response.status_code == 204
 
@@ -307,7 +307,7 @@ class TestDeleteClient:
         from cyberpulse.api.dependencies import get_db
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.delete("/api/v1/clients/cli_nonexistent")
+            response = client.delete("/api/v1/clients/cli_ffff0000eeee1111")
 
             assert response.status_code == 404
             assert "not found" in response.json()["detail"].lower()
@@ -318,7 +318,7 @@ class TestDeleteClient:
         """Test revoking an already revoked client - should succeed."""
         # Create a revoked client
         client_obj = ApiClient(
-            client_id="cli_already_revoked",
+            client_id="cli_cccc3333dddd4444",
             name="Already Revoked Client",
             api_key="hashed_revoked",
             status=ApiClientStatus.REVOKED,
@@ -330,7 +330,7 @@ class TestDeleteClient:
         from cyberpulse.api.dependencies import get_db
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.delete("/api/v1/clients/cli_already_revoked")
+            response = client.delete("/api/v1/clients/cli_cccc3333dddd4444")
 
             # Should succeed (idempotent)
             assert response.status_code == 204
@@ -340,7 +340,7 @@ class TestDeleteClient:
     def test_delete_client_idempotent(self, client, db_session):
         """Test that deleting twice works (idempotent)."""
         client_obj = ApiClient(
-            client_id="cli_idempotent",
+            client_id="cli_5555aaaa6666bbbb",
             name="Idempotent Test",
             api_key="hashed_idempotent",
             status=ApiClientStatus.ACTIVE,
@@ -353,12 +353,32 @@ class TestDeleteClient:
         app.dependency_overrides[get_db] = lambda: db_session
         try:
             # First delete
-            response = client.delete("/api/v1/clients/cli_idempotent")
+            response = client.delete("/api/v1/clients/cli_5555aaaa6666bbbb")
             assert response.status_code == 204
 
             # Second delete (idempotent)
-            response = client.delete("/api/v1/clients/cli_idempotent")
+            response = client.delete("/api/v1/clients/cli_5555aaaa6666bbbb")
             assert response.status_code == 204
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_delete_client_invalid_format(self, client, db_session):
+        """Test deleting a client with invalid client_id format."""
+        from cyberpulse.api.dependencies import get_db
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            # Invalid client_id format (missing cli_ prefix)
+            response = client.delete("/api/v1/clients/invalid_id")
+            assert response.status_code == 400
+            assert "invalid client_id format" in response.json()["detail"].lower()
+
+            # Invalid client_id format (wrong hex length)
+            response = client.delete("/api/v1/clients/cli_short")
+            assert response.status_code == 400
+
+            # Invalid client_id format (non-hex characters)
+            response = client.delete("/api/v1/clients/cli_ghijklmnopqrstuvwxyz")
+            assert response.status_code == 400
         finally:
             app.dependency_overrides.clear()
 

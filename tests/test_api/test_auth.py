@@ -78,6 +78,42 @@ class TestHashAndVerifyApiKey:
         assert verify_api_key(plain_key, hash1) is True
         assert verify_api_key(plain_key, hash2) is True
 
+    def test_verify_api_key_malformed_hash(self):
+        """Test that malformed hash returns False (not exception)."""
+        plain_key = "cp_live_1234567890abcdef1234567890abcdef"
+        # Invalid hash - not a valid bcrypt hash
+        malformed_hash = "not_a_valid_hash"
+
+        result = verify_api_key(plain_key, malformed_hash)
+
+        assert result is False
+
+    def test_verify_api_key_corrupted_hash(self):
+        """Test that corrupted hash returns False."""
+        plain_key = "cp_live_1234567890abcdef1234567890abcdef"
+        # Partially corrupted bcrypt hash
+        corrupted_hash = "$2b$12$invalidhashdata"
+
+        result = verify_api_key(plain_key, corrupted_hash)
+
+        assert result is False
+
+    def test_verify_api_key_empty_hash(self):
+        """Test that empty hash returns False."""
+        plain_key = "cp_live_1234567890abcdef1234567890abcdef"
+
+        result = verify_api_key(plain_key, "")
+
+        assert result is False
+
+    def test_verify_api_key_unicode_handling(self):
+        """Test that unicode in key is handled gracefully."""
+        # Key with unicode characters
+        unicode_key = "cp_live_测试1234567890abcdef"
+        hashed = hash_api_key(unicode_key)
+
+        assert verify_api_key(unicode_key, hashed) is True
+
 
 class TestGetCurrentClient:
     """Tests for get_current_client dependency."""
@@ -367,6 +403,20 @@ class TestApiClientService:
         assert len(revoked_clients) == 1
         assert revoked_clients[0].client_id == revoked.client_id
 
+    def test_validate_client_updates_last_used_at(self, service, db_session):
+        """Test that validate_client updates last_used_at on success."""
+        client, plain_key = service.create_client(name="Test Client")
+
+        # Ensure last_used_at is initially None
+        db_session.refresh(client)
+        assert client.last_used_at is None
+
+        # Validate should update last_used_at
+        validated = service.validate_client(plain_key)
+
+        assert validated is not None
+        assert validated.last_used_at is not None
+
 
 class TestAuthIntegration:
     """Integration tests with FastAPI app."""
@@ -412,4 +462,56 @@ class TestAuthIntegration:
             headers={"Authorization": "Bearer cp_live_invalid"}
         )
 
+        assert response.status_code == 401
+
+    def test_protected_endpoint_with_malformed_auth_header(self, db_session):
+        """Test that malformed Authorization header returns 401."""
+        from fastapi import FastAPI, Depends
+        from cyberpulse.api.auth import get_current_client
+
+        test_app = FastAPI()
+
+        @test_app.get("/protected")
+        async def protected(client=Depends(get_current_client)):
+            return {"client_id": client.client_id}
+
+        test_client = TestClient(test_app)
+
+        # Missing Bearer prefix
+        response = test_client.get(
+            "/protected",
+            headers={"Authorization": "cp_live_test1234567890abcdef12345678"}
+        )
+        assert response.status_code == 401
+
+        # Wrong scheme
+        response = test_client.get(
+            "/protected",
+            headers={"Authorization": "Basic cp_live_test"}
+        )
+        assert response.status_code == 401
+
+    def test_protected_endpoint_with_empty_auth_header(self, db_session):
+        """Test that empty Authorization header returns 401."""
+        from fastapi import FastAPI, Depends
+        from cyberpulse.api.auth import get_current_client
+
+        test_app = FastAPI()
+
+        @test_app.get("/protected")
+        async def protected(client=Depends(get_current_client)):
+            return {"client_id": client.client_id}
+
+        test_client = TestClient(test_app)
+
+        response = test_client.get(
+            "/protected",
+            headers={"Authorization": "Bearer "}
+        )
+        assert response.status_code == 401
+
+        response = test_client.get(
+            "/protected",
+            headers={"Authorization": ""}
+        )
         assert response.status_code == 401

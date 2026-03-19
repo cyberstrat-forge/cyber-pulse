@@ -60,10 +60,14 @@ def verify_api_key(plain_key: str, hashed_key: str) -> bool:
             plain_key.encode("utf-8"),
             hashed_key.encode("utf-8")
         )
-    except Exception as e:
-        # Log for security auditing (malformed input, corrupted hash, etc.)
+    except (ValueError, TypeError, UnicodeError) as e:
+        # Expected errors: malformed input, corrupted hash, encoding issues
         logger.warning(f"API key verification failed: {e}")
         return False
+    except Exception as e:
+        # Unexpected error - log at error level and re-raise
+        logger.error(f"Unexpected error during API key verification: {e}")
+        raise
 
 
 async def get_current_client(
@@ -94,7 +98,12 @@ async def get_current_client(
         if verify_api_key(api_key, client.api_key):  # type: ignore[arg-type]
             # Update last_used_at timestamp
             client.last_used_at = datetime.now(timezone.utc)  # type: ignore[assignment]
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"Failed to update last_used_at: {e}")
+                db.rollback()
+                # Continue with authentication - don't fail the request
             return client
 
     raise HTTPException(
@@ -231,7 +240,12 @@ class ApiClientService:
             return False
 
         client.status = ApiClientStatus.REVOKED  # type: ignore[assignment]
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to revoke client {client_id}: {e}")
+            self.db.rollback()
+            raise
         logger.info(f"Revoked API client: {client_id}")
         return True
 
@@ -253,7 +267,12 @@ class ApiClientService:
             return False
 
         client.status = ApiClientStatus.SUSPENDED  # type: ignore[assignment]
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to suspend client {client_id}: {e}")
+            self.db.rollback()
+            raise
         logger.info(f"Suspended API client: {client_id}")
         return True
 

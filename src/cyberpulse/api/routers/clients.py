@@ -9,6 +9,7 @@ network-level access controls or admin authentication.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -28,6 +29,22 @@ from ..auth import ApiClientService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# client_id format: cli_{16 hex chars}
+CLIENT_ID_PATTERN = re.compile(r"^cli_[a-f0-9]{16}$")
+
+
+def validate_client_id(client_id: str) -> None:
+    """Validate client_id format.
+
+    Raises:
+        HTTPException: If client_id format is invalid
+    """
+    if not CLIENT_ID_PATTERN.match(client_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid client_id format: {client_id}. Expected format: cli_xxxxxxxxxxxxxxxx"
+        )
 
 
 @router.post("/clients", response_model=ClientCreatedResponse, status_code=201)
@@ -116,6 +133,9 @@ async def delete_client(
     **Note**: This is a soft delete - the client record remains in the
     database for audit purposes.
     """
+    # Validate client_id format
+    validate_client_id(client_id)
+
     logger.info(f"Revoking API client: client_id={client_id}")
 
     service = ApiClientService(db)
