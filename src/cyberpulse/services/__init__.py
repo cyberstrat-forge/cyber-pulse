@@ -1,5 +1,6 @@
 from .base import BaseService
 from .source_service import SourceService
+from .source_score_service import SourceScoreService, ScoreComponents
 from .item_service import ItemService
 from .content_service import ContentService
 from .connector_service import BaseConnector, ConnectorError
@@ -14,6 +15,8 @@ from .connector_factory import CONNECTOR_REGISTRY, get_connector, get_connector_
 __all__ = [
     "BaseService",
     "SourceService",
+    "SourceScoreService",
+    "ScoreComponents",
     "ItemService",
     "ContentService",
     "BaseConnector",
