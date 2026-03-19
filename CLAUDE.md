@@ -10,7 +10,8 @@
 - ✅ Phase 1: 核心基础设施（Models, Database, SourceService, RSSConnector）
 - ✅ Phase 2A: 数据处理管道（ItemService, NormalizationService, QualityGateService, ContentService）
 - ✅ Phase 2B: 多源采集（APIConnector, WebScraperConnector, MediaAPIConnector, Connector Factory）
-- 🚧 Phase 2C-2F: API 服务、调度系统、评分系统、CLI 工具
+- ✅ Phase 2C: API 服务（FastAPI REST API, API Key 认证, Content/Source/Client API）
+- 🚧 Phase 2D-2F: 调度系统、评分系统、CLI 工具
 
 ## 快速开始
 
@@ -49,6 +50,9 @@ python -m venv .venv
 src/cyberpulse/
 ├── models/          # SQLAlchemy 模型
 ├── services/        # 业务逻辑层
+├── api/             # FastAPI REST API
+│   ├── routers/     # API 路由
+│   └── schemas/     # Pydantic 模型
 ├── database.py      # DB 配置
 └── config.py        # 配置管理
 ```
@@ -110,6 +114,7 @@ Python 3.11+ | PostgreSQL 15 | FastAPI | SQLAlchemy | APScheduler | Dramatiq | R
 
 - **Service 层**: 继承 `BaseService`（需 DB 时），独立服务无需继承
 - **ID 格式**: `item_{uuid8}`, `cnt_{YYYYMMDDHHMMSS}_{uuid8}`, `src_{uuid8}`
+- **API Key 格式**: `cp_live_{32_hex_chars}`（避免使用 `sk_live_`，会触发 GitHub push protection 误报）
 - **去重模式**: `create_or_get` 需处理 `IntegrityError` 竞态条件
 - **类型引用**: 使用 `TYPE_CHECKING` 避免循环导入
 - **测试组织**: 按类分组（如 `TestCreateItem`）
