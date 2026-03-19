@@ -579,8 +579,8 @@ class WebScraperConnector(BaseConnector):
             text_content = trafilatura.extract(html, url=url, include_comments=False)
             if text_content and len(text_content) > 100:
                 return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Error checking if article page '{url}': {e}")
 
         return False
 
