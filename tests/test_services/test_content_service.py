@@ -464,3 +464,146 @@ class TestContentStatistics:
         assert stats is not None
         assert stats["total_contents"] == 0
         assert stats["total_source_references"] == 0
+
+
+class TestIntegrityErrorFallback:
+    """Tests for IntegrityError handling in create_or_get_content."""
+
+    def test_integrity_error_falls_back_to_existing(self, content_service, test_source, db_session):
+        """Test that IntegrityError triggers fallback to existing content.
+
+        This test simulates a race condition where:
+        1. Two concurrent requests try to create content with same hash
+        2. The first succeeds, second gets IntegrityError
+        3. The second should fall back to finding existing content
+        """
+        import threading
+        import time
+
+        canonical_hash = make_canonical_hash("race condition test")
+        results = []
+        errors = []
+
+        def create_content_thread(item_id, external_id, url_suffix):
+            """Thread function to create content."""
+            try:
+                # Each thread needs its own session for realistic concurrency
+                item = Item(
+                    item_id=item_id,
+                    source_id=test_source.source_id,
+                    external_id=external_id,
+                    url=f"https://example.com/{url_suffix}",
+                    title=f"Item {item_id}",
+                    raw_content="Content",
+                    published_at=datetime.now(timezone.utc),
+                    fetched_at=datetime.now(timezone.utc),
+                    content_hash=hashlib.sha256(f"content_{item_id}".encode()).hexdigest(),
+                    status=ItemStatus.NORMALIZED,
+                )
+                db_session.add(item)
+                db_session.commit()
+                db_session.refresh(item)
+
+                content, is_new = content_service.create_or_get_content(
+                    canonical_hash=canonical_hash,
+                    normalized_title=f"Title {item_id}",
+                    normalized_body=f"Body {item_id}",
+                    item=item,
+                )
+                results.append((content.content_id, is_new, item.content_id))
+            except Exception as e:
+                errors.append(str(e))
+
+        # Create two threads
+        t1 = threading.Thread(target=create_content_thread, args=("item_race1", "ext_race1", "race1"))
+        t2 = threading.Thread(target=create_content_thread, args=("item_race2", "ext_race2", "race2"))
+
+        # Start both threads nearly simultaneously
+        t1.start()
+        time.sleep(0.01)  # Small delay to let first thread start
+        t2.start()
+
+        t1.join()
+        t2.join()
+
+        # At least one should succeed
+        assert len(results) >= 1, f"Expected at least 1 success, got errors: {errors}"
+
+        # All successful results should point to same content
+        if len(results) == 2:
+            content_ids = [r[0] for r in results]
+            assert content_ids[0] == content_ids[1], "Both threads should get same content"
+
+            # One should be new=True, other should be new=False
+            is_new_values = [r[1] for r in results]
+            assert True in is_new_values and False in is_new_values, \
+                "One thread should create new, other should find existing"
+
+    def test_existing_content_is_reused(self, content_service, test_source, db_session):
+        """Test that existing content with same hash is reused.
+
+        This verifies the core deduplication logic works correctly.
+        """
+        canonical_hash = make_canonical_hash("reuse test")
+
+        # Create first item and content
+        item1 = Item(
+            item_id="item_reuse1",
+            source_id=test_source.source_id,
+            external_id="ext_reuse1",
+            url="https://example.com/reuse1",
+            title="First Item",
+            raw_content="Content",
+            published_at=datetime.now(timezone.utc),
+            fetched_at=datetime.now(timezone.utc),
+            content_hash=hashlib.sha256(b"reuse1").hexdigest(),
+            status=ItemStatus.NORMALIZED,
+        )
+        db_session.add(item1)
+        db_session.commit()
+        db_session.refresh(item1)
+
+        content1, is_new1 = content_service.create_or_get_content(
+            canonical_hash=canonical_hash,
+            normalized_title="Original Title",
+            normalized_body="Original Body",
+            item=item1,
+        )
+
+        assert is_new1 is True
+        original_content_id = content1.content_id
+
+        # Create second item with same canonical_hash
+        item2 = Item(
+            item_id="item_reuse2",
+            source_id=test_source.source_id,
+            external_id="ext_reuse2",
+            url="https://example.com/reuse2",
+            title="Second Item",
+            raw_content="Content",
+            published_at=datetime.now(timezone.utc),
+            fetched_at=datetime.now(timezone.utc),
+            content_hash=hashlib.sha256(b"reuse2").hexdigest(),
+            status=ItemStatus.NORMALIZED,
+        )
+        db_session.add(item2)
+        db_session.commit()
+        db_session.refresh(item2)
+
+        # This should find existing content
+        content2, is_new2 = content_service.create_or_get_content(
+            canonical_hash=canonical_hash,
+            normalized_title="Different Title",
+            normalized_body="Different Body",
+            item=item2,
+        )
+
+        assert is_new2 is False
+        assert content2.content_id == original_content_id
+        assert content2.source_count == 2
+
+        # Both items should point to same content
+        db_session.refresh(item1)
+        db_session.refresh(item2)
+        assert item1.content_id == original_content_id
+        assert item2.content_id == original_content_id

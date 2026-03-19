@@ -1,5 +1,6 @@
 """Tests for QualityGateService."""
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -72,9 +73,9 @@ class TestCheck:
         self, quality_gate_service, valid_item, valid_normalization_result
     ):
         """Test quality check rejects item with empty body."""
-        valid_normalization_result.normalized_body = ""
+        norm_result = replace(valid_normalization_result, normalized_body="")
 
-        result = quality_gate_service.check(valid_item, valid_normalization_result)
+        result = quality_gate_service.check(valid_item, norm_result)
 
         assert result.decision == QualityDecision.REJECT
         assert result.rejection_reason is not None
@@ -157,10 +158,10 @@ class TestValidateRequiredFields:
         self, quality_gate_service, valid_item, valid_normalization_result
     ):
         """Test validation fails for empty body."""
-        valid_normalization_result.normalized_body = ""
+        norm_result = replace(valid_normalization_result, normalized_body="")
 
         errors = quality_gate_service._validate_required_fields(
-            valid_item, valid_normalization_result
+            valid_item, norm_result
         )
 
         assert len(errors) == 1
@@ -170,10 +171,10 @@ class TestValidateRequiredFields:
         self, quality_gate_service, valid_item, valid_normalization_result
     ):
         """Test validation fails for whitespace-only body."""
-        valid_normalization_result.normalized_body = "   \n\t  "
+        norm_result = replace(valid_normalization_result, normalized_body="   \n\t  ")
 
         errors = quality_gate_service._validate_required_fields(
-            valid_item, valid_normalization_result
+            valid_item, norm_result
         )
 
         assert len(errors) == 1
@@ -282,11 +283,14 @@ class TestCalculateMetrics:
     def test_calculate_metrics(self, quality_gate_service, valid_item, valid_normalization_result):
         """Test metrics calculation."""
         valid_item.raw_content = "<p>This is test content.</p>"
-        valid_normalization_result.normalized_body = "This is the normalized body content."
-        valid_normalization_result.normalized_title = "Test Title Here"
+        norm_result = replace(
+            valid_normalization_result,
+            normalized_body="This is the normalized body content.",
+            normalized_title="Test Title Here"
+        )
         valid_item.raw_metadata = {"author": "John", "tags": ["tag1", "tag2"]}
 
-        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
+        metrics = quality_gate_service._calculate_metrics(valid_item, norm_result)
 
         assert "title_length" in metrics
         assert "body_length" in metrics
@@ -330,9 +334,9 @@ class TestCalculateMetrics:
         self, quality_gate_service, valid_item, valid_normalization_result
     ):
         """Test content_completeness = 1.0 for long content."""
-        valid_normalization_result.normalized_body = "x" * 600
+        norm_result = replace(valid_normalization_result, normalized_body="x" * 600)
 
-        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
+        metrics = quality_gate_service._calculate_metrics(valid_item, norm_result)
 
         assert metrics["content_completeness"] == 1.0
 
@@ -340,9 +344,9 @@ class TestCalculateMetrics:
         self, quality_gate_service, valid_item, valid_normalization_result
     ):
         """Test content_completeness = 0.7 for medium content."""
-        valid_normalization_result.normalized_body = "x" * 300
+        norm_result = replace(valid_normalization_result, normalized_body="x" * 300)
 
-        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
+        metrics = quality_gate_service._calculate_metrics(valid_item, norm_result)
 
         assert metrics["content_completeness"] == 0.7
 
@@ -350,9 +354,9 @@ class TestCalculateMetrics:
         self, quality_gate_service, valid_item, valid_normalization_result
     ):
         """Test content_completeness = 0.4 for short content."""
-        valid_normalization_result.normalized_body = "x" * 100
+        norm_result = replace(valid_normalization_result, normalized_body="x" * 100)
 
-        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
+        metrics = quality_gate_service._calculate_metrics(valid_item, norm_result)
 
         assert metrics["content_completeness"] == 0.4
 
@@ -360,9 +364,9 @@ class TestCalculateMetrics:
         self, quality_gate_service, valid_item, valid_normalization_result
     ):
         """Test content_completeness = 0.2 for very short content."""
-        valid_normalization_result.normalized_body = "x" * 30
+        norm_result = replace(valid_normalization_result, normalized_body="x" * 30)
 
-        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
+        metrics = quality_gate_service._calculate_metrics(valid_item, norm_result)
 
         assert metrics["content_completeness"] == 0.2
 
@@ -461,19 +465,22 @@ class TestIntegration:
         </body></html>
         """
         # Body needs to be >= 200 chars for content_completeness >= 0.7
-        valid_normalization_result.normalized_body = (
-            "This is a good article with substantial content that should pass "
-            "all quality checks and be accepted into the system. "
-            "It has multiple paragraphs and good metadata. "
-            "The article provides comprehensive analysis and detailed information "
-            "about the subject matter, making it valuable for readers."
+        norm_result = replace(
+            valid_normalization_result,
+            normalized_body=(
+                "This is a good article with substantial content that should pass "
+                "all quality checks and be accepted into the system. "
+                "It has multiple paragraphs and good metadata. "
+                "The article provides comprehensive analysis and detailed information "
+                "about the subject matter, making it valuable for readers."
+            )
         )
         valid_item.raw_metadata = {
             "author": "Jane Doe",
             "tags": ["technology", "news", "analysis"],
         }
 
-        result = quality_gate_service.check(valid_item, valid_normalization_result)
+        result = quality_gate_service.check(valid_item, norm_result)
 
         assert result.decision == QualityDecision.PASS
         assert result.warnings == []
@@ -484,11 +491,11 @@ class TestIntegration:
         self, quality_gate_service, valid_item, valid_normalization_result
     ):
         """Test full quality check for low quality item still passes (warnings only)."""
-        valid_normalization_result.normalized_body = "Short"
+        norm_result = replace(valid_normalization_result, normalized_body="Short")
         valid_item.raw_metadata = {}
         valid_item.raw_content = ""
 
-        result = quality_gate_service.check(valid_item, valid_normalization_result)
+        result = quality_gate_service.check(valid_item, norm_result)
 
         # Should pass (quality gate does structural validation, not semantic)
         assert result.decision == QualityDecision.PASS
@@ -501,10 +508,10 @@ class TestIntegration:
         """Test full quality check for invalid item rejects."""
         valid_item.title = "AB"  # Too short
         valid_item.url = "not-a-url"
-        valid_normalization_result.normalized_body = ""
+        norm_result = replace(valid_normalization_result, normalized_body="")
         valid_item.published_at = None
 
-        result = quality_gate_service.check(valid_item, valid_normalization_result)
+        result = quality_gate_service.check(valid_item, norm_result)
 
         assert result.decision == QualityDecision.REJECT
         assert result.rejection_reason is not None

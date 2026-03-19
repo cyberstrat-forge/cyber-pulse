@@ -12,7 +12,7 @@ import trafilatura
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class NormalizationResult:
     """Result of content normalization."""
 

@@ -18,7 +18,7 @@ class QualityDecision(str, Enum):
     REJECT = "reject"
 
 
-@dataclass
+@dataclass(frozen=True)
 class QualityResult:
     """Result of quality check."""
 
