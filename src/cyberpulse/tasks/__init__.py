@@ -5,10 +5,23 @@ Tasks are executed by worker processes and communicate via Redis.
 
 Components:
 - worker.py: Broker configuration and dramatiq setup
-- (Future) ingestion_tasks.py: Ingestion pipeline tasks
-- (Future) processing_tasks.py: Processing pipeline tasks
+- ingestion_tasks.py: Source ingestion tasks
+- normalization_tasks.py: Content normalization tasks
+- quality_tasks.py: Quality check tasks
 """
 
 from .worker import broker, dramatiq, result_backend
+from .ingestion_tasks import ingest_source
+from .normalization_tasks import normalize_item, normalize_item_with_result
+from .quality_tasks import quality_check_item, recheck_item
 
-__all__ = ["broker", "dramatiq", "result_backend"]
+__all__ = [
+    "broker",
+    "dramatiq",
+    "result_backend",
+    "ingest_source",
+    "normalize_item",
+    "normalize_item_with_result",
+    "quality_check_item",
+    "recheck_item",
+]
