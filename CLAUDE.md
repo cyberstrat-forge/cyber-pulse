@@ -12,7 +12,8 @@
 - ✅ Phase 2B: 多源采集（APIConnector, WebScraperConnector, MediaAPIConnector, Connector Factory）
 - ✅ Phase 2C: API 服务（FastAPI REST API, API Key 认证, Content/Source/Client API）
 - ✅ Phase 2D: 调度系统（APScheduler + Dramatiq）
-- 🚧 Phase 2E-2F: 评分系统、CLI 工具
+- ✅ Phase 2E: 评分系统（SourceScoreService）
+- ✅ Phase 2F: CLI 工具（Typer CLI, TUI, 7 个命令模块）
 
 ## 快速开始
 
