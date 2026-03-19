@@ -80,9 +80,11 @@ class SchedulerService:
         Args:
             event: The job execution event.
         """
-        if event.exception:
+        # JobEvent.exception is only present for error events
+        exception = getattr(event, "exception", None)
+        if exception:
             logger.error(
-                f"Job {event.job_id} failed with exception: {event.exception}"
+                f"Job {event.job_id} failed with exception: {exception}"
             )
         else:
             logger.info(f"Job {event.job_id} executed successfully")
@@ -251,16 +253,12 @@ class SchedulerService:
         logger.warning(f"Job {job_id} not found")
         return False
 
-    def schedule_all_active_sources(self, interval: Optional[int] = None) -> int:
+    def schedule_all_active_sources(self) -> int:
         """Schedule collection for all active sources.
 
         This is a convenience method to schedule collection for multiple
         sources at once. It queries the database for active sources and
         schedules each one.
-
-        Args:
-            interval: Collection interval in seconds. If not provided,
-                uses settings.default_fetch_interval.
 
         Returns:
             Number of sources scheduled.
