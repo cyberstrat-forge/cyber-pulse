@@ -35,7 +35,7 @@ Source → cyber-pulse → Curated Storage → Pull API → cyber-nexus → iNBo
 
 ```http
 GET /api/v1/content?cursor=12345&since=2026-03-18T10:00:00Z&limit=100
-Authorization: Bearer sk_live_xxx
+Authorization: Bearer cp_live_xxx
 ```
 
 **参数：**
@@ -94,7 +94,7 @@ Authorization: Bearer sk_live_xxx
 **API Key 认证**
 
 ```http
-Authorization: Bearer sk_live_xxx
+Authorization: Bearer cp_live_xxx
 ```
 
 **API 客户端管理：**
@@ -103,7 +103,7 @@ Authorization: Bearer sk_live_xxx
 # 创建 API 客户端
 ./cli client create --name "cyber-nexus" --permissions read
 
-# → 生成 API Key: sk_live_a1b2c3d4e5f6...
+# → 生成 API Key: cp_live_a1b2c3d4e5f6...
 
 # 列出所有客户端
 ./cli client list
@@ -254,7 +254,7 @@ Score: {content.get('source_score', 'N/A')}
 if __name__ == "__main__":
     consumer = CyberPulseConsumer(
         api_url="http://localhost:8000",
-        api_key="sk_live_xxx"
+        api_key="cp_live_xxx"
     )
 
     # 启动消费者

@@ -835,13 +835,13 @@ def generate_api_key() -> str:
     """
     Generate a new API key.
 
-    Format: sk_live_{random_32_chars}
-    Example: sk_live_<32_hex_characters>
+    Format: cp_live_{random_32_chars}
+    Example: cp_live_<32_hex_characters>
 
     The key is returned ONCE when created and cannot be retrieved again.
     """
     random_part = secrets.token_hex(16)  # 32 hex chars
-    return f"sk_live_{random_part}"
+    return f"cp_live_{random_part}"
 
 
 def hash_api_key(api_key: str) -> str:
@@ -915,7 +915,7 @@ class ApiClientService:
 ```
 
 **API Key Security (per Spec 8.3):**
-- Format: `sk_live_{32_hex_chars}`
+- Format: `cp_live_{32_hex_chars}`
 - Storage: Bcrypt hashed (original key never stored in plaintext)
 - Validation: Constant-time comparison to prevent timing attacks
 - Rate limiting: Per-client rate limits enforced
@@ -1923,7 +1923,7 @@ def diagnose_errors():
 ./cli content list --limit 10
 
 # 4. 通过 API 获取内容
-curl -H "Authorization: Bearer sk_live_xxx" http://localhost:8000/api/v1/content
+curl -H "Authorization: Bearer cp_live_xxx" http://localhost:8000/api/v1/content
 ```
 
 **验证检查点：**
