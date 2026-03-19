@@ -1,8 +1,6 @@
 """Integration tests for scheduler-dramatiq connection."""
 from unittest.mock import patch, MagicMock
-from typing import Generator
 
-import pytest
 from sqlalchemy.orm import Session
 
 from cyberpulse.scheduler.jobs import collect_source, run_scheduled_collection, update_source_scores
