@@ -181,6 +181,27 @@ git branch --show-current  # 应显示 feature/xxx
 git worktree remove .worktrees/feature-xxx
 ```
 
+### PR 合并后清理
+
+`finishing-a-development-branch` skill 处理开发完成到创建 PR 的流程。
+PR 合并后需手动清理分支：
+
+```bash
+# 检查已合并的 PR
+gh pr list --state merged --json number,title,headRefName
+
+# 切换到 main 并更新
+git checkout main && git pull origin main
+
+# 删除本地分支
+git branch -d feature/xxx
+
+# 删除远程分支（如未自动删除）
+git push origin --delete feature/xxx
+```
+
+**注意**: 此步骤在 skill 流程之外，PR 合并后需主动执行。
+
 ## 代码质量
 
 **检查命令**：
