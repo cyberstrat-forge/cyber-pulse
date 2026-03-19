@@ -124,6 +124,64 @@ except Exception as e:
 - 使用 `logging.debug/warning/error` 记录异常上下文
 - 下沉异常时保留原始异常信息
 
+### 错误避免清单
+
+基于 PR Review 发现的重复问题：
+
+#### 1. 数据库并发 (IntegrityError 处理)
+
+```python
+# create_or_get 模式必须处理竞态
+try:
+    self.db.commit()
+except IntegrityError:
+    self.db.rollback()
+    existing = self.db.query(Model).filter(...).first()
+    if existing:
+        return existing
+    raise  # 未知 IntegrityError，重新抛出
+```
+
+#### 2. 循环安全 (必须有退出条件)
+
+```python
+# ❌ 危险：可能无限循环
+while condition:
+    if rate_limited:
+        continue  # 无计数器
+
+# ✅ 正确：添加计数器
+max_retries = 3
+for attempt in range(max_retries + 1):
+    if rate_limited:
+        if attempt >= max_retries:
+            raise Error("Rate limit exceeded")
+        continue
+```
+
+#### 3. 异常捕获范围
+
+```python
+# ❌ 太宽泛：隐藏 MemoryError、RecursionError
+except Exception as e:
+    logger.warning(...)
+    continue
+
+# ✅ 正确：捕获特定异常
+except (ValueError, KeyError, TypeError) as e:
+    logger.warning(...)
+    continue
+except Exception as e:
+    logger.error(f"Unexpected: {e}")
+    raise
+```
+
+#### 4. 测试质量
+
+- 每个测试必须有断言
+- 关键错误处理路径必须有测试
+- 避免使用 `__bases__[0]` 等脆弱模式
+
 ### 目录结构
 
 ```
