@@ -354,6 +354,55 @@ class TestLogHelp:
         assert '--level' in result.stdout
 
 
+class TestLogJsonOutput:
+    """Tests for JSON format output."""
+
+    def test_log_errors_json_format(self) -> None:
+        """Test log errors command with JSON output."""
+        import json
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - ERROR - Test error\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['errors', '--format', 'json'])
+                assert result.exit_code == 0
+
+                # Should be valid JSON
+                data = json.loads(result.stdout)
+                assert isinstance(data, list)
+                assert len(data) == 1
+                assert data[0]['level'] == 'ERROR'
+                assert data[0]['message'] == 'Test error'
+        finally:
+            os.unlink(log_path)
+
+    def test_log_search_json_format(self) -> None:
+        """Test log search command with JSON output."""
+        import json
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Test message\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['search', 'Test', '--format', 'json'])
+                assert result.exit_code == 0
+
+                data = json.loads(result.stdout)
+                assert isinstance(data, list)
+                assert len(data) == 1
+        finally:
+            os.unlink(log_path)
+
+
 class TestLogExport:
     """Tests for log export command."""
 

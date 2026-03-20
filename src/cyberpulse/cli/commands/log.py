@@ -1,4 +1,5 @@
 """Log command module."""
+import json
 import logging
 import re
 from datetime import datetime, timedelta
@@ -199,6 +200,9 @@ def error_logs(
         None, "--source", help="Filter by source/logger name"
     ),
     n: int = typer.Option(50, "--lines", "-n", help="Maximum number of errors to show"),
+    format: str = typer.Option(
+        "text", "--format", "-f", help="Output format: text or json"
+    ),
 ) -> None:
     """Show error logs from the cyber-pulse log file.
 
@@ -252,6 +256,11 @@ def error_logs(
         console.print("[dim]No error logs found.[/dim]")
         raise typer.Exit(0)
 
+    # JSON output
+    if format == "json":
+        print(json.dumps(errors, indent=2))
+        raise typer.Exit(0)
+
     console.print(Panel(f"Found {len(errors)} error entries", style="red bold"))
 
     for entry in errors:
@@ -272,6 +281,9 @@ def search_logs(
     n: int = typer.Option(50, "--lines", "-n", help="Maximum number of results"),
     level: Optional[str] = typer.Option(
         None, "--level", "-l", help="Filter by log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    ),
+    format: str = typer.Option(
+        "text", "--format", "-f", help="Output format: text or json"
     ),
 ) -> None:
     """Search logs for a specific text pattern.
@@ -318,6 +330,11 @@ def search_logs(
 
     if not matches:
         console.print(f"[dim]No matches found for '{text}'.[/dim]")
+        raise typer.Exit(0)
+
+    # JSON output
+    if format == "json":
+        print(json.dumps(matches, indent=2))
         raise typer.Exit(0)
 
     console.print(Panel(f"Found {len(matches)} matches for '{text}'", style="blue bold"))
