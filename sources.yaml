@@ -1,0 +1,30 @@
+# sources.yaml - 验证用情报源清单
+#
+# 说明：
+# - 这些情报源用于验证 cyber-pulse 功能是否正常
+# - 应选择稳定、公开、可访问的情报源
+# - 由人工筛选，确保采集失败是应用问题而非情报源问题
+#
+# 字段说明：
+# - name: 情报源名称（必需，唯一）
+# - connector_type: 类型 rss/api/web/media（必需）
+# - config: Connector 配置（必需）
+#   - RSS: feed_url
+#   - API: url, api_key (可选)
+#   - Web: url
+#   - Media: url, api_key (可选)
+# - tier: 优先级 T0-T3（可选，默认 T2）
+
+sources:
+  # 示例 RSS 源（请替换为实际可用的情报源）
+  # - name: 安全客
+  #   connector_type: rss
+  #   config:
+  #     feed_url: https://www.anquanke.com/vul/rss.xml
+  #   tier: T2
+
+  # - name: FreeBuf
+  #   connector_type: rss
+  #   config:
+  #     feed_url: https://www.freebuf.com/feed
+  #   tier: T2
