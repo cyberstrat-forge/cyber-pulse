@@ -127,7 +127,7 @@ class ItemService(BaseService):
 
         Args:
             source_id: Source ID to filter by
-            status: Optional status filter (new, normalized, mapped, rejected)
+            status: Optional status filter (NEW, NORMALIZED, MAPPED, REJECTED)
             limit: Maximum number of results
             offset: Offset for pagination
 
@@ -139,7 +139,7 @@ class ItemService(BaseService):
         if status:
             # Convert string to ItemStatus enum if needed
             if isinstance(status, str):
-                status = ItemStatus(status)
+                status = ItemStatus(status.upper())
             query = query.filter(Item.status == status)
 
         return (
@@ -159,7 +159,7 @@ class ItemService(BaseService):
 
         Args:
             item_id: Item ID to update
-            status: New status (new, normalized, mapped, rejected)
+            status: New status (NEW, NORMALIZED, MAPPED, REJECTED)
             quality_metrics: Optional quality metrics to set
                 (meta_completeness, content_completeness, noise_ratio)
 
@@ -173,7 +173,7 @@ class ItemService(BaseService):
 
         # Convert string to ItemStatus enum if needed
         if isinstance(status, str):
-            status = ItemStatus(status)
+            status = ItemStatus(status.upper())
 
         item.status = status
 

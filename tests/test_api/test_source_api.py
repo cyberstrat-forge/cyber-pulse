@@ -162,14 +162,14 @@ class TestListSources:
             assert response.status_code == 200
             data = response.json()
             assert len(data["data"]) == 1
-            assert data["data"][0]["status"] == "active"
+            assert data["data"][0]["status"] == "ACTIVE"
 
             # Filter by frozen
             response = client.get("/api/v1/sources?status=frozen")
             assert response.status_code == 200
             data = response.json()
             assert len(data["data"]) == 1
-            assert data["data"][0]["status"] == "frozen"
+            assert data["data"][0]["status"] == "FROZEN"
         finally:
             app.dependency_overrides.clear()
 
@@ -302,7 +302,7 @@ class TestCreateSource:
             assert data["connector_type"] == "rss"
             assert data["tier"] == "T1"
             assert data["score"] == 70.0
-            assert data["status"] == "active"
+            assert data["status"] == "ACTIVE"
             assert data["is_in_observation"] is True
             assert "source_id" in data
             assert "observation_until" in data
@@ -608,12 +608,12 @@ class TestUpdateSource:
         try:
             response = client.patch(
                 "/api/v1/sources/src_upd003",
-                json={"status": "frozen"}
+                json={"status": "FROZEN"}
             )
 
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "frozen"
+            assert data["status"] == "FROZEN"
         finally:
             app.dependency_overrides.clear()
 
@@ -934,7 +934,7 @@ class TestSourceResponseFormat:
             assert data["connector_type"] == "api"
             assert data["tier"] == "T1"
             assert data["score"] == 70.0
-            assert data["status"] == "active"
+            assert data["status"] == "ACTIVE"
             assert data["is_in_observation"] is True
             assert data["observation_until"] is not None
             assert data["pending_review"] is False

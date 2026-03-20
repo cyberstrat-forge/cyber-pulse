@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-20
+
+### Added
+
+#### Verification System
+- `scripts/verify.sh` - 2-level verification script (Level 1: System Readiness, Level 2: Functional Verification)
+- `Makefile` with `verify` and `verify-report` targets
+- `sources.yaml` template for verification intelligence sources
+- `docs/verification-guide.md` - Usage documentation
+
+### Fixed
+- Added `DRAMATIQ_BROKER_URL` environment variable to docker-compose.yml
+- Fixed scheduler asyncio event loop issue in `scheduler/main.py`
+- Fixed Dockerfile build order for editable install
+
 ## [1.0.0] - 2026-03-20
 
 ### Added

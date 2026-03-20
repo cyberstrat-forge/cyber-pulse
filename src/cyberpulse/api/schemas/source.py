@@ -68,7 +68,7 @@ class SourceUpdate(BaseModel):
     connector_type: Optional[str] = Field(None, description="Type of connector", min_length=1, max_length=50)
     tier: Optional[str] = Field(None, description="Source tier (T0, T1, T2, T3)")
     score: Optional[float] = Field(None, description="Source quality score (0-100)", ge=0.0, le=100.0)
-    status: Optional[str] = Field(None, description="Source status (active, frozen, removed)")
+    status: Optional[str] = Field(None, description="Source status (ACTIVE, FROZEN, REMOVED)")
     is_in_observation: Optional[bool] = Field(None, description="Whether source is in observation period")
     observation_until: Optional[datetime] = Field(None, description="Observation period end date")
     pending_review: Optional[bool] = Field(None, description="Whether source is pending review")
@@ -99,7 +99,7 @@ class SourceResponse(BaseModel):
     connector_type: str = Field(..., description="Type of connector")
     tier: str = Field(..., description="Source tier (T0, T1, T2, T3)")
     score: float = Field(..., description="Source quality score (0-100)")
-    status: str = Field(..., description="Source status (active, frozen, removed)")
+    status: str = Field(..., description="Source status (ACTIVE, FROZEN, REMOVED)")
     is_in_observation: bool = Field(..., description="Whether source is in observation period")
     observation_until: Optional[datetime] = Field(None, description="Observation period end date")
     pending_review: bool = Field(..., description="Whether source is pending review")
@@ -126,7 +126,7 @@ class SourceResponse(BaseModel):
                 "connector_type": "rss",
                 "tier": "T1",
                 "score": 70.0,
-                "status": "active",
+                "status": "ACTIVE",
                 "is_in_observation": True,
                 "observation_until": "2026-04-19T00:00:00Z",
                 "pending_review": False,
@@ -185,7 +185,7 @@ class SourceListResponse(BaseModel):
                         "connector_type": "rss",
                         "tier": "T1",
                         "score": 70.0,
-                        "status": "active",
+                        "status": "ACTIVE",
                         "is_in_observation": True,
                         "observation_until": "2026-04-19T00:00:00Z",
                         "pending_review": False,

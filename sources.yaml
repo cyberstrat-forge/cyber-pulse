@@ -1,0 +1,385 @@
+# sources.yaml - cyber-pulse 情报源配置
+# 从 OPML 导入，按分类组织
+#
+# 字段说明：
+# - name: 情报源名称（必需，唯一）
+# - connector_type: 类型 rss/api/web/media（必需）
+# - config: Connector 配置（必需）
+#   - RSS: feed_url
+#   - API: url, api_key (可选)
+#   - Web: url
+#   - Media: url, api_key (可选)
+# - tier: 优先级 T0-T3（可选，默认 T2）
+
+sources:
+  # ========================================================================
+  # T0 - 核心情报源（最高优先级）
+  # ========================================================================
+
+  # --- AI Research & Labs ---
+  - name: "Anthropic Research"
+    connector_type: rss
+    config:
+      feed_url: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml"
+    tier: T0
+
+  - name: "OpenAI Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://blog.openai.com/rss/"
+    tier: T0
+
+  # --- Cybersecurity Authority ---
+  - name: "MITRE ATT&CK"
+    connector_type: rss
+    config:
+      feed_url: "https://medium.com/feed/mitre-attack"
+    tier: T0
+
+  - name: "Cloud Security Alliance"
+    connector_type: rss
+    config:
+      feed_url: "https://cloudsecurityalliance.org/feed/"
+    tier: T0
+
+  - name: "SANS Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://blogs.sans.org/computer-forensics/feed/"
+    tier: T0
+
+  # --- Cybersecurity News ---
+  - name: "The Hacker News"
+    connector_type: rss
+    config:
+      feed_url: "http://thehackernews.com/feeds/posts/default"
+    tier: T0
+
+  - name: "Krebs on Security"
+    connector_type: rss
+    config:
+      feed_url: "https://krebsonsecurity.com/feed/"
+    tier: T0
+
+  - name: "Google Online Security Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://googleonlinesecurity.blogspot.com/atom.xml"
+    tier: T0
+
+  - name: "Microsoft Security Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://blogs.technet.com/mmpc/rss.xml"
+    tier: T0
+
+  # --- Security Research ---
+  - name: "Project Zero"
+    connector_type: rss
+    config:
+      feed_url: "http://googleprojectzero.blogspot.com/feeds/posts/default"
+    tier: T0
+
+  - name: "Unit 42"
+    connector_type: rss
+    config:
+      feed_url: "http://feeds.feedburner.com/Unit42"
+    tier: T0
+
+  # --- AI Security ---
+  - name: "Coalition for Secure AI"
+    connector_type: rss
+    config:
+      feed_url: "https://www.coalitionforsecureai.org/feed/"
+    tier: T0
+
+  - name: "OWASP Gen AI Security Project"
+    connector_type: rss
+    config:
+      feed_url: "https://genai.owasp.org/feed/"
+    tier: T0
+
+  # ========================================================================
+  # T1 - 重要情报源
+  # ========================================================================
+
+  # --- AI Industry ---
+  - name: "Anthropic Press Releases"
+    connector_type: rss
+    config:
+      feed_url: "https://feedproxy.feedly.com/5b36e586-cfce-45df-9d64-1cf9fed78e5b"
+    tier: T1
+
+  - name: "Deeplearning.ai The Batch"
+    connector_type: rss
+    config:
+      feed_url: "https://rsshub.app/deeplearning/thebatch"
+    tier: T1
+
+  - name: "Microsoft Research Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://research.microsoft.com/rss/news.xml"
+    tier: T1
+
+  - name: "Gemini Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://blog.google/products/gemini/rss/"
+    tier: T1
+
+  - name: "Google AI Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://googleresearch.blogspot.com/atom.xml"
+    tier: T1
+
+  - name: "Anthropic Engineering Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml"
+    tier: T1
+
+  - name: "karpathy blog"
+    connector_type: rss
+    config:
+      feed_url: "https://karpathy.bearblog.dev/feed/"
+    tier: T1
+
+  - name: "LangChain Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://blog.langchain.dev/rss/"
+    tier: T1
+
+  # --- Cybersecurity Media ---
+  - name: "SecurityWeek"
+    connector_type: rss
+    config:
+      feed_url: "http://feeds.feedburner.com/Securityweek"
+    tier: T1
+
+  - name: "Threatpost"
+    connector_type: rss
+    config:
+      feed_url: "http://threatpost.com/feed"
+    tier: T1
+
+  - name: "CSO Online"
+    connector_type: rss
+    config:
+      feed_url: "http://www.csoonline.com/index.rss"
+    tier: T1
+
+  - name: "Dark Reading"
+    connector_type: rss
+    config:
+      feed_url: "http://www.darkreading.com/rss/all.xml"
+    tier: T1
+
+  # --- Security Vendors ---
+  - name: "Cisco Security Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://blogs.cisco.com/rss/security/"
+    tier: T1
+
+  - name: "SentinelOne Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://www.sentinelone.com/feed/"
+    tier: T1
+
+  - name: "Google Cloud Security Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://cloudblog.withgoogle.com/products/identity-security/rss/"
+    tier: T1
+
+  - name: "Red Canary Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://www.redcanary.com/blog/feed/"
+    tier: T1
+
+  - name: "AWS Security Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://blogs.aws.amazon.com/security/blog/feed/recentPosts.rss"
+    tier: T1
+
+  - name: "Palo Alto Networks Security Operations"
+    connector_type: rss
+    config:
+      feed_url: "https://www.paloaltonetworks.com/blog/security-operations/feed/"
+    tier: T1
+
+  - name: "ProjectDiscovery Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://blog.projectdiscovery.io/rss/"
+    tier: T1
+
+  - name: "Qualys Security Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://community.qualys.com/blogs/feeds/posts"
+    tier: T1
+
+  - name: "CrowdStrike Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://www.crowdstrike.com/blog/feed"
+    tier: T1
+
+  - name: "Auth0 Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://feeds.feedburner.com/auth0"
+    tier: T1
+
+  - name: "Wiz Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://blog.wiz.io/rss/"
+    tier: T1
+
+  - name: "Fortinet Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://feeds.feedburner.com/fortinet/blogs"
+    tier: T1
+
+  # --- Security Research ---
+  - name: "Tencent Xuanwu Lab"
+    connector_type: rss
+    config:
+      feed_url: "http://xlab.tencent.com/cn/feed/"
+    tier: T1
+
+  - name: "Tencent Keen Lab"
+    connector_type: rss
+    config:
+      feed_url: "http://keenlab.tencent.com/zh/atom.xml"
+    tier: T1
+
+  - name: "Venture in Security"
+    connector_type: rss
+    config:
+      feed_url: "https://ventureinsecurity.substack.com/feed"
+    tier: T1
+
+  # --- AI Security ---
+  - name: "Simon Willison's Weblog"
+    connector_type: rss
+    config:
+      feed_url: "http://feeds.simonwillison.net/swn-everything"
+    tier: T1
+
+  - name: "Daniel Miessler"
+    connector_type: rss
+    config:
+      feed_url: "https://danielmiessler.com/feed/"
+    tier: T1
+
+  - name: "Embrace The Red"
+    connector_type: rss
+    config:
+      feed_url: "https://embracethered.com/blog/index.xml"
+    tier: T1
+
+  - name: "7AI Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://blog.7ai.com/rss.xml"
+    tier: T1
+
+  - name: "Intezer Blog"
+    connector_type: rss
+    config:
+      feed_url: "http://www.intezer.com/feed/"
+    tier: T1
+
+  - name: "Dropzone AI Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://www.dropzone.ai/blog/rss.xml"
+    tier: T1
+
+  # --- Tech Blogs ---
+  - name: "Paul Graham Essays"
+    connector_type: rss
+    config:
+      feed_url: "http://www.aaronsw.com/2002/feeds/pgessays.rss"
+    tier: T1
+
+  - name: "Overreacted"
+    connector_type: rss
+    config:
+      feed_url: "https://overreacted.io/rss.xml"
+    tier: T1
+
+  - name: "Troy Hunt"
+    connector_type: rss
+    config:
+      feed_url: "https://www.troyhunt.com/rss/"
+    tier: T1
+
+  - name: "gwern.net"
+    connector_type: rss
+    config:
+      feed_url: "https://gwern.substack.com/feed"
+    tier: T1
+
+  # --- Chinese Tech Sources ---
+  - name: "ByteDance Tech Team"
+    connector_type: rss
+    config:
+      feed_url: "https://wechat2rss.xlab.app/feed/4025ea55575daf8bfd8227e68b28d9638b073267.xml"
+    tier: T1
+
+  - name: "Alibaba Cloud Developer"
+    connector_type: rss
+    config:
+      feed_url: "https://wechat2rss.xlab.app/feed/c74ed6db00cfbf16f2a048a165b4453f982681f0.xml"
+    tier: T1
+
+  - name: "Tencent Tech Engineering"
+    connector_type: rss
+    config:
+      feed_url: "https://wechat2rss.xlab.app/feed/9685937b45fe9c7a526dbc32e4f24ba879a65b9a.xml"
+    tier: T1
+
+  - name: "ByteDance Security Center"
+    connector_type: rss
+    config:
+      feed_url: "https://wechat2rss.xlab.app/feed/f4087ff02b808a1a995e2ba930219ada5b82425d.xml"
+    tier: T1
+
+  - name: "AWS China Blog"
+    connector_type: rss
+    config:
+      feed_url: "https://aws.amazon.com/cn/blogs/china/feed/"
+    tier: T1
+
+  # ========================================================================
+  # T2 - 一般情报源
+  # ========================================================================
+
+  - name: "VentureBeat"
+    connector_type: rss
+    config:
+      feed_url: "http://venturebeat.com/feed/"
+    tier: T2
+
+  - name: "Joseph Thacker"
+    connector_type: rss
+    config:
+      feed_url: "http://rez0.blog/feed.xml"
+    tier: T2
+
+  - name: "Jeff Geerling"
+    connector_type: rss
+    config:
+      feed_url: "https://www.jeffgeerling.com/blog.xml"
+    tier: T2

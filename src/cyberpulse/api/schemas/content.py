@@ -24,7 +24,7 @@ class ContentResponse(BaseModel):
     first_seen_at: datetime = Field(..., description="When content was first seen")
     last_seen_at: datetime = Field(..., description="When content was last seen")
     source_count: int = Field(..., description="Number of sources for this content")
-    status: str = Field(..., description="Content status (active/archived)")
+    status: str = Field(..., description="Content status (ACTIVE/ARCHIVED)")
 
     model_config = {
         "from_attributes": True,  # Enable ORM mode for SQLAlchemy models
@@ -37,7 +37,7 @@ class ContentResponse(BaseModel):
                 "first_seen_at": "2026-03-19T14:30:52Z",
                 "last_seen_at": "2026-03-19T15:45:00Z",
                 "source_count": 3,
-                "status": "active",
+                "status": "ACTIVE",
             }
         },
     }
@@ -83,7 +83,7 @@ class ContentListResponse(BaseModel):
                         "first_seen_at": "2026-03-19T14:30:52Z",
                         "last_seen_at": "2026-03-19T15:45:00Z",
                         "source_count": 3,
-                        "status": "active",
+                        "status": "ACTIVE",
                     }
                 ],
                 "next_cursor": "cnt_20260319120000_xyz789",

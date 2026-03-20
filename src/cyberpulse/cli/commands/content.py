@@ -124,7 +124,9 @@ def list_content(
                     "last_seen_at": content.last_seen_at.isoformat() if content.last_seen_at else None,
                     "status": content.status.value if content.status else None,
                 })
-            console.print(json.dumps(output, indent=2))
+            # Use print() instead of console.print() to avoid Rich's line wrapping
+            # which breaks JSON parsing
+            print(json.dumps(output, indent=2))
         else:
             table = Table(title=f"Content ({len(contents)} results)")
             table.add_column("Content ID", style="cyan", no_wrap=True)
@@ -217,7 +219,7 @@ def get_content(
                     "source_count": content.source_count,
                     "status": content.status.value if content.status else None,
                 }
-                console.print(json.dumps(output, indent=2))
+                print(json.dumps(output, indent=2))
         else:
             # List content matching filters
             since_dt = parse_datetime(since)
@@ -284,7 +286,7 @@ def content_stats(
         stats = service.get_content_statistics()
 
         if format == "json":
-            console.print(json.dumps(stats, indent=2))
+            print(json.dumps(stats, indent=2))
         else:
             table = Table(title="Content Statistics", show_header=False)
             table.add_column("Metric", style="cyan")

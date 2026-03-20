@@ -39,9 +39,9 @@ def _get_tier_color(tier: str) -> str:
 def _get_status_color(status: str) -> str:
     """Get color for status display."""
     colors = {
-        "active": "green",
-        "frozen": "yellow",
-        "removed": "red",
+        "ACTIVE": "green",
+        "FROZEN": "yellow",
+        "REMOVED": "red",
     }
     return colors.get(status, "white")
 
@@ -55,7 +55,7 @@ def _validate_source_id(source_id: str) -> bool:
 @app.command("list")
 def list_sources(
     tier: Optional[str] = typer.Option(None, "--tier", "-t", help="Filter by tier (T0, T1, T2, T3)"),
-    status: Optional[str] = typer.Option(None, "--status", "-s", help="Filter by status (active, frozen, removed)"),
+    status: Optional[str] = typer.Option(None, "--status", "-s", help="Filter by status (ACTIVE, FROZEN, REMOVED)"),
     limit: int = typer.Option(100, "--limit", "-l", help="Maximum number of results"),
 ) -> None:
     """List all sources with optional filtering."""
@@ -71,9 +71,9 @@ def list_sources(
     status_filter = None
     if status:
         try:
-            status_filter = SourceStatus(status.lower())
+            status_filter = SourceStatus(status.upper())
         except ValueError:
-            console.print(f"[red]Invalid status: {status}. Must be one of: active, frozen, removed[/red]")
+            console.print(f"[red]Invalid status: {status}. Must be one of: ACTIVE, FROZEN, REMOVED[/red]")
             raise typer.Exit(1)
 
     db = SessionLocal()
@@ -127,6 +127,7 @@ def add_source(
     url: str = typer.Argument(..., help="Source URL or feed URL"),
     tier: str = typer.Option("T2", "--tier", "-t", help="Initial tier (T0, T1, T2, T3)"),
     test: bool = typer.Option(True, "--test/--no-test", help="Run onboarding flow"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts"),
 ) -> None:
     """
     Add a new source with full onboarding flow.
@@ -167,7 +168,7 @@ def add_source(
         existing_url = db.query(Source).filter(Source.config["url"].as_string() == url).first()
         if existing_url:
             console.print(f"[yellow]Warning: Source with URL '{url}' already exists (ID: {existing_url.source_id})[/yellow]")
-            if not typer.confirm("Continue anyway?"):
+            if not (yes or typer.confirm("Continue anyway?")):
                 raise typer.Exit(0)
 
         console.print("[green]No duplicates found.[/green]")
@@ -218,17 +219,17 @@ def add_source(
 
                     if suggested_tier != source_tier:
                         console.print(f"[yellow]Note: Selected tier ({source_tier.value}) differs from suggested ({suggested_tier.value})[/yellow]")
-                        if typer.confirm(f"Use suggested tier {suggested_tier.value} instead?"):
+                        if yes or typer.confirm(f"Use suggested tier {suggested_tier.value} instead?"):
                             source_tier = suggested_tier
 
                 else:
                     console.print("[yellow]Warning: No items found at source URL.[/yellow]")
-                    if not typer.confirm("Add source anyway?"):
+                    if not (yes or typer.confirm("Add source anyway?")):
                         raise typer.Exit(0)
 
             except ConnectorError as e:
                 console.print(f"[red]Connection failed: {e}[/red]")
-                if not typer.confirm("Add source anyway (will need manual fix)?"):
+                if not (yes or typer.confirm("Add source anyway (will need manual fix)?")):
                     raise typer.Exit(0)
             except ValueError as e:
                 console.print(f"[red]Configuration error: {e}[/red]")
@@ -329,7 +330,7 @@ def _get_tier_for_score(score: float) -> SourceTier:
 def update_source(
     source_id: str = typer.Argument(..., help="Source ID to update"),
     tier: Optional[str] = typer.Option(None, "--tier", "-t", help="New tier (T0, T1, T2, T3)"),
-    status: Optional[str] = typer.Option(None, "--status", "-s", help="New status (active, frozen)"),
+    status: Optional[str] = typer.Option(None, "--status", "-s", help="New status (ACTIVE, FROZEN)"),
 ) -> None:
     """Update a source's tier or status."""
     # Validate source ID format
@@ -356,7 +357,7 @@ def update_source(
                 raise typer.Exit(1)
         if status:
             try:
-                kwargs["status"] = status.lower()
+                kwargs["status"] = status.upper()
             except ValueError:
                 console.print(f"[red]Invalid status: {status}[/red]")
                 raise typer.Exit(1)
@@ -398,7 +399,7 @@ def remove_source(
             console.print(f"[red]Source not found: {source_id}[/red]")
             raise typer.Exit(1)
 
-        if stats["status"] == "removed":
+        if stats["status"] == "REMOVED":
             console.print(f"[yellow]Source '{stats['name']}' is already removed.[/yellow]")
             return
 
@@ -581,7 +582,7 @@ def source_stats(
 
             # Count by tier
             tier_counts = {"T0": 0, "T1": 0, "T2": 0, "T3": 0}
-            status_counts = {"active": 0, "frozen": 0, "removed": 0}
+            status_counts = {"ACTIVE": 0, "FROZEN": 0, "REMOVED": 0}
             total_items = 0
             total_contents = 0
             observation_count = 0
@@ -601,9 +602,9 @@ def source_stats(
             table.add_column("Value", style="green")
 
             table.add_row("Total Sources", str(len(sources)))
-            table.add_row("Active", str(status_counts["active"]))
-            table.add_row("Frozen", str(status_counts["frozen"]))
-            table.add_row("Removed", str(status_counts["removed"]))
+            table.add_row("Active", str(status_counts["ACTIVE"]))
+            table.add_row("Frozen", str(status_counts["FROZEN"]))
+            table.add_row("Removed", str(status_counts["REMOVED"]))
             table.add_row("In Observation", str(observation_count))
             table.add_row("Total Items", str(total_items))
             table.add_row("Total Contents", str(total_contents))

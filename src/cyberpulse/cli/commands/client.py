@@ -64,7 +64,7 @@ def list_clients(
         None,
         "--status",
         "-s",
-        help="Filter by status (active, suspended, revoked)",
+        help="Filter by status (ACTIVE, SUSPENDED, REVOKED)",
     ),
 ) -> None:
     """List all API clients."""
@@ -77,7 +77,7 @@ def list_clients(
             status_enum = None
             if status:
                 try:
-                    status_enum = ApiClientStatus(status.lower())
+                    status_enum = ApiClientStatus(status.upper())
                 except ValueError:
                     valid_statuses = [s.value for s in ApiClientStatus]
                     console.print(

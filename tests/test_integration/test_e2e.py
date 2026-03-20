@@ -188,7 +188,7 @@ class TestE2EDataFlow:
         # Update item status to NORMALIZED
         item_service.update_item_status(
             item.item_id,
-            "normalized",
+            "NORMALIZED",
             quality_metrics={
                 "meta_completeness": quality_result.metrics["meta_completeness"],
                 "content_completeness": quality_result.metrics["content_completeness"],

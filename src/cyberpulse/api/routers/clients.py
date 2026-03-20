@@ -82,7 +82,7 @@ async def create_client(
 async def list_clients(
     status: Optional[str] = Query(
         None,
-        description="Filter by status (active, suspended, revoked)"
+        description="Filter by status (ACTIVE, SUSPENDED, REVOKED)"
     ),
     db: Session = Depends(get_db),
 ) -> ClientListResponse:
@@ -99,7 +99,7 @@ async def list_clients(
     status_enum = None
     if status:
         try:
-            status_enum = ApiClientStatus(status.lower())
+            status_enum = ApiClientStatus(status.upper())
         except ValueError:
             valid_statuses = [s.value for s in ApiClientStatus]
             raise HTTPException(

@@ -144,7 +144,7 @@ class TestUpdateSource:
 
         updated, message = source_service.update_source(
             source.source_id,
-            status="frozen",
+            status="FROZEN",
         )
 
         assert updated is not None
@@ -311,7 +311,7 @@ class TestGetSourceStatistics:
         assert stats["name"] == "Stats Test"
         assert stats["tier"] == "T1"
         assert stats["score"] == 65.0
-        assert stats["status"] == "active"
+        assert stats["status"] == "ACTIVE"
         assert stats["is_in_observation"] is True
         assert stats["total_items"] == 0
         assert stats["total_contents"] == 0
