@@ -261,6 +261,7 @@ class TestDiagnoseErrors:
         mock_item.source_id = 'src_xyz'
         mock_item.title = 'Test Item Title'
         mock_item.fetched_at = datetime.now(timezone.utc)
+        mock_item.raw_metadata = None
 
         with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db, \
              patch('cyberpulse.cli.commands.diagnose.settings') as mock_settings:
@@ -295,6 +296,7 @@ class TestDiagnoseErrors:
         mock_item.source_id = 'src_target'
         mock_item.title = 'Test Item'
         mock_item.fetched_at = datetime.now(timezone.utc)
+        mock_item.raw_metadata = None
 
         with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db, \
              patch('cyberpulse.cli.commands.diagnose.settings') as mock_settings:
@@ -414,3 +416,70 @@ class TestDiagnoseHelp:
         assert result.exit_code == 0
         assert '--since' in result.stdout
         assert '--source' in result.stdout
+
+
+class TestDiagnoseErrorsWithReason:
+    """Tests for diagnose errors with rejection reason."""
+
+    def test_diagnose_errors_shows_rejection_reason(self) -> None:
+        """Test errors diagnosis shows rejection reason from raw_metadata."""
+        from datetime import datetime, timezone
+        from cyberpulse.models import Item
+
+        mock_item = MagicMock(spec=Item)
+        mock_item.item_id = 'item_abc123'
+        mock_item.source_id = 'src_xyz'
+        mock_item.title = 'Test Item Title'
+        mock_item.fetched_at = datetime.now(timezone.utc)
+        mock_item.raw_metadata = {
+            'rejection_reason': 'Title too short; Empty body',
+            'quality_warnings': ['Missing author']
+        }
+
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db, \
+             patch('cyberpulse.cli.commands.diagnose.settings') as mock_settings:
+            mock_session = MagicMock()
+            mock_query = MagicMock()
+            mock_query.all.return_value = [mock_item]
+            mock_query.count.return_value = 1
+            mock_query.filter.return_value = mock_query
+            mock_query.order_by.return_value = mock_query
+            mock_query.limit.return_value = mock_query
+            mock_session.query.return_value = mock_query
+            mock_db.return_value = mock_session
+            mock_settings.log_file = None
+
+            result = runner.invoke(app, ['errors'])
+            assert result.exit_code == 0
+            assert 'Title too short' in result.stdout
+            assert 'Empty body' in result.stdout
+
+    def test_diagnose_errors_shows_dash_when_no_reason(self) -> None:
+        """Test errors diagnosis shows dash when no rejection reason."""
+        from datetime import datetime, timezone
+        from cyberpulse.models import Item
+
+        mock_item = MagicMock(spec=Item)
+        mock_item.item_id = 'item_abc123'
+        mock_item.source_id = 'src_xyz'
+        mock_item.title = 'Test Item Title'
+        mock_item.fetched_at = datetime.now(timezone.utc)
+        mock_item.raw_metadata = None
+
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db, \
+             patch('cyberpulse.cli.commands.diagnose.settings') as mock_settings:
+            mock_session = MagicMock()
+            mock_query = MagicMock()
+            mock_query.all.return_value = [mock_item]
+            mock_query.count.return_value = 1
+            mock_query.filter.return_value = mock_query
+            mock_query.order_by.return_value = mock_query
+            mock_query.limit.return_value = mock_query
+            mock_session.query.return_value = mock_query
+            mock_db.return_value = mock_session
+            mock_settings.log_file = None
+
+            result = runner.invoke(app, ['errors'])
+            assert result.exit_code == 0
+            # Should show dash when no rejection reason
+            assert '-' in result.stdout

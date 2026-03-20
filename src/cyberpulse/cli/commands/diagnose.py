@@ -281,13 +281,21 @@ def diagnose_errors(
             table.add_column("Item ID", style="dim")
             table.add_column("Source")
             table.add_column("Title")
+            table.add_column("Rejection Reason")
             table.add_column("Fetched")
 
             for item in rejected_items[:10]:
+                # Extract rejection reason from raw_metadata
+                raw_meta = item.raw_metadata or {}  # type: ignore[var-annotated]
+                reason: str = raw_meta.get("rejection_reason", "-")  # type: ignore[assignment]
+                if len(reason) > 40:
+                    reason = reason[:37] + "..."
+
                 table.add_row(
                     item.item_id,
                     item.source_id,
-                    (item.title or "")[:40],
+                    (item.title or "")[:30],
+                    reason,
                     item.fetched_at.strftime("%Y-%m-%d %H:%M") if item.fetched_at else "-"
                 )
 
