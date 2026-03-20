@@ -38,6 +38,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
+      DRAMATIQ_BROKER_URL: redis://redis:6379/1
     ports:
       - "8000:8000"
     volumes:
@@ -58,6 +59,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
+      DRAMATIQ_BROKER_URL: redis://redis:6379/1
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -76,6 +78,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
+      DRAMATIQ_BROKER_URL: redis://redis:6379/1
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

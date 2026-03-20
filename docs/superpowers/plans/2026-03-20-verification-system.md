@@ -1,3 +1,97 @@
+# Verification System Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 实现 cyber-pulse 验证系统，用于部署验证、功能验证和持续迭代的回归测试。
+
+**Architecture:** Shell 脚本通过 `docker exec` 调用容器内 CLI 命令，实现 2 级验证模型（Level 1: 系统就绪，Level 2: 功能验证）。验证脚本与生产环境独立，通过 sources.yaml 配置情报源清单。
+
+**Tech Stack:** Bash, Python 3 (YAML 解析), Docker CLI, cyber-pulse CLI
+
+---
+
+## File Structure
+
+```
+cyber-pulse/
+├── Makefile                    # 新建 - 任务入口
+├── scripts/
+│   └── verify.sh               # 新建 - 验证脚本
+├── sources.yaml                # 新建 - 预设情报源清单
+└── docs/
+    └── verification-guide.md   # 新建 - 使用文档
+```
+
+---
+
+## Task 1: 创建 Makefile 入口
+
+**Files:**
+- Create: `Makefile`
+
+- [ ] **Step 1: 创建 Makefile（使用 heredoc 确保 Tab 字符正确）**
+
+```bash
+cat > Makefile << 'MAKEFILE_EOF'
+# Makefile for cyber-pulse
+#
+# Usage:
+#   make verify          # 运行验证系统
+#   make verify-report   # 验证并生成报告
+
+.PHONY: verify verify-report help
+
+# 验证系统
+verify:
+	@echo "开始验证 cyber-pulse..."
+	@./scripts/verify.sh
+
+# 验证并保存报告
+verify-report:
+	@echo "验证并生成报告..."
+	@mkdir -p logs
+	@./scripts/verify.sh --output logs/verify-report.md
+
+# 帮助
+help:
+	@echo "cyber-pulse Makefile"
+	@echo ""
+	@echo "Targets:"
+	@echo "  verify         运行验证系统"
+	@echo "  verify-report  验证并生成报告到 logs/verify-report.md"
+	@echo "  help           显示此帮助信息"
+MAKEFILE_EOF
+```
+
+- [ ] **Step 2: 验证 Makefile 语法**
+
+Run: `make help`
+Expected: 显示帮助信息
+
+- [ ] **Step 3: 提交**
+
+```bash
+git add Makefile
+git commit -m "feat: add Makefile with verify targets"
+```
+
+---
+
+## Task 2: 创建 scripts 目录和验证脚本 - Part 1: 框架
+
+**Files:**
+- Create: `scripts/verify.sh`
+
+- [ ] **Step 1: 创建 scripts 目录**
+
+```bash
+mkdir -p scripts
+```
+
+- [ ] **Step 2: 创建脚本框架（配置和日志函数）**
+
+```bash
+cat > scripts/verify.sh << 'SCRIPT_EOF'
 #!/bin/bash
 #
 # cyber-pulse 验证脚本
@@ -13,9 +107,9 @@ set -e
 # 配置
 # ============================================================================
 
-CONTAINER_API="cyber-pulse-api-1"
-CONTAINER_WORKER="cyber-pulse-worker-1"
-CONTAINER_SCHEDULER="cyber-pulse-scheduler-1"
+CONTAINER_API="cyberpulse-api"
+CONTAINER_WORKER="cyberpulse-worker"
+CONTAINER_SCHEDULER="cyberpulse-scheduler"
 SOURCES_FILE="sources.yaml"
 API_URL="${API_URL:-http://localhost:8000}"
 OUTPUT_FILE=""
@@ -39,6 +133,13 @@ log_debug() {
         echo "[DEBUG] $1" >&2
     fi
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 3: 添加参数解析函数**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # 参数解析
@@ -85,6 +186,13 @@ parse_args() {
         esac
     done
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 4: 添加 sources.yaml 验证函数（含必需字段验证）**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # 验证 sources.yaml
@@ -145,6 +253,28 @@ PYEOF
 
     log_info "情报源清单验证通过: $SOURCES_FILE"
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 5: 提交 Part 1**
+
+```bash
+chmod +x scripts/verify.sh
+git add scripts/verify.sh
+git commit -m "feat(verify): add script framework with config, logging, and validation"
+```
+
+---
+
+## Task 3: 创建验证脚本 - Part 2: Level 1 验证
+
+**Files:**
+- Modify: `scripts/verify.sh`
+
+- [ ] **Step 1: 添加 Level 1 验证函数**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # Level 1: 系统就绪验证
@@ -195,6 +325,27 @@ verify_level1() {
     echo ""
     echo "Level 1: ✓ 通过"
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 2: 提交 Part 2**
+
+```bash
+git add scripts/verify.sh
+git commit -m "feat(verify): add Level 1 system readiness verification"
+```
+
+---
+
+## Task 4: 创建验证脚本 - Part 3: Level 2 API Client 管理
+
+**Files:**
+- Modify: `scripts/verify.sh`
+
+- [ ] **Step 1: 添加 Level 2 框架和 API Client 管理函数**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # Level 2: 功能验证
@@ -238,15 +389,15 @@ verify_api_client_management() {
     RESULT=$(docker exec $CONTAINER_API cyber-pulse client create verify_client 2>&1 | \
         sed 's/\x1b\[[0-9;]*m//g' | tr -d '[]')
 
-    # 提取 API Key（使用 perl 兼容正则，支持 macOS）
-    API_KEY=$(echo "$RESULT" | perl -ne 'print $1 if /(API Key:\s*)(cp_live_[a-f0-9]{32})/' || {
+    # 提取 API Key（剥离 Rich 格式后的格式 "API Key: cp_live_xxx"）
+    API_KEY=$(echo "$RESULT" | grep -oP 'API Key:\s*\Kcp_live_[a-f0-9]{32}' || {
         log_error "无法提取 API Key，CLI 输出格式可能已变更"
         log_debug "CLI 输出: $RESULT"
         exit 1
     })
 
     # 提取 Client ID（格式: cli_xxxxxxxxxxxxxxxx，16 位 hex）
-    CLIENT_ID=$(echo "$RESULT" | perl -ne 'print $1 if /(Created client:\s*)(cli_[a-f0-9]{16})/' || {
+    CLIENT_ID=$(echo "$RESULT" | grep -oP 'Created client:\s*\Kcli_[a-f0-9]{16}' || {
         log_error "无法提取 Client ID，CLI 输出格式可能已变更"
         log_debug "CLI 输出: $RESULT"
         exit 1
@@ -279,6 +430,27 @@ verify_api_client_management() {
     echo $API_KEY > /tmp/cyberpulse_verify.key
     echo $CLIENT_ID > /tmp/cyberpulse_verify_client_id
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 2: 提交 Part 3**
+
+```bash
+git add scripts/verify.sh
+git commit -m "feat(verify): add Level 2 API client management verification"
+```
+
+---
+
+## Task 5: 创建验证脚本 - Part 4: 情报源管理和数据采集
+
+**Files:**
+- Modify: `scripts/verify.sh`
+
+- [ ] **Step 1: 添加情报源管理函数**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # 情报源管理
@@ -290,7 +462,6 @@ verify_source_management() {
 
     # 使用 Python 解析 YAML 并调用 CLI
     export SOURCES_FILE
-    export CONTAINER_API
     python3 << 'PYEOF'
 import yaml
 import subprocess
@@ -299,8 +470,6 @@ import os
 import re
 
 sources_file = os.environ.get('SOURCES_FILE', 'sources.yaml')
-container_api = os.environ.get('CONTAINER_API', 'cyber-pulse-api-1')
-
 with open(sources_file) as f:
     data = yaml.safe_load(f)
 
@@ -315,7 +484,7 @@ for source in data.get("sources", []):
     url = config.get("feed_url") or config.get("url", "")
 
     # 构建 CLI 命令
-    cmd = ["docker", "exec", container_api, "cyber-pulse", "source", "add",
+    cmd = ["docker", "exec", "cyberpulse-api", "cyber-pulse", "source", "add",
            name, conn_type, url, "--tier", tier, "--test"]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -395,6 +564,27 @@ verify_data_collection() {
 
     echo "new_contents=$NEW_CONTENTS" >> /tmp/cyberpulse_verify_stats.txt
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 2: 提交 Part 4**
+
+```bash
+git add scripts/verify.sh
+git commit -m "feat(verify): add source management and data collection verification"
+```
+
+---
+
+## Task 6: 创建验证脚本 - Part 5: CLI/API 查询和清理
+
+**Files:**
+- Modify: `scripts/verify.sh`
+
+- [ ] **Step 1: 添加 CLI 查询验证函数**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # CLI 数据查询
@@ -460,6 +650,13 @@ verify_api_query() {
         echo "  ✓ Cursor pagination: no more pages"
     fi
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 2: 添加清理函数**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # 清理函数
@@ -496,6 +693,27 @@ cleanup_verify_data() {
 
     rm -f /tmp/cyberpulse_verify_stats.txt
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 3: 提交 Part 5**
+
+```bash
+git add scripts/verify.sh
+git commit -m "feat(verify): add CLI/API query verification and cleanup functions"
+```
+
+---
+
+## Task 7: 创建验证脚本 - Part 6: 报告输出和主流程
+
+**Files:**
+- Modify: `scripts/verify.sh`
+
+- [ ] **Step 1: 添加报告输出函数**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # 报告输出
@@ -555,6 +773,13 @@ EOF
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     fi
 }
+SCRIPT_EOF
+```
+
+- [ ] **Step 2: 添加主流程入口**
+
+```bash
+cat >> scripts/verify.sh << 'SCRIPT_EOF'
 
 # ============================================================================
 # 主流程
@@ -571,34 +796,289 @@ main() {
     validate_sources_file
 
     LOCK_FILE="/tmp/cyberpulse_verify.lock"
-
-    # 跨平台锁机制（支持 macOS 和 Linux）
-    if command -v flock &> /dev/null; then
-        exec 200>$LOCK_FILE
-        flock -n 200 || {
-            log_error "另一个验证任务正在运行"
-            exit 1
-        }
-    else
-        # macOS fallback: use mkdir for atomic lock
-        mkdir "$LOCK_FILE" 2>/dev/null || {
-            log_error "另一个验证任务正在运行"
-            exit 1
-        }
-        trap "rmdir '$LOCK_FILE' 2>/dev/null" EXIT
-    fi
+    exec 200>$LOCK_FILE
+    flock -n 200 || {
+        log_error "另一个验证任务正在运行"
+        exit 1
+    }
 
     verify_level1
     verify_level2
     cleanup_verify_data
     print_report
 
-    # 释放锁
-    if command -v flock &> /dev/null; then
-        flock -u 200
-    else
-        rmdir "$LOCK_FILE" 2>/dev/null
-    fi
+    flock -u 200
 }
 
 main "$@"
+SCRIPT_EOF
+```
+
+- [ ] **Step 3: 验证脚本语法**
+
+Run: `bash -n scripts/verify.sh`
+Expected: 无输出（语法正确）
+
+- [ ] **Step 4: 验证帮助信息**
+
+Run: `./scripts/verify.sh --help`
+Expected: 显示帮助信息
+
+- [ ] **Step 5: 提交 Part 6**
+
+```bash
+git add scripts/verify.sh
+git commit -m "feat(verify): add report output and main entry point"
+```
+
+---
+
+## Task 8: 创建情报源清单模板
+
+**Files:**
+- Create: `sources.yaml`
+
+- [ ] **Step 1: 创建 sources.yaml 模板**
+
+```bash
+cat > sources.yaml << 'YAML_EOF'
+# sources.yaml - 验证用情报源清单
+#
+# 说明：
+# - 这些情报源用于验证 cyber-pulse 功能是否正常
+# - 应选择稳定、公开、可访问的情报源
+# - 由人工筛选，确保采集失败是应用问题而非情报源问题
+#
+# 字段说明：
+# - name: 情报源名称（必需，唯一）
+# - connector_type: 类型 rss/api/web/media（必需）
+# - config: Connector 配置（必需）
+#   - RSS: feed_url
+#   - API: url, api_key (可选)
+#   - Web: url
+#   - Media: url, api_key (可选)
+# - tier: 优先级 T0-T3（可选，默认 T2）
+
+sources:
+  # 示例 RSS 源（请替换为实际可用的情报源）
+  # - name: 安全客
+  #   connector_type: rss
+  #   config:
+  #     feed_url: https://www.anquanke.com/vul/rss.xml
+  #   tier: T2
+
+  # - name: FreeBuf
+  #   connector_type: rss
+  #   config:
+  #     feed_url: https://www.freebuf.com/feed
+  #   tier: T2
+YAML_EOF
+```
+
+- [ ] **Step 2: 验证 YAML 语法**
+
+Run: `python3 -c "import yaml; yaml.safe_load(open('sources.yaml'))"`
+Expected: 无输出（语法正确）
+
+- [ ] **Step 3: 提交**
+
+```bash
+git add sources.yaml
+git commit -m "feat: add sources.yaml template for verification"
+```
+
+---
+
+## Task 9: 创建验证使用文档
+
+**Files:**
+- Create: `docs/verification-guide.md`
+
+- [ ] **Step 1: 创建使用文档**
+
+```bash
+cat > docs/verification-guide.md << 'DOC_EOF'
+# cyber-pulse 验证系统使用指南
+
+## 概述
+
+验证系统用于确认 cyber-pulse 部署正确、功能完整，支持回归测试。
+
+## 快速开始
+
+### 1. 准备情报源
+
+编辑 `sources.yaml`，添加实际可用的情报源：
+
+```yaml
+sources:
+  - name: 安全客
+    connector_type: rss
+    config:
+      feed_url: https://www.anquanke.com/vul/rss.xml
+    tier: T2
+```
+
+### 2. 启动服务
+
+```bash
+docker-compose up -d
+```
+
+### 3. 运行验证
+
+```bash
+make verify
+```
+
+## 验证流程
+
+### Level 1: 系统就绪
+
+检查项：
+- 数据库连接
+- Redis 连接
+- API 服务健康
+- Worker 运行状态
+- Scheduler 运行状态
+
+### Level 2: 功能验证
+
+检查项：
+- API Client 管理（create/list/disable/enable）
+- 情报源添加与连接测试
+- 数据采集任务执行
+- CLI 数据查询
+- API 查询功能
+
+## 命令参考
+
+```bash
+# 终端输出
+make verify
+
+# 生成 Markdown 报告
+make verify-report
+
+# 指定情报源清单
+./scripts/verify.sh --sources custom-sources.yaml
+
+# 保留测试情报源
+./scripts/verify.sh --keep-sources
+
+# 仅清理测试数据
+./scripts/verify.sh --cleanup
+
+# 显示帮助
+./scripts/verify.sh --help
+```
+
+## 故障排查
+
+### Level 1 失败
+
+| 症状 | 可能原因 | 排查命令 |
+|------|----------|----------|
+| Database 连接失败 | PostgreSQL 未启动或配置错误 | `docker logs cyberpulse-db` |
+| Redis 连接失败 | Redis 未启动 | `docker logs cyberpulse-redis` |
+| Worker 未运行 | Worker 容器崩溃 | `docker logs cyberpulse-worker` |
+
+### Level 2 失败
+
+| 症状 | 可能原因 | 排查命令 |
+|------|----------|----------|
+| 情报源连接失败 | URL 不可达或格式错误 | 检查网络连接 |
+| 采集无数据 | 情报源无内容或解析错误 | `docker logs cyberpulse-worker` |
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `API_URL` | `http://localhost:8000` | API 服务地址 |
+| `DEBUG` | `false` | 启用调试输出 |
+
+## 注意事项
+
+1. **数据质量**：REJECTED items 是正常的业务结果，不作为验证失败条件
+2. **并发**：验证脚本使用文件锁，同一时间只能运行一个实例
+3. **清理**：验证完成后自动清理测试数据，除非指定 `--keep-sources`
+DOC_EOF
+```
+
+- [ ] **Step 2: 提交**
+
+```bash
+git add docs/verification-guide.md
+git commit -m "docs: add verification system usage guide"
+```
+
+---
+
+## Task 10: 端到端测试
+
+**前提条件：**
+- Docker Compose 服务已启动
+- `sources.yaml` 已配置实际情报源
+
+- [ ] **Step 1: 启动服务**
+
+```bash
+docker-compose up -d
+sleep 10
+```
+
+- [ ] **Step 2: 运行验证**
+
+```bash
+make verify
+```
+
+Expected:
+- Level 1: ✓ 通过
+- Level 2: ✓ 通过
+- 结论: 验证通过 ✓
+
+- [ ] **Step 3: 测试报告生成**
+
+```bash
+make verify-report
+cat logs/verify-report.md
+```
+
+Expected: 生成有效的 Markdown 报告
+
+- [ ] **Step 4: 验证清理**
+
+```bash
+docker exec cyberpulse-api cyber-pulse client list | grep verify_client || echo "清理成功"
+```
+
+Expected: 无 verify_client
+
+- [ ] **Step 5: 更新 CHANGELOG**
+
+在 CHANGELOG.md 中添加验证系统条目
+
+- [ ] **Step 6: 最终提交**
+
+```bash
+git add -A
+git commit -m "feat: complete verification system implementation"
+```
+
+---
+
+## 回归测试清单
+
+每次版本迭代时执行：
+
+- [ ] Level 1 各项检查能正确识别失败
+- [ ] Level 2 完整流程验证通过
+- [ ] 验证报告终端输出格式正确
+- [ ] 验证报告 Markdown 文件格式正确
+- [ ] 错误信息清晰可定位
+- [ ] 测试数据清理完整
+- [ ] `--output` 参数正常工作
+- [ ] `--sources` 参数正常工作
+- [ ] `--keep-sources` 参数正常工作
+- [ ] 并发锁机制正常工作

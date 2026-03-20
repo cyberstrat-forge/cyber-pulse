@@ -7,10 +7,10 @@ Usage:
     python -m cyberpulse.scheduler.main
 """
 
+import asyncio
 import logging
 import signal
 import sys
-import time
 
 from .scheduler import SchedulerService
 from .jobs import run_scheduled_collection, update_source_scores
@@ -43,8 +43,8 @@ def signal_handler(signum: int, frame: object) -> None:
     sys.exit(0)
 
 
-def main() -> None:
-    """Run the scheduler as a standalone process."""
+async def async_main() -> None:
+    """Run the scheduler as an async process."""
     global scheduler
 
     logger.info("Starting cyber-pulse scheduler...")
@@ -82,13 +82,18 @@ def main() -> None:
 
     logger.info("Scheduler started and running. Press Ctrl+C to stop.")
 
-    # Keep the main thread alive
+    # Keep the async loop alive
     try:
         while scheduler.is_running():
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received, shutting down...")
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        logger.info("Async task cancelled, shutting down...")
         scheduler.stop(wait=True)
+
+
+def main() -> None:
+    """Run the scheduler as a standalone process."""
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

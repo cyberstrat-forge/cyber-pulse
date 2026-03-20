@@ -16,6 +16,13 @@
 # - tier: 优先级 T0-T3（可选，默认 T2）
 
 sources:
+  # 验证用 RSS 源
+  - name: The Hacker News
+    connector_type: rss
+    config:
+      feed_url: https://feeds.feedburner.com/TheHackersNews
+    tier: T2
+
   # 示例 RSS 源（请替换为实际可用的情报源）
   # - name: 安全客
   #   connector_type: rss

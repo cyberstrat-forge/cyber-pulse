@@ -11,15 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency files first for better caching
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 
-# Install Python dependencies (production only, no dev tools)
-RUN pip install --no-cache-dir -e "."
-
-# Copy source code
+# Copy source code (required for editable install)
 COPY src/ ./src/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
+
+# Install Python dependencies (production only, no dev tools)
+RUN pip install --no-cache-dir -e "."
 
 # Create directories for data and logs
 RUN mkdir -p /app/data /app/logs
