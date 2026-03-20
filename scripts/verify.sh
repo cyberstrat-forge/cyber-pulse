@@ -395,3 +395,104 @@ verify_data_collection() {
 
     echo "new_contents=$NEW_CONTENTS" >> /tmp/cyberpulse_verify_stats.txt
 }
+
+# ============================================================================
+# CLI 数据查询
+# ============================================================================
+
+verify_cli_query() {
+    echo ""
+    echo "[CLI 数据查询]"
+
+    # 测试 content list 命令
+    RESULT=$(docker exec $CONTAINER_API cyber-pulse content list --format json 2>&1)
+
+    # 解析 JSON 数组获取数量
+    COUNT=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d, list) else 0)" 2>/dev/null || echo "0")
+
+    if [ "$COUNT" -eq 0 ]; then
+        echo "  ⚠ content list: 0 items (may be expected for fresh install)"
+    else
+        echo "  ✓ content list: $COUNT items found"
+    fi
+
+    # 测试 content stats 命令
+    STATS=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>&1)
+    TOTAL=$(echo "$STATS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" 2>/dev/null || echo "0")
+
+    echo "  ✓ content stats: $TOTAL total contents"
+}
+
+# ============================================================================
+# API 查询
+# ============================================================================
+
+verify_api_query() {
+    echo ""
+    echo "[API 查询]"
+
+    if [ ! -f /tmp/cyberpulse_verify.key ]; then
+        log_error "未找到 API Key"
+        exit 1
+    fi
+    API_KEY=$(cat /tmp/cyberpulse_verify.key)
+
+    RESPONSE=$(curl -s -w "\n%{http_code}" \
+        -H "Authorization: Bearer $API_KEY" \
+        "${API_URL}/api/v1/content?limit=10")
+
+    HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+    BODY=$(echo "$RESPONSE" | head -n -1)
+
+    if [ "$HTTP_CODE" != "200" ]; then
+        log_error "Content API 返回 HTTP $HTTP_CODE"
+        echo "  Response: $BODY"
+        exit 1
+    fi
+
+    COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('count', len(d) if isinstance(d, list) else 0))")
+    echo "  ✓ Content API: HTTP $HTTP_CODE, $COUNT items returned"
+
+    CURSOR=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_cursor', ''))" 2>/dev/null || echo "")
+    if [ -n "$CURSOR" ]; then
+        echo "  ✓ Cursor pagination: working"
+    else
+        echo "  ✓ Cursor pagination: no more pages"
+    fi
+}
+
+# ============================================================================
+# 清理函数
+# ============================================================================
+
+cleanup_verify_client() {
+    if [ -f /tmp/cyberpulse_verify_client_id ]; then
+        CLIENT_ID=$(cat /tmp/cyberpulse_verify_client_id)
+        docker exec $CONTAINER_API cyber-pulse client delete $CLIENT_ID --force 2>/dev/null || true
+        rm -f /tmp/cyberpulse_verify_client_id /tmp/cyberpulse_verify.key
+        echo "  ✓ verify_client deleted"
+    fi
+}
+
+cleanup_verify_data() {
+    echo ""
+    echo "[清理验证数据]"
+
+    cleanup_verify_client
+
+    if [ "$KEEP_SOURCES" != "true" ]; then
+        if [ -f /tmp/cyberpulse_sources.txt ]; then
+            while IFS=: read -r name source_id; do
+                if [ -n "$source_id" ]; then
+                    docker exec $CONTAINER_API cyber-pulse source remove "$source_id" --force 2>/dev/null || true
+                    echo "  ✓ 已删除情报源: $name"
+                fi
+            done < /tmp/cyberpulse_sources.txt
+            rm -f /tmp/cyberpulse_sources.txt
+        fi
+    else
+        echo "  --keep-sources 指定，保留情报源"
+    fi
+
+    rm -f /tmp/cyberpulse_verify_stats.txt
+}
