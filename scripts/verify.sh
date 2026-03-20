@@ -195,3 +195,87 @@ verify_level1() {
     echo ""
     echo "Level 1: ✓ 通过"
 }
+
+# ============================================================================
+# Level 2: 功能验证
+# ============================================================================
+
+verify_level2() {
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Level 2: 功能验证"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # 1. API Client 管理
+    verify_api_client_management
+
+    # 2. 情报源管理
+    verify_source_management
+
+    # 3. 数据采集
+    verify_data_collection
+
+    # 4. CLI 数据查询
+    verify_cli_query
+
+    # 5. API 查询
+    verify_api_query
+
+    echo ""
+    echo "Level 2: ✓ 通过"
+}
+
+# ============================================================================
+# API Client 管理
+# ============================================================================
+
+verify_api_client_management() {
+    echo ""
+    echo "[API Client 管理]"
+
+    # 创建测试 Client
+    # 注意：CLI 使用 Rich 格式化输出，需剥离 ANSI 代码
+    RESULT=$(docker exec $CONTAINER_API cyber-pulse client create verify_client 2>&1 | \
+        sed 's/\x1b\[[0-9;]*m//g' | tr -d '[]')
+
+    # 提取 API Key（剥离 Rich 格式后的格式 "API Key: cp_live_xxx"）
+    API_KEY=$(echo "$RESULT" | grep -oP 'API Key:\s*\Kcp_live_[a-f0-9]{32}' || {
+        log_error "无法提取 API Key，CLI 输出格式可能已变更"
+        log_debug "CLI 输出: $RESULT"
+        exit 1
+    })
+
+    # 提取 Client ID（格式: cli_xxxxxxxxxxxxxxxx，16 位 hex）
+    CLIENT_ID=$(echo "$RESULT" | grep -oP 'Created client:\s*\Kcli_[a-f0-9]{16}' || {
+        log_error "无法提取 Client ID，CLI 输出格式可能已变更"
+        log_debug "CLI 输出: $RESULT"
+        exit 1
+    })
+
+    echo "  ✓ client create: verify_client created ($CLIENT_ID)"
+
+    # 列出 Client（使用 grep 匹配表格输出）
+    docker exec $CONTAINER_API cyber-pulse client list | grep -q "verify_client" || {
+        log_error "Client list 中未找到 verify_client"
+        exit 1
+    }
+    echo "  ✓ client list: verify_client found"
+
+    # 暂停 Client
+    docker exec $CONTAINER_API cyber-pulse client disable $CLIENT_ID || {
+        log_error "Client disable 失败"
+        exit 1
+    }
+    echo "  ✓ client disable: suspended"
+
+    # 启用 Client
+    docker exec $CONTAINER_API cyber-pulse client enable $CLIENT_ID || {
+        log_error "Client enable 失败"
+        exit 1
+    }
+    echo "  ✓ client enable: activated"
+
+    # 保存 API Key 和 Client ID 供后续使用
+    echo $API_KEY > /tmp/cyberpulse_verify.key
+    echo $CLIENT_ID > /tmp/cyberpulse_verify_client_id
+}
