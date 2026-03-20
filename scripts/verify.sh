@@ -496,3 +496,93 @@ cleanup_verify_data() {
 
     rm -f /tmp/cyberpulse_verify_stats.txt
 }
+
+# ============================================================================
+# 报告输出
+# ============================================================================
+
+print_report() {
+    if [ -f /tmp/cyberpulse_verify_stats.txt ]; then
+        source /tmp/cyberpulse_verify_stats.txt
+    fi
+
+    if [ -n "$OUTPUT_FILE" ]; then
+        mkdir -p "$(dirname "$OUTPUT_FILE")"
+        cat > "$OUTPUT_FILE" << EOF
+# cyber-pulse 验证报告
+
+**时间：** $(date '+%Y-%m-%d %H:%M:%S')
+**结果：** ✓ 通过
+
+---
+
+## Level 1: 系统就绪
+
+| 检查项 | 状态 |
+|--------|------|
+| Database | ✓ connected |
+| Redis | ✓ connected |
+| API | ✓ healthy |
+| Worker | ✓ running |
+| Scheduler | ✓ running |
+
+**结果：** ✓ 通过
+
+---
+
+## Level 2: 功能验证
+
+### 数据统计
+
+| 指标 | 值 |
+|------|-----|
+| 新增内容 | ${new_contents:-0} contents |
+
+**结果：** ✓ 通过
+
+---
+
+## 结论
+
+验证通过，系统可用。
+EOF
+        echo ""
+        echo "报告已保存到: $OUTPUT_FILE"
+    else
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "结论: 验证通过 ✓"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    fi
+}
+
+# ============================================================================
+# 主流程
+# ============================================================================
+
+main() {
+    parse_args "$@"
+
+    echo "╭─────────────────────────────────────────────────────────────────╮"
+    echo "│                  cyber-pulse 验证系统                           │"
+    echo "│                    $(date '+%Y-%m-%d %H:%M:%S')                         │"
+    echo "╰─────────────────────────────────────────────────────────────────╯"
+
+    validate_sources_file
+
+    LOCK_FILE="/tmp/cyberpulse_verify.lock"
+    exec 200>$LOCK_FILE
+    flock -n 200 || {
+        log_error "另一个验证任务正在运行"
+        exit 1
+    }
+
+    verify_level1
+    verify_level2
+    cleanup_verify_data
+    print_report
+
+    flock -u 200
+}
+
+main "$@"
