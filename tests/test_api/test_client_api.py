@@ -229,14 +229,14 @@ class TestListClients:
             assert response.status_code == 200
             data = response.json()
             assert len(data["data"]) == 1
-            assert data["data"][0]["status"] == "revoked"
+            assert data["data"][0]["status"] == "REVOKED"
 
             # Filter by suspended
             response = client.get("/api/v1/clients?status=suspended")
             assert response.status_code == 200
             data = response.json()
             assert len(data["data"]) == 1
-            assert data["data"][0]["status"] == "suspended"
+            assert data["data"][0]["status"] == "SUSPENDED"
         finally:
             app.dependency_overrides.clear()
 

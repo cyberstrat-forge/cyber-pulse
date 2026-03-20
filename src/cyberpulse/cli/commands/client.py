@@ -64,7 +64,7 @@ def list_clients(
         None,
         "--status",
         "-s",
-        help="Filter by status (active, suspended, revoked)",
+        help="Filter by status (ACTIVE, SUSPENDED, REVOKED)",
     ),
 ) -> None:
     """List all API clients."""

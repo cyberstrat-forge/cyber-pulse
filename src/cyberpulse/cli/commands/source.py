@@ -55,7 +55,7 @@ def _validate_source_id(source_id: str) -> bool:
 @app.command("list")
 def list_sources(
     tier: Optional[str] = typer.Option(None, "--tier", "-t", help="Filter by tier (T0, T1, T2, T3)"),
-    status: Optional[str] = typer.Option(None, "--status", "-s", help="Filter by status (active, frozen, removed)"),
+    status: Optional[str] = typer.Option(None, "--status", "-s", help="Filter by status (ACTIVE, FROZEN, REMOVED)"),
     limit: int = typer.Option(100, "--limit", "-l", help="Maximum number of results"),
 ) -> None:
     """List all sources with optional filtering."""
@@ -330,7 +330,7 @@ def _get_tier_for_score(score: float) -> SourceTier:
 def update_source(
     source_id: str = typer.Argument(..., help="Source ID to update"),
     tier: Optional[str] = typer.Option(None, "--tier", "-t", help="New tier (T0, T1, T2, T3)"),
-    status: Optional[str] = typer.Option(None, "--status", "-s", help="New status (active, frozen)"),
+    status: Optional[str] = typer.Option(None, "--status", "-s", help="New status (ACTIVE, FROZEN)"),
 ) -> None:
     """Update a source's tier or status."""
     # Validate source ID format

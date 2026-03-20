@@ -257,7 +257,7 @@ class TestGetContent:
             assert data["normalized_title"] == "Test Content"
             assert data["normalized_body"] == "Test body content"
             assert data["source_count"] == 3
-            assert data["status"] == "active"
+            assert data["status"] == "ACTIVE"
             assert "first_seen_at" in data
             assert "last_seen_at" in data
         finally:
@@ -318,7 +318,7 @@ class TestGetContent:
             assert data["normalized_title"] == "Full Test Content"
             assert data["normalized_body"] == "Full test body with multiple lines.\nLine 2.\nLine 3."
             assert data["source_count"] == 5
-            assert data["status"] == "active"
+            assert data["status"] == "ACTIVE"
             assert "first_seen_at" in data
             assert "last_seen_at" in data
         finally:

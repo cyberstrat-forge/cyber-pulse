@@ -86,6 +86,7 @@ def ingest_source(source_id: str) -> None:
 
             except IntegrityError as e:
                 # Duplicate item - expected, log and continue
+                db.rollback()  # Reset session state after IntegrityError
                 logger.warning(
                     f"Duplicate item detected from source {source_id}: {e}",
                     exc_info=True

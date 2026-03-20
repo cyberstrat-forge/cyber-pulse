@@ -49,7 +49,7 @@ class ClientResponse(BaseModel):
 
     client_id: str = Field(..., description="Unique client identifier")
     name: str = Field(..., description="Client name")
-    status: str = Field(..., description="Client status (active, suspended, revoked)")
+    status: str = Field(..., description="Client status (ACTIVE, SUSPENDED, REVOKED)")
     permissions: List[str] = Field(
         default_factory=list,
         description="List of permissions for this client"

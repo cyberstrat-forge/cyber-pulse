@@ -24,7 +24,7 @@ class ContentResponse(BaseModel):
     first_seen_at: datetime = Field(..., description="When content was first seen")
     last_seen_at: datetime = Field(..., description="When content was last seen")
     source_count: int = Field(..., description="Number of sources for this content")
-    status: str = Field(..., description="Content status (active/archived)")
+    status: str = Field(..., description="Content status (ACTIVE/ARCHIVED)")
 
     model_config = {
         "from_attributes": True,  # Enable ORM mode for SQLAlchemy models
