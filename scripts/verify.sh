@@ -13,9 +13,9 @@ set -e
 # 配置
 # ============================================================================
 
-CONTAINER_API="cyberpulse-api"
-CONTAINER_WORKER="cyberpulse-worker"
-CONTAINER_SCHEDULER="cyberpulse-scheduler"
+CONTAINER_API="cyber-pulse-api-1"
+CONTAINER_WORKER="cyber-pulse-worker-1"
+CONTAINER_SCHEDULER="cyber-pulse-scheduler-1"
 SOURCES_FILE="sources.yaml"
 API_URL="${API_URL:-http://localhost:8000}"
 OUTPUT_FILE=""
@@ -144,4 +144,54 @@ print(f"Validation passed: {len(sources)} source(s) defined")
 PYEOF
 
     log_info "情报源清单验证通过: $SOURCES_FILE"
+}
+
+# ============================================================================
+# Level 1: 系统就绪验证
+# ============================================================================
+
+verify_level1() {
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Level 1: 系统就绪"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # 数据库 + Redis 检查
+    echo "  检查数据库和 Redis 连接..."
+    docker exec $CONTAINER_API cyber-pulse diagnose system || {
+        log_error "Level 1 失败: 系统诊断未通过"
+        exit 1
+    }
+    echo "  ✓ Database: connected"
+    echo "  ✓ Redis: connected"
+    echo "  ✓ API: healthy"
+
+    # Worker 运行检查
+    echo "  检查 Worker 运行状态..."
+    docker ps --filter "name=$CONTAINER_WORKER" --filter "status=running" | grep -q $CONTAINER_WORKER || {
+        log_error "Level 1 失败: Worker 未运行"
+        echo "  ✗ Worker: not running"
+        echo ""
+        echo "排查建议:"
+        echo "  1. 检查容器状态: docker ps -a | grep worker"
+        echo "  2. 查看日志: docker logs $CONTAINER_WORKER"
+        exit 1
+    }
+    echo "  ✓ Worker: running"
+
+    # Scheduler 运行检查
+    echo "  检查 Scheduler 运行状态..."
+    docker ps --filter "name=$CONTAINER_SCHEDULER" --filter "status=running" | grep -q $CONTAINER_SCHEDULER || {
+        log_error "Level 1 失败: Scheduler 未运行"
+        echo "  ✗ Scheduler: not running"
+        echo ""
+        echo "排查建议:"
+        echo "  1. 检查容器状态: docker ps -a | grep scheduler"
+        echo "  2. 查看日志: docker logs $CONTAINER_SCHEDULER"
+        exit 1
+    }
+    echo "  ✓ Scheduler: running"
+
+    echo ""
+    echo "Level 1: ✓ 通过"
 }
