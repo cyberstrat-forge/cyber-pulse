@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..database import SessionLocal
 from ..models import Item
+from ..models.item import ItemStatus
 from ..services.item_service import ItemService
 from ..services.normalization_service import NormalizationService
 from .worker import broker
@@ -57,7 +58,7 @@ def normalize_item(item_id: str) -> None:
         item_service = ItemService(db)
         updated_item = item_service.update_item_status(
             item_id=item_id,
-            status="normalized",
+            status=ItemStatus.NORMALIZED.value,
             quality_metrics={
                 "meta_completeness": None,  # Will be set by quality gate
                 "content_completeness": None,

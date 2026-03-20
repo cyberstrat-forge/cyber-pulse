@@ -41,7 +41,7 @@ def _validate_tier(tier: str) -> SourceTier:
 def _validate_status(status: str) -> SourceStatus:
     """Validate and convert status string to enum."""
     try:
-        return SourceStatus(status.lower())
+        return SourceStatus(status.upper())
     except ValueError:
         valid_statuses = [s.value for s in SourceStatus]
         raise HTTPException(

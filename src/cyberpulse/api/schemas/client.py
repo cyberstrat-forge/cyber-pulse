@@ -68,7 +68,7 @@ class ClientResponse(BaseModel):
             "example": {
                 "client_id": "cli_a1b2c3d4",
                 "name": "Analytics Service",
-                "status": "active",
+                "status": "ACTIVE",
                 "permissions": ["read"],
                 "description": "Client for analytics dashboard",
                 "last_used_at": "2026-03-19T10:00:00Z",
@@ -106,7 +106,7 @@ class ClientCreatedResponse(BaseModel):
                 "client": {
                     "client_id": "cli_a1b2c3d4",
                     "name": "Analytics Service",
-                    "status": "active",
+                    "status": "ACTIVE",
                     "permissions": ["read"],
                     "description": "Client for analytics dashboard",
                     "last_used_at": None,
@@ -145,7 +145,7 @@ class ClientListResponse(BaseModel):
                     {
                         "client_id": "cli_a1b2c3d4",
                         "name": "Analytics Service",
-                        "status": "active",
+                        "status": "ACTIVE",
                         "permissions": ["read"],
                         "description": "Client for analytics dashboard",
                         "last_used_at": "2026-03-19T10:00:00Z",

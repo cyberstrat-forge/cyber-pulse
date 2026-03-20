@@ -20,30 +20,30 @@ def test_source_tier_enum():
 
 def test_source_status_enum():
     """Test SourceStatus enum values"""
-    assert SourceStatus.ACTIVE == "active"
-    assert SourceStatus.FROZEN == "frozen"
-    assert SourceStatus.REMOVED == "removed"
+    assert SourceStatus.ACTIVE == "ACTIVE"
+    assert SourceStatus.FROZEN == "FROZEN"
+    assert SourceStatus.REMOVED == "REMOVED"
 
 
 def test_item_status_enum():
     """Test ItemStatus enum values"""
-    assert ItemStatus.NEW == "new"
-    assert ItemStatus.NORMALIZED == "normalized"
-    assert ItemStatus.MAPPED == "mapped"
-    assert ItemStatus.REJECTED == "rejected"
+    assert ItemStatus.NEW == "NEW"
+    assert ItemStatus.NORMALIZED == "NORMALIZED"
+    assert ItemStatus.MAPPED == "MAPPED"
+    assert ItemStatus.REJECTED == "REJECTED"
 
 
 def test_content_status_enum():
     """Test ContentStatus enum values"""
-    assert ContentStatus.ACTIVE == "active"
-    assert ContentStatus.ARCHIVED == "archived"
+    assert ContentStatus.ACTIVE == "ACTIVE"
+    assert ContentStatus.ARCHIVED == "ARCHIVED"
 
 
 def test_api_client_status_enum():
     """Test ApiClientStatus enum values"""
-    assert ApiClientStatus.ACTIVE == "active"
-    assert ApiClientStatus.SUSPENDED == "suspended"
-    assert ApiClientStatus.REVOKED == "revoked"
+    assert ApiClientStatus.ACTIVE == "ACTIVE"
+    assert ApiClientStatus.SUSPENDED == "SUSPENDED"
+    assert ApiClientStatus.REVOKED == "REVOKED"
 
 
 def test_item_status_default_is_enum():

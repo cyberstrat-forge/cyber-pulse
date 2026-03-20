@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ..database import SessionLocal
 from ..models import Source
+from ..models.item import ItemStatus
 from ..services.connector_factory import get_connector_for_source
 from ..services.item_service import ItemService
 from .worker import broker
@@ -80,7 +81,7 @@ def ingest_source(source_id: str) -> None:
 
                 # Only queue normalization for new items (not duplicates)
                 # Check if this was a new item by comparing fetched_at
-                if item and item.status.value == "new":
+                if item is not None and item.status.value == ItemStatus.NEW.value:
                     new_items.append(item)
 
             except IntegrityError as e:

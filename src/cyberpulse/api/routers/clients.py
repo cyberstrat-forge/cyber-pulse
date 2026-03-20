@@ -99,7 +99,7 @@ async def list_clients(
     status_enum = None
     if status:
         try:
-            status_enum = ApiClientStatus(status.lower())
+            status_enum = ApiClientStatus(status.upper())
         except ValueError:
             valid_statuses = [s.value for s in ApiClientStatus]
             raise HTTPException(

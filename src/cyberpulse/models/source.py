@@ -15,9 +15,9 @@ class SourceTier(str, PyEnum):
 
 class SourceStatus(str, PyEnum):
     """Source status"""
-    ACTIVE = "active"
-    FROZEN = "frozen"
-    REMOVED = "removed"
+    ACTIVE = "ACTIVE"
+    FROZEN = "FROZEN"
+    REMOVED = "REMOVED"
 
 
 class Source(Base, TimestampMixin):

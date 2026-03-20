@@ -45,7 +45,7 @@ class TestCreateClient:
             # Check client data
             client_data = data["client"]
             assert client_data["name"] == "Test Client"
-            assert client_data["status"] == "active"
+            assert client_data["status"] == "ACTIVE"
             assert set(client_data["permissions"]) == {"read", "write"}
             assert client_data["description"] == "Test client for API"
             assert "client_id" in client_data
@@ -222,7 +222,7 @@ class TestListClients:
             assert response.status_code == 200
             data = response.json()
             assert len(data["data"]) == 1
-            assert data["data"][0]["status"] == "active"
+            assert data["data"][0]["status"] == "ACTIVE"
 
             # Filter by revoked
             response = client.get("/api/v1/clients?status=revoked")
@@ -495,7 +495,7 @@ class TestClientResponseFormat:
             assert client_data["name"] == "All Fields Test"
             assert set(client_data["permissions"]) == {"read", "write", "admin"}
             assert client_data["description"] == "Testing all fields"
-            assert client_data["status"] == "active"
+            assert client_data["status"] == "ACTIVE"
         finally:
             app.dependency_overrides.clear()
 

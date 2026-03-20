@@ -239,14 +239,14 @@ verify_api_client_management() {
         sed 's/\x1b\[[0-9;]*m//g' | tr -d '[]')
 
     # 提取 API Key（使用 perl 兼容正则，支持 macOS）
-    API_KEY=$(echo "$RESULT" | perl -ne 'print $1 if /(API Key:\s*)(cp_live_[a-f0-9]{32})/' || {
+    API_KEY=$(echo "$RESULT" | perl -ne 'print $1 if /API Key:\s*(cp_live_[a-f0-9]{32})/' || {
         log_error "无法提取 API Key，CLI 输出格式可能已变更"
         log_debug "CLI 输出: $RESULT"
         exit 1
     })
 
     # 提取 Client ID（格式: cli_xxxxxxxxxxxxxxxx，16 位 hex）
-    CLIENT_ID=$(echo "$RESULT" | perl -ne 'print $1 if /(Created client:\s*)(cli_[a-f0-9]{16})/' || {
+    CLIENT_ID=$(echo "$RESULT" | perl -ne 'print $1 if /Created client:\s*(cli_[a-f0-9]{16})/' || {
         log_error "无法提取 Client ID，CLI 输出格式可能已变更"
         log_debug "CLI 输出: $RESULT"
         exit 1
@@ -291,15 +291,27 @@ verify_source_management() {
     # 使用 Python 解析 YAML 并调用 CLI
     export SOURCES_FILE
     export CONTAINER_API
+    export API_URL
     python3 << 'PYEOF'
 import yaml
 import subprocess
 import sys
 import os
 import re
+import urllib.request
+import json
 
 sources_file = os.environ.get('SOURCES_FILE', 'sources.yaml')
 container_api = os.environ.get('CONTAINER_API', 'cyber-pulse-api-1')
+api_url = os.environ.get('API_URL', 'http://localhost:8000')
+
+# 获取 API Key
+try:
+    with open('/tmp/cyberpulse_verify.key') as f:
+        api_key = f.read().strip()
+except FileNotFoundError:
+    print("Error: API Key not found", file=sys.stderr)
+    sys.exit(1)
 
 with open(sources_file) as f:
     data = yaml.safe_load(f)
@@ -314,9 +326,30 @@ for source in data.get("sources", []):
     # 获取 URL
     url = config.get("feed_url") or config.get("url", "")
 
+    # 使用 API 检查是否已存在（包括 REMOVED 状态）
+    existing_id = None
+    try:
+        req = urllib.request.Request(
+            f"{api_url}/api/v1/sources?limit=500",
+            headers={"Authorization": f"Bearer {api_key}"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            sources_list = json.loads(resp.read().decode()).get("data", [])
+            for s in sources_list:
+                if s.get("name") == name:
+                    existing_id = s.get("source_id")
+                    break
+    except Exception as e:
+        print(f"Warning: Could not check existing sources: {e}", file=sys.stderr)
+
+    if existing_id:
+        print(f"  ✓ {name}: already exists ({existing_id}), reusing")
+        source_ids.append(f"{name}:{existing_id}")
+        continue
+
     # 构建 CLI 命令
     cmd = ["docker", "exec", container_api, "cyber-pulse", "source", "add",
-           name, conn_type, url, "--tier", tier, "--test"]
+           name, conn_type, url, "--tier", tier, "--test", "--yes"]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -441,8 +474,9 @@ verify_api_query() {
         -H "Authorization: Bearer $API_KEY" \
         "${API_URL}/api/v1/content?limit=10")
 
+    # macOS compatible: use sed to remove last line instead of head -n -1
     HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-    BODY=$(echo "$RESPONSE" | head -n -1)
+    BODY=$(echo "$RESPONSE" | sed '$d')
 
     if [ "$HTTP_CODE" != "200" ]; then
         log_error "Content API 返回 HTTP $HTTP_CODE"

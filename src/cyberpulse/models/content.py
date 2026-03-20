@@ -6,8 +6,8 @@ from .base import TimestampMixin
 
 class ContentStatus(str, Enum):
     """Content status"""
-    ACTIVE = "active"
-    ARCHIVED = "archived"
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
 
 
 class Content(Base, TimestampMixin):

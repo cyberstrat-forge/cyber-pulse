@@ -139,7 +139,7 @@ class ItemService(BaseService):
         if status:
             # Convert string to ItemStatus enum if needed
             if isinstance(status, str):
-                status = ItemStatus(status)
+                status = ItemStatus(status.upper())
             query = query.filter(Item.status == status)
 
         return (
@@ -173,7 +173,7 @@ class ItemService(BaseService):
 
         # Convert string to ItemStatus enum if needed
         if isinstance(status, str):
-            status = ItemStatus(status)
+            status = ItemStatus(status.upper())
 
         item.status = status
 

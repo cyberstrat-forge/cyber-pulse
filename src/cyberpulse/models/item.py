@@ -7,10 +7,10 @@ from .base import TimestampMixin
 
 class ItemStatus(str, Enum):
     """Item processing status"""
-    NEW = "new"
-    NORMALIZED = "normalized"
-    MAPPED = "mapped"
-    REJECTED = "rejected"
+    NEW = "NEW"
+    NORMALIZED = "NORMALIZED"
+    MAPPED = "MAPPED"
+    REJECTED = "REJECTED"
 
 
 class Item(Base, TimestampMixin):

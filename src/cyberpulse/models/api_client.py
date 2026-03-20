@@ -7,9 +7,9 @@ from .base import TimestampMixin
 
 class ApiClientStatus(str, Enum):
     """API client status"""
-    ACTIVE = "active"
-    SUSPENDED = "suspended"
-    REVOKED = "revoked"
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    REVOKED = "REVOKED"
 
 
 class ApiClient(Base, TimestampMixin):
