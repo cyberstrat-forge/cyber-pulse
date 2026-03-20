@@ -281,25 +281,38 @@ class TestJobFunctions:
 
     def test_collect_source(self):
         """Test collect_source job function."""
-        result = collect_source("src_test123")
+        with patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest:
+            mock_ingest.send = MagicMock()
 
-        assert result["source_id"] == "src_test123"
-        assert result["status"] == "queued"
-        assert "placeholder" in result["message"].lower()
+            result = collect_source("src_test123")
+
+            assert result["source_id"] == "src_test123"
+            assert result["status"] == "queued"
+            mock_ingest.send.assert_called_once_with("src_test123")
 
     def test_run_scheduled_collection(self):
         """Test run_scheduled_collection job function."""
-        result = run_scheduled_collection()
+        with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local:
+            mock_session = MagicMock()
+            mock_session_local.return_value = mock_session
+            mock_session.query.return_value.filter.return_value.all.return_value = []
 
-        assert result["status"] == "queued"
-        assert "placeholder" in result["message"].lower()
+            result = run_scheduled_collection()
+
+            assert result["status"] == "completed"
+            assert result["sources_count"] == 0
 
     def test_update_source_scores(self):
         """Test update_source_scores job function."""
-        result = update_source_scores()
+        with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local:
+            mock_session = MagicMock()
+            mock_session_local.return_value = mock_session
+            mock_session.query.return_value.filter.return_value.all.return_value = []
 
-        assert result["status"] == "completed"
-        assert "placeholder" in result["message"].lower()
+            result = update_source_scores()
+
+            assert result["status"] == "completed"
+            assert result["sources_updated"] == 0
 
 
 class TestSchedulerIntegration:
@@ -322,18 +335,36 @@ class TestSchedulerIntegration:
             service.stop()
             assert service.is_running() is False
 
-    def test_job_event_listener(self):
-        """Test job event listener for logging."""
+    def test_job_event_listener_success(self, caplog):
+        """Test job event listener logs successful execution."""
+        import logging
+
         service = SchedulerService.__new__(SchedulerService)
         service._running = False
         service.database_url = "test"
 
-        # Test successful job event
         event = MagicMock()
         event.job_id = "test_job"
         event.exception = None
-        service._job_executed_listener(event)
 
-        # Test failed job event
+        with caplog.at_level(logging.INFO):
+            service._job_executed_listener(event)
+
+        assert "executed successfully" in caplog.text or "test_job" in caplog.text
+
+    def test_job_event_listener_failure(self, caplog):
+        """Test job event listener logs failed execution."""
+        import logging
+
+        service = SchedulerService.__new__(SchedulerService)
+        service._running = False
+        service.database_url = "test"
+
+        event = MagicMock()
+        event.job_id = "test_job"
         event.exception = Exception("Test error")
-        service._job_executed_listener(event)
+
+        with caplog.at_level(logging.ERROR):
+            service._job_executed_listener(event)
+
+        assert "failed" in caplog.text.lower() or "error" in caplog.text.lower()
