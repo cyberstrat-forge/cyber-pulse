@@ -82,7 +82,7 @@ async def create_client(
 async def list_clients(
     status: Optional[str] = Query(
         None,
-        description="Filter by status (active, suspended, revoked)"
+        description="Filter by status (ACTIVE, SUSPENDED, REVOKED)"
     ),
     db: Session = Depends(get_db),
 ) -> ClientListResponse:

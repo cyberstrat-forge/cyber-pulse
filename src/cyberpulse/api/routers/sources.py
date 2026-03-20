@@ -58,7 +58,7 @@ async def list_sources(
     ),
     status: Optional[str] = Query(
         None,
-        description="Filter by status (active, frozen, removed)"
+        description="Filter by status (ACTIVE, FROZEN, REMOVED)"
     ),
     limit: int = Query(
         100,

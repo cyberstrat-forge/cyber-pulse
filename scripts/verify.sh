@@ -40,6 +40,37 @@ log_debug() {
     fi
 }
 
+# 安全解析 JSON 并提取字段
+# 用法: parse_json_field "$json_string" "field_name" default_value
+parse_json_field() {
+    local json_input="$1"
+    local field="$2"
+    local default="${3:-0}"
+
+    if [ -z "$json_input" ]; then
+        log_debug "Empty JSON input for field '$field'"
+        echo "$default"
+        return
+    fi
+
+    local result
+    result=$(echo "$json_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$field', $default))" 2>/dev/null)
+
+    if [ $? -ne 0 ] || [ -z "$result" ]; then
+        log_debug "Failed to parse JSON for field '$field'"
+        echo "$default"
+    else
+        echo "$result"
+    fi
+}
+
+# 验证 JSON 格式是否有效
+validate_json() {
+    local json_input="$1"
+    echo "$json_input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null
+    return $?
+}
+
 # ============================================================================
 # 参数解析
 # ============================================================================
@@ -385,8 +416,13 @@ verify_data_collection() {
         exit 1
     fi
 
-    BEFORE_COUNT=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>/dev/null | \
-        python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" || echo "0")
+    STATS_JSON=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>&1)
+    if ! validate_json "$STATS_JSON"; then
+        log_debug "Failed to parse content stats JSON: $STATS_JSON"
+        BEFORE_COUNT=0
+    else
+        BEFORE_COUNT=$(parse_json_field "$STATS_JSON" "total_contents" 0)
+    fi
 
     while IFS=: read -r name source_id; do
         docker exec $CONTAINER_API cyber-pulse job run "$source_id" 2>&1 || {
@@ -403,8 +439,12 @@ verify_data_collection() {
     elapsed=0
 
     while [ $elapsed -lt $MAX_WAIT ]; do
-        AFTER_COUNT=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>/dev/null | \
-            python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" || echo "0")
+        STATS_JSON=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>&1)
+        if validate_json "$STATS_JSON"; then
+            AFTER_COUNT=$(parse_json_field "$STATS_JSON" "total_contents" 0)
+        else
+            AFTER_COUNT=0
+        fi
 
         if [ "$AFTER_COUNT" -gt "$BEFORE_COUNT" ]; then
             break
@@ -415,8 +455,12 @@ verify_data_collection() {
         echo "    已等待 ${elapsed}s..."
     done
 
-    FINAL_COUNT=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>/dev/null | \
-        python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" || echo "0")
+    STATS_JSON=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>&1)
+    if validate_json "$STATS_JSON"; then
+        FINAL_COUNT=$(parse_json_field "$STATS_JSON" "total_contents" 0)
+    else
+        FINAL_COUNT=0
+    fi
 
     NEW_CONTENTS=$((FINAL_COUNT - BEFORE_COUNT))
 
@@ -439,7 +483,12 @@ verify_cli_query() {
 
     # 测试 content stats 命令（更可靠）
     STATS=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>&1)
-    TOTAL=$(echo "$STATS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" 2>/dev/null || echo "0")
+    if validate_json "$STATS"; then
+        TOTAL=$(parse_json_field "$STATS" "total_contents" 0)
+    else
+        log_debug "Failed to parse content stats: $STATS"
+        TOTAL=0
+    fi
 
     if [ "$TOTAL" -eq 0 ]; then
         echo "  ⚠ content stats: 0 contents (may be expected for fresh install)"
@@ -452,6 +501,7 @@ verify_cli_query() {
     if echo "$RESULT" | grep -q '^\['; then
         echo "  ✓ content list: returns valid JSON array"
     else
+        log_debug "Unexpected content list output: $RESULT"
         echo "  ⚠ content list: unexpected output format"
     fi
 }
@@ -502,9 +552,13 @@ verify_api_query() {
 cleanup_verify_client() {
     if [ -f /tmp/cyberpulse_verify_client_id ]; then
         CLIENT_ID=$(cat /tmp/cyberpulse_verify_client_id)
-        docker exec $CONTAINER_API cyber-pulse client delete $CLIENT_ID --force 2>/dev/null || true
+        if docker exec $CONTAINER_API cyber-pulse client delete $CLIENT_ID --force 2>&1; then
+            echo "  ✓ verify_client deleted"
+        else
+            log_debug "Client cleanup failed (may already be deleted): $CLIENT_ID"
+            echo "  ✓ verify_client cleanup attempted"
+        fi
         rm -f /tmp/cyberpulse_verify_client_id /tmp/cyberpulse_verify.key
-        echo "  ✓ verify_client deleted"
     fi
 }
 
@@ -518,8 +572,12 @@ cleanup_verify_data() {
         if [ -f /tmp/cyberpulse_sources.txt ]; then
             while IFS=: read -r name source_id; do
                 if [ -n "$source_id" ]; then
-                    docker exec $CONTAINER_API cyber-pulse source remove "$source_id" --force 2>/dev/null || true
-                    echo "  ✓ 已删除情报源: $name"
+                    if docker exec $CONTAINER_API cyber-pulse source remove "$source_id" --force 2>&1; then
+                        echo "  ✓ 已删除情报源: $name"
+                    else
+                        log_debug "Source cleanup failed (may already be deleted): $name"
+                        echo "  ✓ 情报源清理已尝试: $name"
+                    fi
                 fi
             done < /tmp/cyberpulse_sources.txt
             rm -f /tmp/cyberpulse_sources.txt
