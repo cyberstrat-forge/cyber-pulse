@@ -471,3 +471,80 @@ def format_file_size(size_bytes: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
+
+
+@app.command("export")
+def export_logs(
+    output: str = typer.Option(..., "--output", "-o", help="Output file path"),
+    since: Optional[str] = typer.Option(
+        None, "--since", "-s", help="Export logs since time (e.g., '1h', '24h', '7d')"
+    ),
+    level: Optional[str] = typer.Option(
+        None, "--level", "-l", help="Filter by log level (ERROR, WARNING, INFO, DEBUG)"
+    ),
+) -> None:
+    """Export logs to a file.
+
+    Exports log entries to a file, optionally filtered by time and level.
+
+    Examples:
+        cyber-pulse log export --output /tmp/cyberpulse.log
+        cyber-pulse log export --output /tmp/errors.log --level ERROR --since 24h
+    """
+    log_path = get_log_file_path()
+
+    if not log_path.exists():
+        console.print(f"[red]Log file not found: {log_path}[/red]")
+        raise typer.Exit(1)
+
+    # Parse since parameter
+    since_dt = None
+    if since:
+        since_dt = parse_time_delta(since)
+        if since_dt is None:
+            console.print(f"[red]Invalid time format: {since}[/red]")
+            console.print("[dim]Use format like '1h', '24h', '7d', '30m'[/dim]")
+            raise typer.Exit(1)
+
+    # Read all lines
+    lines = read_log_lines(log_path, n=50000, from_end=True)
+
+    # Filter and export
+    exported = []
+    for line in lines:
+        parsed = parse_log_line(line)
+        if not parsed:
+            continue
+
+        # Apply filters
+        if since_dt:
+            try:
+                log_dt = datetime.strptime(parsed['timestamp'], '%Y-%m-%d %H:%M:%S,%f')
+                if log_dt < since_dt:
+                    continue
+            except ValueError:
+                continue
+
+        if level and parsed['level'] != level.upper():
+            continue
+
+        exported.append(line)
+
+    if not exported:
+        console.print("[dim]No log entries match the criteria.[/dim]")
+        raise typer.Exit(0)
+
+    # Write to output file
+    try:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            for line in exported:
+                f.write(line + '\n')
+
+        console.print(f"[green]✓[/green] Exported {len(exported)} log entries to {output}")
+        console.print(f"[dim]File size: {format_file_size(output_path.stat().st_size)}[/dim]")
+    except OSError as e:
+        console.print(f"[red]Failed to write output file: {e}[/red]")
+        raise typer.Exit(1)
