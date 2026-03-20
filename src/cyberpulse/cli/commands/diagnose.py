@@ -1,5 +1,8 @@
 """Diagnose command module."""
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -85,6 +88,42 @@ def diagnose_system() -> None:
             console.print(f"  Log file size: {format_size(size)}")
         else:
             console.print("  [yellow]Log file not yet created[/yellow]")
+
+    # Check API service
+    console.print("\n[bold]API Service:[/bold]")
+    try:
+        url = f"http://{settings.api_host}:{settings.api_port}/health"
+        # Handle 0.0.0.0 binding
+        if '0.0.0.0' in url:
+            url = url.replace('0.0.0.0', '127.0.0.1')
+
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            if data.get('status') == 'healthy':
+                console.print("  [green]✓[/green] API service: [green]healthy[/green]")
+                console.print(f"  [dim]URL: {url}[/dim]")
+            else:
+                console.print("  [yellow]![/yellow] API service: [yellow]degraded[/yellow]")
+                console.print(f"  [dim]Status: {data.get('status')}[/dim]")
+    except urllib.error.URLError:
+        console.print("  [yellow]![/yellow] API service: [yellow]not reachable[/yellow]")
+        console.print("  [dim]This is normal if API is not running locally[/dim]")
+    except Exception as e:
+        console.print("  [yellow]![/yellow] API service: [yellow]not reachable[/yellow]")
+        console.print(f"  [dim]{str(e)[:50]}[/dim]")
+
+    # Check Dramatiq queue status
+    console.print("\n[bold]Task Queue:[/bold]")
+    try:
+        import redis
+        r = redis.from_url(settings.dramatiq_broker_url)
+        # Check for pending messages in default queue
+        queue_len = r.llen("dramatiq:default")  # type: ignore[attr-defined]
+        console.print("  [green]✓[/green] Dramatiq Redis: [green]connected[/green]")
+        console.print(f"  [dim]Pending tasks in default queue: {queue_len}[/dim]")
+    except Exception:
+        console.print("  [yellow]![/yellow] Could not check queue status")
 
     # Summary
     console.print()

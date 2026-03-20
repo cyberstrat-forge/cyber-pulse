@@ -483,3 +483,106 @@ class TestDiagnoseErrorsWithReason:
             assert result.exit_code == 0
             # Should show dash when no rejection reason
             assert '-' in result.stdout
+
+
+class TestDiagnoseSystemServices:
+    """Tests for diagnose system service status checks."""
+
+    def test_diagnose_system_shows_api_status(self) -> None:
+        """Test system diagnosis shows API service status."""
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db, \
+             patch('cyberpulse.cli.commands.diagnose.settings') as mock_settings:
+            mock_session = MagicMock()
+            mock_session.execute.return_value = None
+            mock_db.return_value = mock_session
+            mock_settings.database_url = 'postgresql://localhost/db'
+            mock_settings.redis_url = 'redis://localhost:6379/0'
+            mock_settings.dramatiq_broker_url = 'redis://localhost:6379/1'
+            mock_settings.log_level = 'INFO'
+            mock_settings.log_file = None
+            mock_settings.scheduler_enabled = True
+            mock_settings.api_host = '0.0.0.0'
+            mock_settings.api_port = 8000
+
+            mock_redis = MagicMock()
+            mock_redis.ping.return_value = None
+            mock_redis.llen.return_value = 0
+
+            mock_redis_module = MagicMock()
+            mock_redis_module.from_url.return_value = mock_redis
+
+            with patch.dict('sys.modules', {'redis': mock_redis_module}), \
+                 patch('urllib.request.urlopen') as mock_urlopen:
+                mock_urlopen.return_value.__enter__ = MagicMock()
+                mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
+                mock_urlopen.return_value.read.return_value = b'{"status":"healthy"}'
+
+                result = runner.invoke(app, ['system'])
+                assert result.exit_code == 0
+                assert 'API' in result.stdout
+
+    def test_diagnose_system_shows_queue_status(self) -> None:
+        """Test system diagnosis shows task queue status."""
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db, \
+             patch('cyberpulse.cli.commands.diagnose.settings') as mock_settings:
+            mock_session = MagicMock()
+            mock_session.execute.return_value = None
+            mock_db.return_value = mock_session
+            mock_settings.database_url = 'postgresql://localhost/db'
+            mock_settings.redis_url = 'redis://localhost:6379/0'
+            mock_settings.dramatiq_broker_url = 'redis://localhost:6379/1'
+            mock_settings.log_level = 'INFO'
+            mock_settings.log_file = None
+            mock_settings.scheduler_enabled = True
+            mock_settings.api_host = '127.0.0.1'
+            mock_settings.api_port = 8000
+
+            mock_redis = MagicMock()
+            mock_redis.ping.return_value = None
+            mock_redis.llen.return_value = 5
+
+            mock_redis_module = MagicMock()
+            mock_redis_module.from_url.return_value = mock_redis
+
+            with patch.dict('sys.modules', {'redis': mock_redis_module}), \
+                 patch('urllib.request.urlopen') as mock_urlopen:
+                # Make API check fail gracefully
+                mock_urlopen.side_effect = Exception('Connection refused')
+
+                result = runner.invoke(app, ['system'])
+                assert result.exit_code == 0
+                assert 'Queue' in result.stdout or 'Task' in result.stdout
+
+    def test_diagnose_system_api_not_reachable(self) -> None:
+        """Test system diagnosis handles API not reachable gracefully."""
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db, \
+             patch('cyberpulse.cli.commands.diagnose.settings') as mock_settings:
+            mock_session = MagicMock()
+            mock_session.execute.return_value = None
+            mock_db.return_value = mock_session
+            mock_settings.database_url = 'postgresql://localhost/db'
+            mock_settings.redis_url = 'redis://localhost:6379/0'
+            mock_settings.dramatiq_broker_url = 'redis://localhost:6379/1'
+            mock_settings.log_level = 'INFO'
+            mock_settings.log_file = None
+            mock_settings.scheduler_enabled = True
+            mock_settings.api_host = '127.0.0.1'
+            mock_settings.api_port = 8000
+
+            mock_redis = MagicMock()
+            mock_redis.ping.return_value = None
+            mock_redis.llen.return_value = 0
+
+            mock_redis_module = MagicMock()
+            mock_redis_module.from_url.return_value = mock_redis
+
+            with patch.dict('sys.modules', {'redis': mock_redis_module}), \
+                 patch('urllib.request.urlopen') as mock_urlopen:
+                import urllib.error
+                mock_urlopen.side_effect = urllib.error.URLError('Connection refused')
+
+                result = runner.invoke(app, ['system'])
+                # Should still succeed - API not reachable is a warning, not an error
+                assert result.exit_code == 0
+                assert 'API' in result.stdout
+                assert 'not reachable' in result.stdout or 'unavailable' in result.stdout.lower()
