@@ -28,7 +28,10 @@ cyberpulse version
 cyberpulse shell
 
 # 启动 API 服务器
-cyberpulse server [--host 0.0.0.0] [--port 8000]
+cyberpulse server start [--host 0.0.0.0] [--port 8000]
+
+# 查看 API 服务器状态
+cyberpulse server status
 ```
 
 ---
