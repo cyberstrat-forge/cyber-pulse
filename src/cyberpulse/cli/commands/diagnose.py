@@ -268,6 +268,50 @@ def diagnose_sources(
 
             console.print(obs_table)
 
+        # Recent collection activity
+        active_sources = [
+            s for s in sources
+            if s.status == SourceStatus.ACTIVE
+        ]
+
+        if active_sources:
+            console.print("\n[bold]Recent Collection Activity:[/bold]")
+            collection_table = Table(show_header=True, header_style="bold")
+            collection_table.add_column("Source")
+            collection_table.add_column("Last Collected")
+            collection_table.add_column("Items")
+            collection_table.add_column("Status")
+
+            # Sort by last_fetched_at, most recent first
+            sorted_sources = sorted(
+                active_sources,
+                key=lambda x: x.last_fetched_at or datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True
+            )
+
+            for s in sorted_sources[:15]:  # Show top 15
+                if s.last_fetched_at:
+                    age = now - s.last_fetched_at
+                    if age < timedelta(hours=1):
+                        status = "[green]Fresh[/green]"
+                    elif age < timedelta(hours=24):
+                        status = "[yellow]Recent[/yellow]"
+                    else:
+                        status = "[red]Stale[/red]"
+                    collected = s.last_fetched_at.strftime("%Y-%m-%d %H:%M")
+                else:
+                    status = "[dim]Never[/dim]"
+                    collected = "-"
+
+                collection_table.add_row(
+                    s.name[:25],
+                    collected,
+                    str(s.total_items or 0),
+                    status
+                )
+
+            console.print(collection_table)
+
     finally:
         db.close()
 

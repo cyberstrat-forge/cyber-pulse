@@ -386,6 +386,133 @@ class TestFormatSize:
         assert 'MB' in result
 
 
+class TestDiagnoseSourcesCollection:
+    """Tests for diagnose sources collection history."""
+
+    def test_diagnose_sources_shows_collection_time(self) -> None:
+        """Test sources diagnosis shows last collection time."""
+        from datetime import datetime, timezone, timedelta
+        from cyberpulse.models import Source, SourceTier, SourceStatus
+
+        mock_source = MagicMock(spec=Source)
+        mock_source.source_id = 'src_abc123'
+        mock_source.name = 'Test Source'
+        mock_source.tier = SourceTier.T1
+        mock_source.score = 70.0
+        mock_source.status = SourceStatus.ACTIVE
+        mock_source.is_in_observation = False
+        mock_source.observation_until = None
+        mock_source.pending_review = False
+        mock_source.review_reason = None
+        mock_source.last_fetched_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        mock_source.total_items = 100
+        mock_source.fetch_interval = 3600
+
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db:
+            mock_session = MagicMock()
+            mock_query = MagicMock()
+            mock_query.all.return_value = [mock_source]
+            mock_query.filter.return_value = mock_query
+            mock_session.query.return_value = mock_query
+            mock_db.return_value = mock_session
+
+            result = runner.invoke(app, ['sources'])
+            assert result.exit_code == 0
+            assert 'Last Collection' in result.stdout or 'Last Collected' in result.stdout
+
+    def test_diagnose_sources_shows_fresh_status(self) -> None:
+        """Test sources diagnosis shows Fresh status for recent collections."""
+        from datetime import datetime, timezone, timedelta
+        from cyberpulse.models import Source, SourceTier, SourceStatus
+
+        mock_source = MagicMock(spec=Source)
+        mock_source.source_id = 'src_abc123'
+        mock_source.name = 'Fresh Source'
+        mock_source.tier = SourceTier.T1
+        mock_source.score = 70.0
+        mock_source.status = SourceStatus.ACTIVE
+        mock_source.is_in_observation = False
+        mock_source.observation_until = None
+        mock_source.pending_review = False
+        mock_source.review_reason = None
+        mock_source.last_fetched_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+        mock_source.total_items = 100
+        mock_source.fetch_interval = 3600
+
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db:
+            mock_session = MagicMock()
+            mock_query = MagicMock()
+            mock_query.all.return_value = [mock_source]
+            mock_query.filter.return_value = mock_query
+            mock_session.query.return_value = mock_query
+            mock_db.return_value = mock_session
+
+            result = runner.invoke(app, ['sources'])
+            assert result.exit_code == 0
+            assert 'Fresh' in result.stdout
+
+    def test_diagnose_sources_shows_stale_status(self) -> None:
+        """Test sources diagnosis shows Stale status for old collections."""
+        from datetime import datetime, timezone, timedelta
+        from cyberpulse.models import Source, SourceTier, SourceStatus
+
+        mock_source = MagicMock(spec=Source)
+        mock_source.source_id = 'src_abc123'
+        mock_source.name = 'Stale Source'
+        mock_source.tier = SourceTier.T1
+        mock_source.score = 70.0
+        mock_source.status = SourceStatus.ACTIVE
+        mock_source.is_in_observation = False
+        mock_source.observation_until = None
+        mock_source.pending_review = False
+        mock_source.review_reason = None
+        mock_source.last_fetched_at = datetime.now(timezone.utc) - timedelta(hours=48)
+        mock_source.total_items = 100
+        mock_source.fetch_interval = 3600
+
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db:
+            mock_session = MagicMock()
+            mock_query = MagicMock()
+            mock_query.all.return_value = [mock_source]
+            mock_query.filter.return_value = mock_query
+            mock_session.query.return_value = mock_query
+            mock_db.return_value = mock_session
+
+            result = runner.invoke(app, ['sources'])
+            assert result.exit_code == 0
+            assert 'Stale' in result.stdout
+
+    def test_diagnose_sources_shows_never_status(self) -> None:
+        """Test sources diagnosis shows Never status for unfetched sources."""
+        from cyberpulse.models import Source, SourceTier, SourceStatus
+
+        mock_source = MagicMock(spec=Source)
+        mock_source.source_id = 'src_abc123'
+        mock_source.name = 'Never Fetched Source'
+        mock_source.tier = SourceTier.T1
+        mock_source.score = 70.0
+        mock_source.status = SourceStatus.ACTIVE
+        mock_source.is_in_observation = False
+        mock_source.observation_until = None
+        mock_source.pending_review = False
+        mock_source.review_reason = None
+        mock_source.last_fetched_at = None
+        mock_source.total_items = 0
+        mock_source.fetch_interval = 3600
+
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db:
+            mock_session = MagicMock()
+            mock_query = MagicMock()
+            mock_query.all.return_value = [mock_source]
+            mock_query.filter.return_value = mock_query
+            mock_session.query.return_value = mock_query
+            mock_db.return_value = mock_session
+
+            result = runner.invoke(app, ['sources'])
+            assert result.exit_code == 0
+            assert 'Never' in result.stdout
+
+
 class TestDiagnoseHelp:
     """Tests for diagnose command help."""
 
