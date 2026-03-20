@@ -565,3 +565,79 @@ def export_logs(
     except OSError as e:
         console.print(f"[red]Failed to write output file: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command("clear")
+def clear_logs(
+    older_than: str = typer.Option(
+        "7d", "--older-than", "-o", help="Clear logs older than (e.g., '7d', '30d')"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip confirmation prompt"
+    ),
+) -> None:
+    """Clear old log entries from the log file.
+
+    Removes log entries older than the specified time period.
+    By default, removes entries older than 7 days.
+
+    Examples:
+        cyber-pulse log clear --older-than 7d
+        cyber-pulse log clear --older-than 30d --yes
+    """
+    log_path = get_log_file_path()
+
+    if not log_path.exists():
+        console.print(f"[yellow]Log file not found: {log_path}[/yellow]")
+        raise typer.Exit(0)
+
+    # Parse older_than parameter
+    threshold_dt = parse_time_delta(older_than)
+    if threshold_dt is None:
+        console.print(f"[red]Invalid time format: {older_than}[/red]")
+        console.print("[dim]Use format like '7d', '30d'[/dim]")
+        raise typer.Exit(1)
+
+    # Read all lines
+    lines = read_log_lines(log_path, n=100000, from_end=False)
+
+    # Filter out old entries
+    kept_lines = []
+    removed_count = 0
+
+    for line in lines:
+        parsed = parse_log_line(line)
+        if parsed:
+            try:
+                log_dt = datetime.strptime(parsed['timestamp'], '%Y-%m-%d %H:%M:%S,%f')
+                if log_dt < threshold_dt:
+                    removed_count += 1
+                    continue
+            except ValueError:
+                pass  # Keep entries with invalid timestamps
+        kept_lines.append(line)
+
+    if removed_count == 0:
+        console.print("[dim]No log entries to remove.[/dim]")
+        raise typer.Exit(0)
+
+    # Confirm
+    if not yes:
+        console.print(f"[yellow]This will remove {removed_count} log entries older than {older_than}.[/yellow]")
+        confirm = typer.confirm("Continue?")
+        if not confirm:
+            console.print("[dim]Cancelled.[/dim]")
+            raise typer.Exit(0)
+
+    # Write back
+    try:
+        with open(log_path, 'w', encoding='utf-8') as f:
+            for line in kept_lines:
+                f.write(line + '\n')
+
+        console.print(f"[green]✓[/green] Removed {removed_count} log entries")
+        console.print(f"[dim]Remaining entries: {len(kept_lines)}[/dim]")
+        console.print(f"[dim]File size: {format_file_size(log_path.stat().st_size)}[/dim]")
+    except OSError as e:
+        console.print(f"[red]Failed to update log file: {e}[/red]")
+        raise typer.Exit(1)

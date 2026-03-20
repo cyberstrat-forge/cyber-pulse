@@ -312,6 +312,99 @@ class TestFormatFileSize:
         assert 'GB' in result
 
 
+class TestLogClear:
+    """Tests for log clear command."""
+
+    def test_log_clear_older_than_days(self) -> None:
+        """Test log clear removes old entries."""
+        from datetime import datetime, timedelta
+
+        # Create log with old and new entries
+        old_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
+        new_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write(f'{old_date} - test - INFO - Old message\n')
+            f.write(f'{new_date} - test - INFO - New message\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['clear', '--older-than', '7d', '--yes'])
+                assert result.exit_code == 0
+
+                # Check file only has new message
+                with open(log_path, 'r') as f:
+                    content = f.read()
+                assert 'New message' in content
+                assert 'Old message' not in content
+        finally:
+            os.unlink(log_path)
+
+    def test_log_clear_requires_confirmation(self) -> None:
+        """Test log clear requires confirmation without --yes."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Test\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                # Without --yes, should prompt for confirmation
+                result = runner.invoke(app, ['clear', '--older-than', '7d'])
+                assert 'Confirm' in result.stdout or result.exit_code != 0
+        finally:
+            os.unlink(log_path)
+
+    def test_log_clear_missing_file(self) -> None:
+        """Test log clear when log file doesn't exist."""
+        with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+            mock_path.return_value = Path('/nonexistent/path.log')
+            result = runner.invoke(app, ['clear', '--older-than', '7d'])
+            assert result.exit_code == 0
+            assert 'Log file not found' in result.stdout
+
+    def test_log_clear_invalid_time_format(self) -> None:
+        """Test log clear with invalid time format."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Test\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['clear', '--older-than', 'invalid', '--yes'])
+                assert result.exit_code == 1
+                assert 'Invalid time format' in result.stdout
+        finally:
+            os.unlink(log_path)
+
+    def test_log_clear_no_entries_to_remove(self) -> None:
+        """Test log clear when no entries match criteria."""
+        from datetime import datetime
+
+        # Create log with only recent entries
+        new_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write(f'{new_date} - test - INFO - Recent message\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['clear', '--older-than', '7d', '--yes'])
+                assert result.exit_code == 0
+                assert 'No log entries to remove' in result.stdout
+        finally:
+            os.unlink(log_path)
+
+
 class TestLogHelp:
     """Tests for log command help."""
 
@@ -324,6 +417,7 @@ class TestLogHelp:
         assert 'search' in result.stdout
         assert 'stats' in result.stdout
         assert 'export' in result.stdout
+        assert 'clear' in result.stdout
 
     def test_tail_help(self) -> None:
         """Test tail command help."""
