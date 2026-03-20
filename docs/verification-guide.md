@@ -79,16 +79,17 @@ make verify-report
 
 | 症状 | 可能原因 | 排查命令 |
 |------|----------|----------|
-| Database 连接失败 | PostgreSQL 未启动或配置错误 | `docker logs cyberpulse-db` |
-| Redis 连接失败 | Redis 未启动 | `docker logs cyberpulse-redis` |
-| Worker 未运行 | Worker 容器崩溃 | `docker logs cyberpulse-worker` |
+| Database 连接失败 | PostgreSQL 未启动或配置错误 | `docker-compose logs postgres` |
+| Redis 连接失败 | Redis 未启动 | `docker-compose logs redis` |
+| Worker 未运行 | Worker 容器崩溃 | `docker-compose logs worker` |
+| Scheduler 未运行 | Scheduler 容器崩溃 | `docker-compose logs scheduler` |
 
 ### Level 2 失败
 
 | 症状 | 可能原因 | 排查命令 |
 |------|----------|----------|
 | 情报源连接失败 | URL 不可达或格式错误 | 检查网络连接 |
-| 采集无数据 | 情报源无内容或解析错误 | `docker logs cyberpulse-worker` |
+| 采集无数据 | 情报源无内容或解析错误 | `docker-compose logs worker` |
 
 ## 环境变量
 
