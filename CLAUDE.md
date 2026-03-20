@@ -14,6 +14,9 @@
 - ✅ Phase 2D: 调度系统（APScheduler + Dramatiq）
 - ✅ Phase 2E: 评分系统（SourceScoreService）
 - ✅ Phase 2F: CLI 工具（Typer CLI, TUI, 7 个命令模块）
+- ✅ Phase 3: 端到端集成（Docker 部署、E2E 测试）
+
+**当前版本**: v1.0.0（生产就绪）
 
 ## 快速开始
 
@@ -61,6 +64,12 @@ src/cyberpulse/
 ├── api/             # FastAPI REST API
 │   ├── routers/     # API 路由
 │   └── schemas/     # Pydantic 模型
+├── scheduler/       # APScheduler 调度系统
+├── tasks/           # Dramatiq 异步任务
+├── cli/             # Typer CLI 工具
+│   ├── app.py       # 主入口
+│   ├── tui.py       # 交互式 TUI
+│   └── commands/    # 命令模块
 ├── database.py      # DB 配置
 └── config.py        # 配置管理
 ```
@@ -345,6 +354,65 @@ git push origin --delete feature/xxx
 - 代码审查通过
 - 无静默失败（空 except 块）
 
+---
+
+## 部署运维
+
+### 生产环境检查清单
+
+- [ ] 环境变量已配置（DATABASE_URL, REDIS_URL）
+- [ ] 数据库迁移已执行
+- [ ] API Key 已创建并妥善保存
+- [ ] 日志目录已创建且可写
+- [ ] 定时任务已配置
+
+### 服务启动顺序
+
+```bash
+# 1. 启动基础设施
+docker-compose up -d postgres redis
+
+# 2. 等待基础设施就绪
+docker-compose exec postgres pg_isready
+
+# 3. 启动应用服务
+docker-compose up -d api worker scheduler
+
+# 4. 验证服务健康
+curl http://localhost:8000/health
+```
+
+### 常用运维命令
+
+```bash
+# 查看服务状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f api
+docker-compose logs -f worker
+
+# 重启服务
+docker-compose restart api
+
+# 扩展 Worker
+docker-compose up -d --scale worker=3
+
+# 手动触发采集
+.venv/bin/cyberpulse job run src_xxxxxxxx
+```
+
+### 监控指标
+
+| 指标 | 阈值 | 处理 |
+|------|------|------|
+| 采集失败率 | > 10% | 检查源状态 |
+| 队列积压 | > 100 | 扩展 Worker |
+| API 响应时间 | > 1s | 性能优化 |
+| 数据库连接数 | > 80% | 连接池调优 |
+
+---
+
 ## 文档索引
 
 **最新设计**: `docs/superpowers/specs/2026-03-18-cyber-pulse-design.md`
@@ -352,5 +420,72 @@ git push origin --delete feature/xxx
 **实现计划**:
 - Phase 1: `docs/superpowers/plans/2026-03-18-cyber-pulse-phase1-implementation.md`
 - Phase 2: `docs/superpowers/plans/2026-03-19-cyber-pulse-phase2-implementation.md`
+- Phase 3: `docs/superpowers/plans/2026-03-19-cyber-pulse-phase3-integration.md`
+
+**运维文档**:
+- CLI 使用手册: `docs/cli-usage-manual.md`
+- 项目总结报告: `docs/2026-03-20-project-summary-report.md`
 
 历史设计文档见 `docs/` 目录。
+
+---
+
+## 版本管理
+
+### 版本号规范
+
+遵循语义化版本（Semantic Versioning）：`MAJOR.MINOR.PATCH`
+
+| 变更类型 | 版本更新 | 示例 |
+|----------|----------|------|
+| 不兼容 API 变更 | MAJOR | 1.0.0 → 2.0.0 |
+| 新增功能（向后兼容） | MINOR | 1.0.0 → 1.1.0 |
+| Bug 修复 | PATCH | 1.0.0 → 1.0.1 |
+
+### 发布流程
+
+```bash
+# 1. 更新版本号（pyproject.toml 和 src/cyberpulse/__init__.py）
+# 2. 更新 CHANGELOG.md
+# 3. 创建标签
+git tag -a v1.0.0 -m "Release v1.0.0"
+git push origin v1.0.0
+
+# 4. 创建 GitHub Release
+gh release create v1.0.0 --title "v1.0.0" --notes-file CHANGELOG.md
+```
+
+### CHANGELOG 维护
+
+每次发布需更新 `CHANGELOG.md`，格式参考 [Keep a Changelog](https://keepachangelog.com/)。
+
+---
+
+## 文档维护
+
+### 文档分类
+
+| 类型 | 位置 | 维护频率 | 说明 |
+|------|------|----------|------|
+| README | `README.md` | 功能变更时更新 | 项目入口，面向用户 |
+| CHANGELOG | `CHANGELOG.md` | 每次发布更新 | 版本变更记录 |
+| 技术规格 | `docs/superpowers/specs/` | 功能变更时更新 | 设计文档 |
+| 实现计划 | `docs/superpowers/plans/` | 计划创建后归档 | 开发计划 |
+| 运维文档 | `docs/*.md` | 持续更新 | 操作指南 |
+| API 文档 | FastAPI 自动生成 | 代码变更时自动更新 | `/docs` 端点 |
+| CLI 文档 | `docs/cli-usage-manual.md` | 命令变更时更新 | CLI 使用指南 |
+
+### 文档更新触发条件
+
+- **版本发布**：更新 README 版本号、CHANGELOG
+- **新功能发布**：更新 README 功能列表、CLI 使用手册、API 文档
+- **架构变更**：更新 README 项目结构、技术规格
+- **流程优化**：更新运维文档、最佳实践
+- **Bug 修复**：如影响用户操作，更新相关文档
+
+### README 维护清单
+
+- [ ] 版本号与 pyproject.toml 一致
+- [ ] 项目状态反映当前进度
+- [ ] 目录结构与源码一致
+- [ ] 文档链接有效且完整

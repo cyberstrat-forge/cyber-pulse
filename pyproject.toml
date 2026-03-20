@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyber-pulse"
-version = "0.1.0"
+version = "1.0.0"
 description = "Cyber Pulse - Strategic Intelligence Collection System"
 readme = "README.md"
 authors = [{name = "老罗", email = "luoweirong@example.com"}]
 license = {text = "MIT"}
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
@@ -59,8 +59,8 @@ dev = [
 cyber-pulse = "cyberpulse.cli.app:app"
 
 [project.urls]
-Homepage = "https://github.com/your-username/cyber-pulse"
-Repository = "https://github.com/your-username/cyber-pulse"
+Homepage = "https://github.com/cyberstrat-forge/cyber-pulse"
+Repository = "https://github.com/cyberstrat-forge/cyber-pulse"
 
 [tool.setuptools.packages.find]
 where = ["src"]
