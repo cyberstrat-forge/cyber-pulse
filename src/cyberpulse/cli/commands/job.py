@@ -90,7 +90,7 @@ def list_jobs(
             for job in jobs:
                 if job.get("next_run_time"):
                     job["next_run_time"] = job["next_run_time"].isoformat()
-            console.print(json.dumps(jobs, indent=2))
+            print(json.dumps(jobs, indent=2))
             return
 
         # Create table for display

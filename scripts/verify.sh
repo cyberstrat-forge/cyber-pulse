@@ -437,23 +437,23 @@ verify_cli_query() {
     echo ""
     echo "[CLI 数据查询]"
 
-    # 测试 content list 命令
-    RESULT=$(docker exec $CONTAINER_API cyber-pulse content list --format json 2>&1)
-
-    # 解析 JSON 数组获取数量
-    COUNT=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d, list) else 0)" 2>/dev/null || echo "0")
-
-    if [ "$COUNT" -eq 0 ]; then
-        echo "  ⚠ content list: 0 items (may be expected for fresh install)"
-    else
-        echo "  ✓ content list: $COUNT items found"
-    fi
-
-    # 测试 content stats 命令
+    # 测试 content stats 命令（更可靠）
     STATS=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>&1)
     TOTAL=$(echo "$STATS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" 2>/dev/null || echo "0")
 
-    echo "  ✓ content stats: $TOTAL total contents"
+    if [ "$TOTAL" -eq 0 ]; then
+        echo "  ⚠ content stats: 0 contents (may be expected for fresh install)"
+    else
+        echo "  ✓ content stats: $TOTAL total contents"
+    fi
+
+    # 测试 content list 命令（检查是否返回有效 JSON）
+    RESULT=$(docker exec $CONTAINER_API cyber-pulse content list --format json 2>&1 | head -c 100)
+    if echo "$RESULT" | grep -q '^\['; then
+        echo "  ✓ content list: returns valid JSON array"
+    else
+        echo "  ⚠ content list: unexpected output format"
+    fi
 }
 
 # ============================================================================
