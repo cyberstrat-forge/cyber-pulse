@@ -279,3 +279,119 @@ verify_api_client_management() {
     echo $API_KEY > /tmp/cyberpulse_verify.key
     echo $CLIENT_ID > /tmp/cyberpulse_verify_client_id
 }
+
+# ============================================================================
+# 情报源管理
+# ============================================================================
+
+verify_source_management() {
+    echo ""
+    echo "[情报源管理]"
+
+    # 使用 Python 解析 YAML 并调用 CLI
+    export SOURCES_FILE
+    export CONTAINER_API
+    python3 << 'PYEOF'
+import yaml
+import subprocess
+import sys
+import os
+import re
+
+sources_file = os.environ.get('SOURCES_FILE', 'sources.yaml')
+container_api = os.environ.get('CONTAINER_API', 'cyber-pulse-api-1')
+
+with open(sources_file) as f:
+    data = yaml.safe_load(f)
+
+source_ids = []
+for source in data.get("sources", []):
+    name = source["name"]
+    conn_type = source["connector_type"]
+    config = source.get("config", {})
+    tier = source.get("tier", "T2")
+
+    # 获取 URL
+    url = config.get("feed_url") or config.get("url", "")
+
+    # 构建 CLI 命令
+    cmd = ["docker", "exec", container_api, "cyber-pulse", "source", "add",
+           name, conn_type, url, "--tier", tier, "--test"]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"✗ {name}: Failed - {result.stderr}", file=sys.stderr)
+        sys.exit(1)
+    print(f"  ✓ {name}: added, connection test passed")
+
+    # 提取 source_id 供后续使用
+    for line in result.stdout.split("\n"):
+        if "ID:" in line:
+            clean_line = re.sub(r'\x1b\[[0-9;]*m', '', line)
+            clean_line = clean_line.replace('[', '').replace(']', '')
+            parts = clean_line.split("ID:")
+            if len(parts) > 1:
+                source_id = parts[1].strip().split()[0]
+                source_ids.append(f"{name}:{source_id}")
+
+with open("/tmp/cyberpulse_sources.txt", "w") as f:
+    f.write("\n".join(source_ids))
+PYEOF
+}
+
+# ============================================================================
+# 数据采集
+# ============================================================================
+
+verify_data_collection() {
+    echo ""
+    echo "[数据采集]"
+
+    if [ ! -f /tmp/cyberpulse_sources.txt ]; then
+        log_error "未找到情报源 ID 文件"
+        exit 1
+    fi
+
+    BEFORE_COUNT=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>/dev/null | \
+        python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" || echo "0")
+
+    while IFS=: read -r name source_id; do
+        docker exec $CONTAINER_API cyber-pulse job run "$source_id" 2>&1 || {
+            log_error "采集任务启动失败: $name"
+            exit 1
+        }
+        echo "  ✓ $name: 采集任务已启动"
+    done < /tmp/cyberpulse_sources.txt
+
+    echo ""
+    echo "  等待采集完成..."
+    MAX_WAIT=300
+    WAIT_INTERVAL=10
+    elapsed=0
+
+    while [ $elapsed -lt $MAX_WAIT ]; do
+        AFTER_COUNT=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>/dev/null | \
+            python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" || echo "0")
+
+        if [ "$AFTER_COUNT" -gt "$BEFORE_COUNT" ]; then
+            break
+        fi
+
+        sleep $WAIT_INTERVAL
+        elapsed=$((elapsed + WAIT_INTERVAL))
+        echo "    已等待 ${elapsed}s..."
+    done
+
+    FINAL_COUNT=$(docker exec $CONTAINER_API cyber-pulse content stats --format json 2>/dev/null | \
+        python3 -c "import sys,json; print(json.load(sys.stdin).get('total_contents', 0))" || echo "0")
+
+    NEW_CONTENTS=$((FINAL_COUNT - BEFORE_COUNT))
+
+    echo ""
+    echo "  [采集统计]"
+    echo "    采集前: $BEFORE_COUNT contents"
+    echo "    采集后: $FINAL_COUNT contents"
+    echo "    新增:   $NEW_CONTENTS contents"
+
+    echo "new_contents=$NEW_CONTENTS" >> /tmp/cyberpulse_verify_stats.txt
+}
