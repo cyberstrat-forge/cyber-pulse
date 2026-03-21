@@ -13,9 +13,9 @@ set -e
 # 配置
 # ============================================================================
 
-CONTAINER_API="cyber-pulse-api-1"
-CONTAINER_WORKER="cyber-pulse-worker-1"
-CONTAINER_SCHEDULER="cyber-pulse-scheduler-1"
+CONTAINER_API="deploy-api-1"
+CONTAINER_WORKER="deploy-worker-1"
+CONTAINER_SCHEDULER="deploy-scheduler-1"
 SOURCES_FILE="sources.yaml"
 API_URL="${API_URL:-http://localhost:8000}"
 OUTPUT_FILE=""

@@ -1,9 +1,55 @@
 """
 FastAPI application entry point.
 """
+import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
 from fastapi import FastAPI
 
+from ..config import settings
 from .routers import content, sources, clients, health
+
+
+def setup_logging() -> None:
+    """Configure file logging for the application."""
+    if settings.log_file is None:
+        return
+
+    log_path = Path(settings.log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Get root logger
+    root_logger = logging.getLogger()
+    log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    root_logger.setLevel(log_level)
+
+    # Avoid adding duplicate handlers
+    for handler in root_logger.handlers:
+        if isinstance(handler, RotatingFileHandler):
+            return
+
+    # Create rotating file handler
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8',
+    )
+    file_handler.setLevel(log_level)
+
+    # Set format
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+
+    root_logger.addHandler(file_handler)
+
+
+# Setup logging on import
+setup_logging()
 
 app = FastAPI(
     title="cyber-pulse API",
