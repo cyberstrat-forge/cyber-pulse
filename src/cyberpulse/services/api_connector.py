@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .base import SSRFError, validate_url_for_ssrf
 from .connector_service import BaseConnector, ConnectorError
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,12 @@ class APIConnector(BaseConnector):
         base_url = self.config["base_url"]
         if not base_url or not isinstance(base_url, str):
             raise ValueError("API connector 'base_url' must be a non-empty string")
+
+        # SSRF protection: validate URL
+        try:
+            validate_url_for_ssrf(base_url)
+        except SSRFError as e:
+            raise ValueError(f"Invalid base_url: {e}") from e
 
         # Validate auth configuration
         auth_type = self.config.get("auth_type", "none")

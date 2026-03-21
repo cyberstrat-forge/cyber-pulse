@@ -48,13 +48,23 @@ def setup_logging() -> None:
     root_logger.addHandler(file_handler)
 
 
+def should_enable_docs() -> bool:
+    """Determine if API docs should be enabled based on environment."""
+    is_production = settings.environment.lower() in ("production", "prod")
+    return not is_production
+
+
 # Setup logging on import
 setup_logging()
 
+# Conditionally disable Swagger/OpenAPI docs in production
 app = FastAPI(
     title="cyber-pulse API",
     description="Security Intelligence Collection System",
     version="0.1.0",
+    docs_url="/docs" if should_enable_docs() else None,
+    redoc_url="/redoc" if should_enable_docs() else None,
+    openapi_url="/openapi.json" if should_enable_docs() else None,
 )
 
 # Include routers
