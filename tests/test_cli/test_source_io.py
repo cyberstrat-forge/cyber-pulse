@@ -401,13 +401,16 @@ class TestListSources:
         t0_source, _ = service.add_source("T0 Filter Test", "rss", tier=SourceTier.T0)
         t2_source, _ = service.add_source("T2 Filter Test", "rss", tier=SourceTier.T2)
 
+        assert t0_source is not None, "Failed to create T0 source"
+        assert t2_source is not None, "Failed to create T2 source"
+
         with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
             mock_session.return_value = db_session
             result = runner.invoke(app, ["source-io", "list", "--tier", "T0"])
 
         assert result.exit_code == 0
-        assert t0_source.source_id in result.stdout
-        assert t2_source.source_id not in result.stdout
+        assert t0_source.source_id in result.stdout  # type: ignore[operator]
+        assert t2_source.source_id not in result.stdout  # type: ignore[operator]
 
     def test_list_sources_empty(self, db_session) -> None:
         """Test listing when no sources."""

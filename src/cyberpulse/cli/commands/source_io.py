@@ -191,8 +191,8 @@ def _export_to_opml(sources: List[Source], output_path: Path) -> None:
     # Group by tier
     tier_groups: Dict[str, List[Source]] = {"T0": [], "T1": [], "T2": [], "T3": []}
     for source in sources:
-        if source.connector_type == "rss" and source.status != SourceStatus.REMOVED:
-            tier_groups[source.tier.value].append(source)
+        if source.connector_type == "rss" and source.status != SourceStatus.REMOVED:  # type: ignore[comparison-overlap]
+            tier_groups[source.tier.value].append(source)  # type: ignore[union-attr]
 
     # Create outline for each tier
     for tier, tier_sources in tier_groups.items():
@@ -233,7 +233,7 @@ def _export_to_yaml(sources: List[Source], output_path: Path) -> None:
     sources_data = []
 
     for source in sources:
-        if source.status == SourceStatus.REMOVED:
+        if source.status == SourceStatus.REMOVED:  # type: ignore[comparison-overlap]
             continue
 
         source_dict = {
@@ -245,7 +245,7 @@ def _export_to_yaml(sources: List[Source], output_path: Path) -> None:
         }
 
         # Add optional fields if they differ from defaults
-        if source.fetch_interval:
+        if source.fetch_interval is not None and source.fetch_interval > 0:  # type: ignore[operator]
             source_dict["fetch_interval"] = source.fetch_interval
 
         sources_data.append(source_dict)
@@ -429,7 +429,7 @@ def export_sources(
         sources = service.list_sources(tier=tier_filter, limit=10000)
 
         if not include_removed:
-            sources = [s for s in sources if s.status != SourceStatus.REMOVED]
+            sources = [s for s in sources if s.status != SourceStatus.REMOVED]  # type: ignore[comparison-overlap]
 
         if not sources:
             console.print("[yellow]No sources to export.[/yellow]")
@@ -447,7 +447,7 @@ def export_sources(
 
         if file_format == "opml":
             # OPML only supports RSS
-            rss_sources = [s for s in sources if s.connector_type == "rss"]
+            rss_sources = [s for s in sources if s.connector_type == "rss"]  # type: ignore[comparison-overlap]
             if len(rss_sources) < len(sources):
                 console.print(f"[yellow]Note: OPML only supports RSS sources. {len(sources) - len(rss_sources)} non-RSS sources will be excluded.[/yellow]")
             _export_to_opml(rss_sources, output_path)
@@ -463,11 +463,11 @@ def export_sources(
         table.add_column("Tier", width=6)
 
         for source in sources[:10]:  # Show first 10
-            tier_color = _get_tier_color(source.tier.value)
+            tier_color = _get_tier_color(source.tier.value)  # type: ignore[union-attr]
             table.add_row(
-                source.name,
-                source.connector_type,
-                f"[{tier_color}]{source.tier.value}[/{tier_color}]",
+                source.name,  # type: ignore[arg-type]
+                source.connector_type,  # type: ignore[arg-type]
+                f"[{tier_color}]{source.tier.value}[/{tier_color}]",  # type: ignore[union-attr]
             )
 
         if len(sources) > 10:
@@ -561,16 +561,21 @@ def list_sources(
             table.add_column("Status", width=8)
 
             for source in sources:
-                tier_color = _get_tier_color(source.tier.value)
-                status_color = "green" if source.status == SourceStatus.ACTIVE else "yellow" if source.status == SourceStatus.FROZEN else "red"
+                tier_color = _get_tier_color(source.tier.value)  # type: ignore[union-attr]
+                if source.status == SourceStatus.ACTIVE:  # type: ignore[comparison-overlap]
+                    status_color = "green"
+                elif source.status == SourceStatus.FROZEN:  # type: ignore[comparison-overlap]
+                    status_color = "yellow"
+                else:
+                    status_color = "red"
 
                 table.add_row(
-                    source.source_id,
-                    source.name,
-                    source.connector_type,
-                    f"[{tier_color}]{source.tier.value}[/{tier_color}]",
-                    f"{source.score:.1f}",
-                    f"[{status_color}]{source.status.value}[/{status_color}]",
+                    source.source_id,  # type: ignore[arg-type]
+                    source.name,  # type: ignore[arg-type]
+                    source.connector_type,  # type: ignore[arg-type]
+                    f"[{tier_color}]{source.tier.value}[/{tier_color}]",  # type: ignore[union-attr]
+                    f"{source.score:.1f}",  # type: ignore[union-attr]
+                    f"[{status_color}]{source.status.value}[/{status_color}]",  # type: ignore[union-attr]
                 )
 
             console.print(table)
