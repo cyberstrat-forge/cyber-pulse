@@ -52,3 +52,13 @@ htmlcov/
 
 # Worktrees
 .worktrees/
+
+# Backups (keep directory structure)
+backups/*
+!backups/.gitkeep
+
+# Cyber Pulse environment config
+.cyber-pulse-env
+
+# Snapshots
+.snapshots/

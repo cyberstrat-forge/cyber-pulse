@@ -1,0 +1,84 @@
+# CyberPulse Sources Configuration Example
+#
+# This file demonstrates how to configure sources for import.
+# Use: cyber-pulse source-io import sources-example.yaml
+#
+# Format: YAML
+# Supports: All source types (rss, api, web, media)
+#
+# Field descriptions:
+#   name: (required) Unique source name
+#   connector_type: (required) Type of connector (rss, api, web, media)
+#   tier: (optional) Source tier (T0, T1, T2, T3), defaults to T2
+#   score: (optional) Quality score (0-100), derived from tier if not specified
+#   config: (required) Connector-specific configuration
+#   fetch_interval: (optional) Fetch interval in minutes
+
+sources:
+  # RSS Feed Example
+  - name: "Krebs on Security"
+    connector_type: "rss"
+    tier: "T0"
+    score: 90.0
+    config:
+      feed_url: "https://krebsonsecurity.com/feed/"
+    fetch_interval: 60
+
+  - name: "The Hacker News"
+    connector_type: "rss"
+    tier: "T1"
+    score: 75.0
+    config:
+      feed_url: "https://feeds.feedburner.com/TheHackersNews"
+
+  - name: "SANS Internet Storm Center"
+    connector_type: "rss"
+    tier: "T1"
+    config:
+      feed_url: "https://isc.sans.edu/rssfeed.xml"
+
+  # API Source Example
+  - name: "CIRCL CVE Search API"
+    connector_type: "api"
+    tier: "T0"
+    score: 85.0
+    config:
+      url: "https://cve.circl.lu/api"
+      timeout: 30
+
+  - name: "VirusTotal Intelligence"
+    connector_type: "api"
+    tier: "T0"
+    score: 92.0
+    config:
+      url: "https://www.virustotal.com/api/v3"
+      api_key: "YOUR_API_KEY_HERE"  # Replace with actual key
+      timeout: 60
+
+  # Web Scraper Example
+  - name: "US-CERT Alerts"
+    connector_type: "web"
+    tier: "T1"
+    score: 80.0
+    config:
+      url: "https://www.cisa.gov/news-events/cybersecurity-advisories"
+      selectors:
+        title: "h1.title"
+        content: "div.field--name-body"
+        date: "time"
+    fetch_interval: 120
+
+  # Media API Example (e.g., Telegram)
+  - name: "Security Telegram Channel"
+    connector_type: "media"
+    tier: "T2"
+    config:
+      platform: "telegram"
+      channel_id: "security_channel_example"
+      # Note: Requires bot token configured in environment
+
+# Meta information (ignored on import)
+_meta:
+  description: "Example sources for CyberPulse security intelligence collection"
+  version: "1.0"
+  last_updated: "2024-01-01"
