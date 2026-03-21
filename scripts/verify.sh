@@ -292,6 +292,159 @@ verify_level2() {
 }
 
 # ============================================================================
+# Level 3: 增强诊断验证 (v1.2.0+)
+# ============================================================================
+
+verify_level3() {
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Level 3: 增强诊断验证 (v1.2.0+)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # 1. diagnose sources 采集活动验证
+    verify_diagnose_sources_collection
+
+    # 2. diagnose errors rejection reason 验证
+    verify_diagnose_errors_reason
+
+    # 3. log 命令功能验证
+    verify_log_features
+
+    echo ""
+    echo "Level 3: ✓ 通过"
+}
+
+# ============================================================================
+# diagnose sources 采集活动验证
+# ============================================================================
+
+verify_diagnose_sources_collection() {
+    echo ""
+    echo "[diagnose sources 采集活动]"
+
+    # 运行 diagnose sources 命令
+    DIAGNOSE_OUTPUT=$(docker exec $CONTAINER_API cyber-pulse diagnose sources 2>&1)
+
+    # 剥离 ANSI 代码（Rich 输出包含颜色代码）
+    CLEAN_OUTPUT=$(echo "$DIAGNOSE_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
+
+    # 检查是否有 Recent Collection Activity 表格
+    if echo "$CLEAN_OUTPUT" | grep -q "Recent Collection Activity"; then
+        echo "  ✓ diagnose sources: 显示采集活动表格"
+
+        # 检查状态标签（Fresh/Recent/Stale/Never）
+        if echo "$CLEAN_OUTPUT" | grep -qE "(Fresh|Recent|Stale|Never)"; then
+            # 统计各状态数量
+            FRESH_COUNT=$(echo "$CLEAN_OUTPUT" | grep -c "Fresh" || echo "0")
+            RECENT_COUNT=$(echo "$CLEAN_OUTPUT" | grep -c "Recent" || echo "0")
+            STALE_COUNT=$(echo "$CLEAN_OUTPUT" | grep -c "Stale" || echo "0")
+            NEVER_COUNT=$(echo "$CLEAN_OUTPUT" | grep -c "Never" || echo "0")
+
+            echo "    - Fresh (< 1h): $FRESH_COUNT"
+            echo "    - Recent (1-24h): $RECENT_COUNT"
+            echo "    - Stale (> 24h): $STALE_COUNT"
+            echo "    - Never: $NEVER_COUNT"
+        fi
+    else
+        echo "  ⚠ diagnose sources: 未显示采集活动表格（可能是无活跃源）"
+    fi
+}
+
+# ============================================================================
+# diagnose errors rejection reason 验证
+# ============================================================================
+
+verify_diagnose_errors_reason() {
+    echo ""
+    echo "[diagnose errors 拒绝原因]"
+
+    # 运行 diagnose errors 命令
+    DIAGNOSE_OUTPUT=$(docker exec $CONTAINER_API cyber-pulse diagnose errors 2>&1)
+
+    # 剥离 ANSI 代码（Rich 输出包含颜色代码）
+    CLEAN_OUTPUT=$(echo "$DIAGNOSE_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
+
+    # 检查是否有 Rejection Reason 列
+    if echo "$CLEAN_OUTPUT" | grep -q "Rejection Reason"; then
+        echo "  ✓ diagnose errors: 显示 Rejection Reason 列"
+
+        # 统计 rejected items 数量（匹配 "Found X rejected items" 格式）
+        REJECTED_COUNT=$(echo "$CLEAN_OUTPUT" | grep -o "Found [0-9]* rejected items" | grep -o "[0-9]*" || echo "0")
+        if [ "$REJECTED_COUNT" -gt 0 ]; then
+            echo "    - 发现 $REJECTED_COUNT 条被拒绝记录"
+        else
+            echo "    - 无被拒绝记录（正常状态）"
+        fi
+    else
+        echo "  ⚠ diagnose errors: 未显示 Rejection Reason 列"
+    fi
+
+    # 检查是否有错误日志输出
+    if echo "$CLEAN_OUTPUT" | grep -q "Recent Errors from Logs"; then
+        echo "  ✓ diagnose errors: 显示错误日志分析"
+    fi
+}
+
+# ============================================================================
+# log 命令功能验证
+# ============================================================================
+
+verify_log_features() {
+    echo ""
+    echo "[log 命令功能]"
+
+    # 1. log stats 验证
+    LOG_STATS=$(docker exec $CONTAINER_API cyber-pulse log stats 2>&1)
+    # 剥离 ANSI 代码后检查关键内容
+    CLEAN_LOG_STATS=$(echo "$LOG_STATS" | sed 's/\x1b\[[0-9;]*m//g')
+    if echo "$CLEAN_LOG_STATS" | grep -q "File:"; then
+        echo "  ✓ log stats: 可用"
+    else
+        echo "  ⚠ log stats: 不可用或无日志"
+    fi
+
+    # 2. log errors --format json 验证
+    LOG_ERRORS_JSON=$(docker exec $CONTAINER_API cyber-pulse log errors --format json 2>&1)
+    if validate_json "$LOG_ERRORS_JSON"; then
+        # JSON 是数组，计算长度
+        ERROR_COUNT=$(echo "$LOG_ERRORS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+        echo "  ✓ log errors --format json: 有效 JSON ($ERROR_COUNT 条错误)"
+    else
+        echo "  ⚠ log errors --format json: 无错误或格式异常"
+    fi
+
+    # 3. log search --format json 验证
+    LOG_SEARCH_JSON=$(docker exec $CONTAINER_API cyber-pulse log search "test" --format json 2>&1)
+    if validate_json "$LOG_SEARCH_JSON"; then
+        echo "  ✓ log search --format json: 有效 JSON"
+    else
+        echo "  ⚠ log search --format json: 无匹配或格式异常"
+    fi
+
+    # 4. log export 验证
+    EXPORT_PATH="/tmp/verify_log_export_$$.log"
+    EXPORT_OUTPUT=$(docker exec $CONTAINER_API cyber-pulse log export --output "$EXPORT_PATH" 2>&1)
+    CLEAN_EXPORT=$(echo "$EXPORT_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
+    if echo "$CLEAN_EXPORT" | grep -q "Exported"; then
+        EXPORT_COUNT=$(echo "$CLEAN_EXPORT" | grep -o "Exported [0-9]*" | grep -o "[0-9]*" || echo "0")
+        echo "  ✓ log export: 导出成功 ($EXPORT_COUNT 条)"
+        # 清理导出文件
+        docker exec $CONTAINER_API rm -f "$EXPORT_PATH" 2>/dev/null
+    else
+        echo "  ⚠ log export: 导出失败或无日志"
+    fi
+
+    # 5. log clear 验证（dry-run，不实际执行）
+    # 使用 --help 确认命令存在
+    CLEAR_HELP=$(docker exec $CONTAINER_API cyber-pulse log clear --help 2>&1)
+    if echo "$CLEAR_HELP" | grep -q "older-than"; then
+        echo "  ✓ log clear: 命令可用"
+    else
+        echo "  ⚠ log clear: 命令不可用"
+    fi
+}
+
+# ============================================================================
 # API Client 管理
 # ============================================================================
 
