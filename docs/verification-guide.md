@@ -103,3 +103,34 @@ make verify-report
 1. **数据质量**：REJECTED items 是正常的业务结果，不作为验证失败条件
 2. **并发**：验证脚本使用文件锁，同一时间只能运行一个实例
 3. **清理**：验证完成后自动清理测试数据，除非指定 `--keep-sources`
+
+## 扩展验证（可选）
+
+### 日志功能验证
+
+v1.2.0 新增了日志导出和清理功能，可手动验证：
+
+```bash
+# 导出日志
+docker exec cyber-pulse-api-1 cyber-pulse log export --output /tmp/verify.log
+
+# 查看日志统计
+docker exec cyber-pulse-api-1 cyber-pulse log stats
+
+# 查看错误日志（JSON 格式）
+docker exec cyber-pulse-api-1 cyber-pulse log errors --format json
+
+# 诊断增强功能
+docker exec cyber-pulse-api-1 cyber-pulse diagnose system  # 含 API/队列状态
+docker exec cyber-pulse-api-1 cyber-pulse diagnose errors  # 含 Rejection Reason
+```
+
+### 日志清理验证
+
+```bash
+# 清理 7 天前的日志（需确认）
+docker exec cyber-pulse-api-1 cyber-pulse log clear --older-than 7d
+
+# 跳过确认直接清理
+docker exec cyber-pulse-api-1 cyber-pulse log clear --older-than 30d --yes
+```
