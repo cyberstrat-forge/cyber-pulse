@@ -140,14 +140,14 @@ def list_sources(
                 tier_color = _get_tier_color(source.tier.value)
                 status_color = _get_status_color(source.status.value)
 
-                observation_status = "Yes" if source.is_in_observation else "No"
-                if source.is_in_observation and source.observation_until:
+                observation_status = "Yes" if source.is_in_observation is True else "No"
+                if source.is_in_observation is True and source.observation_until is not None:
                     observation_status = f"Until {source.observation_until.strftime('%Y-%m-%d')}"
 
                 table.add_row(
-                    source.source_id,
-                    source.name,
-                    source.connector_type,
+                    source.source_id,  # type: ignore[arg-type]
+                    source.name,  # type: ignore[arg-type]
+                    source.connector_type,  # type: ignore[arg-type]
                     f"[{tier_color}]{source.tier.value}[/{tier_color}]",
                     f"{source.score:.1f}",
                     f"[{status_color}]{source.status.value}[/{status_color}]",
@@ -296,7 +296,7 @@ def add_source(
                 f"[bold]Tier:[/bold] {source.tier.value}\n"
                 f"[bold]Score:[/bold] {source.score:.1f}\n"
                 f"[bold]Status:[/bold] {source.status.value}\n"
-                f"[bold]Observation:[/bold] {source.observation_until.strftime('%Y-%m-%d') if source.observation_until else 'N/A'}",
+                f"[bold]Observation:[/bold] {source.observation_until.strftime('%Y-%m-%d') if source.observation_until is not None else 'N/A'}",
                 title="Source Created",
                 border_style="green",
             )
@@ -634,7 +634,7 @@ def source_stats(
                 # SQLAlchemy Column attributes resolve to actual types at runtime
                 total_items += source.total_items  # type: ignore[assignment]
                 total_contents += source.total_contents  # type: ignore[assignment]
-                if source.is_in_observation:
+                if source.is_in_observation is True:
                     observation_count += 1
 
             # Summary table
