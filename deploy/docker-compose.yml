@@ -33,7 +33,7 @@ services:
 
   api:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
@@ -54,7 +54,7 @@ services:
 
   worker:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
@@ -73,7 +73,7 @@ services:
 
   scheduler:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cyberpulse}:${POSTGRES_PASSWORD:-cyberpulse123}@postgres:5432/cyberpulse
