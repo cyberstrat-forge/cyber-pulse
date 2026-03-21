@@ -210,18 +210,17 @@ verify_level1() {
         exit 1
     fi
 
-    # 解析 API 服务状态
-    if echo "$CLEAN_OUTPUT" | grep -q "API service: healthy"; then
+    # 解析 API 服务状态（通过 HTTP 健康检查）
+    API_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health" 2>/dev/null || echo "000")
+    if [ "$API_HEALTH" = "200" ]; then
         echo "  ✓ API: healthy"
-    elif echo "$CLEAN_OUTPUT" | grep -q "API service: not reachable"; then
-        echo "  ⚠ API: not reachable (may be expected in container context)"
     else
-        echo "  ⚠ API: status unknown"
+        echo "  ⚠ API: not reachable (HTTP $API_HEALTH)"
     fi
 
     # 解析 Dramatiq 队列状态
-    if echo "$CLEAN_OUTPUT" | grep -q "Dramatiq Redis: connected"; then
-        echo "  ✓ Dramatiq Redis: connected"
+    if echo "$CLEAN_OUTPUT" | grep -q "Dramatiq Redis: healthy"; then
+        echo "  ✓ Dramatiq Redis: healthy"
     else
         echo "  ⚠ Dramatiq Redis: not connected"
     fi
@@ -399,7 +398,7 @@ verify_log_features() {
     echo "[log 命令功能]"
 
     # 1. log stats 验证
-    LOG_STATS=$(docker exec $CONTAINER_API cyber-pulse log stats 2>&1)
+    LOG_STATS=$(docker exec $CONTAINER_API cyber-pulse log stats 2>&1 || true)
     # 剥离 ANSI 代码后检查关键内容
     CLEAN_LOG_STATS=$(echo "$LOG_STATS" | sed 's/\x1b\[[0-9;]*m//g')
     if echo "$CLEAN_LOG_STATS" | grep -q "File:"; then
@@ -409,7 +408,7 @@ verify_log_features() {
     fi
 
     # 2. log errors --format json 验证
-    LOG_ERRORS_JSON=$(docker exec $CONTAINER_API cyber-pulse log errors --format json 2>&1)
+    LOG_ERRORS_JSON=$(docker exec $CONTAINER_API cyber-pulse log errors --format json 2>&1 || true)
     if validate_json "$LOG_ERRORS_JSON"; then
         # JSON 是数组，计算长度
         ERROR_COUNT=$(echo "$LOG_ERRORS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
@@ -419,7 +418,7 @@ verify_log_features() {
     fi
 
     # 3. log search --format json 验证
-    LOG_SEARCH_JSON=$(docker exec $CONTAINER_API cyber-pulse log search "test" --format json 2>&1)
+    LOG_SEARCH_JSON=$(docker exec $CONTAINER_API cyber-pulse log search "test" --format json 2>&1 || true)
     if validate_json "$LOG_SEARCH_JSON"; then
         echo "  ✓ log search --format json: 有效 JSON"
     else
@@ -428,7 +427,7 @@ verify_log_features() {
 
     # 4. log export 验证
     EXPORT_PATH="/tmp/verify_log_export_$$.log"
-    EXPORT_OUTPUT=$(docker exec $CONTAINER_API cyber-pulse log export --output "$EXPORT_PATH" 2>&1)
+    EXPORT_OUTPUT=$(docker exec $CONTAINER_API cyber-pulse log export --output "$EXPORT_PATH" 2>&1 || true)
     CLEAN_EXPORT=$(echo "$EXPORT_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
     if echo "$CLEAN_EXPORT" | grep -q "Exported"; then
         EXPORT_COUNT=$(echo "$CLEAN_EXPORT" | grep -o "Exported [0-9]*" | grep -o "[0-9]*" || echo "0")

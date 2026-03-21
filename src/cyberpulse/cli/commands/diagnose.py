@@ -203,7 +203,9 @@ def diagnose_sources(
             1 for s in sources
             if s.status == SourceStatus.ACTIVE
             and s.last_fetched_at
-            and s.last_fetched_at < stale_threshold
+            and (
+                s.last_fetched_at.replace(tzinfo=timezone.utc) if s.last_fetched_at.tzinfo is None else s.last_fetched_at
+            ) < stale_threshold
         )
         never_fetched = sum(
             1 for s in sources
@@ -257,7 +259,9 @@ def diagnose_sources(
             s for s in sources
             if s.is_in_observation
             and s.observation_until
-            and s.observation_until < now + timedelta(days=7)
+            and (
+                s.observation_until.replace(tzinfo=timezone.utc) if s.observation_until.tzinfo is None else s.observation_until
+            ) < now + timedelta(days=7)
         ]
 
         if ending_soon:
@@ -294,15 +298,24 @@ def diagnose_sources(
             collection_table.add_column("Status")
 
             # Sort by last_fetched_at, most recent first
+            def get_sort_key(x):
+                if x.last_fetched_at is None:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+                if x.last_fetched_at.tzinfo is None:
+                    return x.last_fetched_at.replace(tzinfo=timezone.utc)
+                return x.last_fetched_at
+
             sorted_sources = sorted(
                 active_sources,
-                key=lambda x: x.last_fetched_at or datetime.min.replace(tzinfo=timezone.utc),
+                key=get_sort_key,
                 reverse=True
             )
 
             for s in sorted_sources[:15]:  # Show top 15
                 if s.last_fetched_at:
-                    age = now - s.last_fetched_at
+                    # Ensure timezone-aware comparison
+                    fetched_at = s.last_fetched_at.replace(tzinfo=timezone.utc) if s.last_fetched_at.tzinfo is None else s.last_fetched_at
+                    age = now - fetched_at
                     if age < timedelta(hours=1):
                         status = "[green]Fresh[/green]"
                     elif age < timedelta(hours=24):
