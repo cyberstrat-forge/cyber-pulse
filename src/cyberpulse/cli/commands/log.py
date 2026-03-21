@@ -42,9 +42,22 @@ def parse_log_line(line: str) -> Optional[dict]:
         Dictionary with parsed log data or None if parsing fails
     """
     # Common log format patterns
-    # Format: YYYY-MM-DD HH:MM:SS,mmm - name - LEVEL - message
-    pattern = r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\S+) - (\w+) - (.+)$'
-    match = re.match(pattern, line.strip())
+    # Format 1: YYYY-MM-DD HH:MM:SS,mmm - name - LEVEL - message (with milliseconds)
+    # Format 2: YYYY-MM-DD HH:MM:SS - name - LEVEL - message (without milliseconds)
+    pattern1 = r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\S+) - (\w+) - (.+)$'
+    pattern2 = r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (\S+) - (\w+) - (.+)$'
+
+    match = re.match(pattern1, line.strip())
+    if match:
+        timestamp_str, logger, level, message = match.groups()
+        return {
+            'timestamp': timestamp_str,
+            'logger': logger,
+            'level': level,
+            'message': message,
+        }
+
+    match = re.match(pattern2, line.strip())
     if match:
         timestamp_str, logger, level, message = match.groups()
         return {
@@ -238,8 +251,8 @@ def error_logs(
             # Apply filters
             if since_dt:
                 try:
-                    log_dt = datetime.strptime(parsed['timestamp'], '%Y-%m-%d %H:%M:%S,%f')
-                    if log_dt < since_dt:
+                    log_dt = parse_timestamp(parsed['timestamp'])
+                    if log_dt is None or log_dt < since_dt:
                         continue
                 except ValueError:
                     logger.debug(f"Could not parse timestamp: {parsed['timestamp']}")
@@ -439,6 +452,30 @@ def log_stats() -> None:
             logger_table.add_row(logger_name, str(count))
 
         console.print(logger_table)
+
+
+def parse_timestamp(timestamp_str: str) -> Optional[datetime]:
+    """Parse a timestamp string into a datetime object.
+
+    Args:
+        timestamp_str: Timestamp string (with or without milliseconds)
+
+    Returns:
+        Datetime object or None if parsing fails
+    """
+    # Try format with milliseconds first
+    try:
+        return datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
+    except ValueError:
+        pass
+
+    # Try format without milliseconds
+    try:
+        return datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        pass
+
+    return None
 
 
 def parse_time_delta(time_str: str) -> Optional[datetime]:

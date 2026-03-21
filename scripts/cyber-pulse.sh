@@ -275,7 +275,13 @@ cmd_deploy() {
     print_step "等待服务启动..."
     sleep 5
 
-    # 7. 显示状态
+    # 7. 运行数据库迁移
+    print_step "运行数据库迁移..."
+    $DOCKER_COMPOSE $compose_files exec -T api alembic upgrade head 2>/dev/null || {
+        print_warning "数据库迁移失败或已是最新版本"
+    }
+
+    # 8. 显示状态
     print_step "服务状态:"
     $DOCKER_COMPOSE $compose_files ps
 
