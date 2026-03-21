@@ -127,19 +127,33 @@ restore_database() {
 
     # 恢复数据库
     # 注意: pg_restore 需要数据库存在，我们使用 --clean 来删除现有对象
-    if $DOCKER_COMPOSE exec -T postgres pg_restore \
+    local restore_output
+    local restore_exit_code
+
+    restore_output=$($DOCKER_COMPOSE exec -T postgres pg_restore \
         -U cyberpulse \
         -d cyberpulse \
         --clean \
         --if-exists \
         --no-owner \
         --no-privileges \
-        /tmp/database.dump 2>&1; then
+        /tmp/database.dump 2>&1) || restore_exit_code=$?
 
+    # pg_restore 可能输出警告但实际成功，需要区分真正的错误
+    # 常见警告: "ERROR: must be owner of" (权限警告，可忽略)
+    # 真正的错误: "FATAL", "PANIC", 或 "ERROR" 相关致命错误
+    if [[ -z "${restore_exit_code:-}" ]]; then
+        # 退出码为 0，成功
         print_success "数据库已恢复"
+    elif echo "$restore_output" | grep -qiE "(FATAL|PANIC|could not|connection.*failed|database.*does not exist)"; then
+        # 真正的错误
+        print_error "数据库恢复失败"
+        echo "$restore_output"
+        return 1
     else
-        # pg_restore 可能会输出警告，检查是否真的失败
-        print_warning "数据库恢复完成，可能存在警告"
+        # 只有警告，恢复成功
+        print_warning "数据库已恢复，存在警告:"
+        echo "$restore_output" | grep -i "warning\|error" | head -5 || true
     fi
 
     # 清理容器内的临时文件

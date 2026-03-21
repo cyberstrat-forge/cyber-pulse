@@ -193,8 +193,18 @@ cleanup_old_snapshots() {
         local snapshot_date=$(echo "$snapshot_name" | sed 's/snapshot_\([0-9_]*\).*/\1/')
         local snapshot_ts
 
-        # 转换时间戳
-        if snapshot_ts=$(date -j -f "%Y%m%d_%H%M%S" "$snapshot_date" +%s 2>/dev/null); then
+        # 转换时间戳（跨平台兼容）
+        # 解析格式: snapshot_YYYYMMDD_HHMMSS
+        local year=${snapshot_date:0:4}
+        local month=${snapshot_date:4:2}
+        local day=${snapshot_date:6:2}
+        local hour=${snapshot_date:9:2}
+        local minute=${snapshot_date:11:2}
+        local second=${snapshot_date:13:2}
+
+        # 使用 date 命令转换（兼容 macOS 和 Linux）
+        if snapshot_ts=$(date -d "${year}-${month}-${day} ${hour}:${minute}:${second}" +%s 2>/dev/null || \
+                         date -j -f "%Y-%m-%d %H:%M:%S" "${year}-${month}-${day} ${hour}:${minute}:${second}" +%s 2>/dev/null); then
             local age_days=$(( (now - snapshot_ts) / 86400 ))
 
             if [[ $age_days -gt $retention_days ]]; then

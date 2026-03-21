@@ -64,10 +64,13 @@ get_latest_version() {
         http_code=$(echo "$response" | tail -n1)
         response=$(echo "$response" | sed '$d')
     elif command -v wget &>/dev/null; then
-        response=$(wget -qO- "$GITHUB_API_URL" 2>/dev/null)
-        http_code=$?
-        if [[ $http_code -eq 0 ]]; then
-            http_code=200
+        # wget 退出码不是 HTTP 状态码，需要通过 --server-response 获取
+        local wget_output
+        wget_output=$(wget --server-response -qO- "$GITHUB_API_URL" 2>&1) || true
+        http_code=$(echo "$wget_output" | grep -i "^  HTTP/" | tail -1 | awk '{print $2}')
+        response=$(echo "$wget_output" | grep -v "^  HTTP/")
+        if [[ -z "$http_code" ]]; then
+            http_code="000"
         fi
     else
         print_error "需要 curl 或 wget 来检查更新"
