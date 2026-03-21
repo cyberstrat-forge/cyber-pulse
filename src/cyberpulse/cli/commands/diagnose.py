@@ -31,6 +31,8 @@ def diagnose_system() -> None:
     Performs comprehensive health checks on:
     - Database connectivity
     - Redis connectivity (for task queue)
+    - API service health
+    - Dramatiq task queue status
     - Configuration status
     """
     console.print(Panel("System Health Check", style="bold blue"))
@@ -46,6 +48,7 @@ def diagnose_system() -> None:
         console.print("  [green]✓[/green] Database connection: [green]healthy[/green]")
         console.print(f"  [dim]URL: {settings.database_url.split('@')[-1] if '@' in settings.database_url else settings.database_url}[/dim]")
     except Exception as e:
+        logger.error(f"Database health check failed: {e}")
         console.print("  [red]✗[/red] Database connection: [red]unhealthy[/red]")
         console.print(f"  [dim]Error: {e}[/dim]")
         all_healthy = False
@@ -109,7 +112,12 @@ def diagnose_system() -> None:
     except urllib.error.URLError:
         console.print("  [yellow]![/yellow] API service: [yellow]not reachable[/yellow]")
         console.print("  [dim]This is normal if API is not running locally[/dim]")
+    except json.JSONDecodeError as e:
+        logger.warning(f"API health endpoint returned invalid JSON: {e}")
+        console.print("  [yellow]![/yellow] API service: [yellow]invalid response[/yellow]")
+        console.print("  [dim]Health endpoint returned invalid JSON[/dim]")
     except Exception as e:
+        logger.error(f"API health check failed: {e}")
         console.print("  [yellow]![/yellow] API service: [yellow]not reachable[/yellow]")
         console.print(f"  [dim]{str(e)[:50]}[/dim]")
 
@@ -122,7 +130,10 @@ def diagnose_system() -> None:
         queue_len = r.llen("dramatiq:default")  # type: ignore[attr-defined]
         console.print("  [green]✓[/green] Dramatiq Redis: [green]connected[/green]")
         console.print(f"  [dim]Pending tasks in default queue: {queue_len}[/dim]")
-    except Exception:
+    except ImportError:
+        console.print("  [yellow]![/yellow] Redis client not installed (pip install redis)")
+    except Exception as e:
+        logger.warning(f"Could not check queue status: {e}")
         console.print("  [yellow]![/yellow] Could not check queue status")
 
     # Summary
@@ -328,9 +339,8 @@ def diagnose_errors(
     """Analyze errors from logs and database.
 
     Shows:
+    - Items in rejected state (with rejection reason from raw_metadata)
     - Recent errors from the log file
-    - Items in rejected state
-    - Sources with errors
     """
     console.print(Panel("Error Analysis", style="bold blue"))
 
@@ -370,7 +380,9 @@ def diagnose_errors(
             for item in rejected_items[:10]:
                 # Extract rejection reason from raw_metadata
                 raw_meta = item.raw_metadata or {}  # type: ignore[var-annotated]
-                reason: str = raw_meta.get("rejection_reason", "-")  # type: ignore[assignment]
+                reason_raw = raw_meta.get("rejection_reason", "-")
+                # Ensure reason is a string (handle non-string types safely)
+                reason = str(reason_raw) if reason_raw is not None else "-"
                 if len(reason) > 40:
                     reason = reason[:37] + "..."
 

@@ -540,6 +540,7 @@ def export_logs(
                 if log_dt < since_dt:
                     continue
             except ValueError:
+                logger.debug(f"Could not parse timestamp in log entry: {parsed['timestamp']}")
                 continue
 
         if level and parsed['level'] != level.upper():
@@ -598,8 +599,11 @@ def clear_logs(
         console.print("[dim]Use format like '7d', '30d'[/dim]")
         raise typer.Exit(1)
 
-    # Read all lines
-    lines = read_log_lines(log_path, n=100000, from_end=False)
+    # Read all lines (use larger limit to avoid data loss)
+    # Reading from end to preserve most recent logs
+    lines = read_log_lines(log_path, n=500000, from_end=True)
+    # Reverse to process in chronological order for clear operation
+    lines = list(reversed(lines))
 
     # Filter out old entries
     kept_lines = []
@@ -614,6 +618,7 @@ def clear_logs(
                     removed_count += 1
                     continue
             except ValueError:
+                logger.debug("Log entry has invalid timestamp format, keeping anyway")
                 pass  # Keep entries with invalid timestamps
         kept_lines.append(line)
 

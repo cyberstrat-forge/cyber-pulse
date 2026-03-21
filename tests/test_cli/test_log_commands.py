@@ -508,8 +508,9 @@ class TestLogExport:
             f.write('2024-01-15 10:31:00,456 - test - ERROR - Error message\n')
             log_path = f.name
 
-        # Create temp output path
-        output_path = tempfile.mktemp(suffix='.log')
+        # Create temp output path using mkstemp for security
+        fd, output_path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
 
         try:
             with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
@@ -543,7 +544,9 @@ class TestLogExport:
             f.write(f'{new_dt.strftime("%Y-%m-%d %H:%M:%S")},456 - test - INFO - New message\n')
             log_path = f.name
 
-        output_path = tempfile.mktemp(suffix='.log')
+        # Create temp output path using mkstemp for security
+        fd, output_path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
 
         try:
             with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
@@ -569,7 +572,9 @@ class TestLogExport:
             f.write('2024-01-15 10:32:00,789 - test - WARNING - Warning message\n')
             log_path = f.name
 
-        output_path = tempfile.mktemp(suffix='.log')
+        # Create temp output path using mkstemp for security
+        fd, output_path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
 
         try:
             with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
@@ -617,7 +622,9 @@ class TestLogExport:
             f.write('2024-01-15 10:30:00,123 - test - INFO - Info message\n')
             log_path = f.name
 
-        output_path = tempfile.mktemp(suffix='.log')
+        # Create temp output path using mkstemp for security
+        fd, output_path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
 
         try:
             with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
