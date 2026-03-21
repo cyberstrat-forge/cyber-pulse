@@ -312,6 +312,99 @@ class TestFormatFileSize:
         assert 'GB' in result
 
 
+class TestLogClear:
+    """Tests for log clear command."""
+
+    def test_log_clear_older_than_days(self) -> None:
+        """Test log clear removes old entries."""
+        from datetime import datetime, timedelta
+
+        # Create log with old and new entries
+        old_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
+        new_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write(f'{old_date} - test - INFO - Old message\n')
+            f.write(f'{new_date} - test - INFO - New message\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['clear', '--older-than', '7d', '--yes'])
+                assert result.exit_code == 0
+
+                # Check file only has new message
+                with open(log_path, 'r') as f:
+                    content = f.read()
+                assert 'New message' in content
+                assert 'Old message' not in content
+        finally:
+            os.unlink(log_path)
+
+    def test_log_clear_requires_confirmation(self) -> None:
+        """Test log clear requires confirmation without --yes."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Test\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                # Without --yes, should prompt for confirmation
+                result = runner.invoke(app, ['clear', '--older-than', '7d'])
+                assert 'Confirm' in result.stdout or result.exit_code != 0
+        finally:
+            os.unlink(log_path)
+
+    def test_log_clear_missing_file(self) -> None:
+        """Test log clear when log file doesn't exist."""
+        with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+            mock_path.return_value = Path('/nonexistent/path.log')
+            result = runner.invoke(app, ['clear', '--older-than', '7d'])
+            assert result.exit_code == 0
+            assert 'Log file not found' in result.stdout
+
+    def test_log_clear_invalid_time_format(self) -> None:
+        """Test log clear with invalid time format."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Test\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['clear', '--older-than', 'invalid', '--yes'])
+                assert result.exit_code == 1
+                assert 'Invalid time format' in result.stdout
+        finally:
+            os.unlink(log_path)
+
+    def test_log_clear_no_entries_to_remove(self) -> None:
+        """Test log clear when no entries match criteria."""
+        from datetime import datetime
+
+        # Create log with only recent entries
+        new_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write(f'{new_date} - test - INFO - Recent message\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['clear', '--older-than', '7d', '--yes'])
+                assert result.exit_code == 0
+                assert 'No log entries to remove' in result.stdout
+        finally:
+            os.unlink(log_path)
+
+
 class TestLogHelp:
     """Tests for log command help."""
 
@@ -323,6 +416,8 @@ class TestLogHelp:
         assert 'errors' in result.stdout
         assert 'search' in result.stdout
         assert 'stats' in result.stdout
+        assert 'export' in result.stdout
+        assert 'clear' in result.stdout
 
     def test_tail_help(self) -> None:
         """Test tail command help."""
@@ -343,3 +438,224 @@ class TestLogHelp:
         result = runner.invoke(app, ['search', '--help'])
         assert result.exit_code == 0
         assert '--level' in result.stdout
+
+    def test_export_help(self) -> None:
+        """Test export command help."""
+        result = runner.invoke(app, ['export', '--help'])
+        assert result.exit_code == 0
+        assert '--output' in result.stdout
+        assert '--since' in result.stdout
+        assert '--level' in result.stdout
+
+
+class TestLogJsonOutput:
+    """Tests for JSON format output."""
+
+    def test_log_errors_json_format(self) -> None:
+        """Test log errors command with JSON output."""
+        import json
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - ERROR - Test error\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['errors', '--format', 'json'])
+                assert result.exit_code == 0
+
+                # Should be valid JSON
+                data = json.loads(result.stdout)
+                assert isinstance(data, list)
+                assert len(data) == 1
+                assert data[0]['level'] == 'ERROR'
+                assert data[0]['message'] == 'Test error'
+        finally:
+            os.unlink(log_path)
+
+    def test_log_search_json_format(self) -> None:
+        """Test log search command with JSON output."""
+        import json
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Test message\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['search', 'Test', '--format', 'json'])
+                assert result.exit_code == 0
+
+                data = json.loads(result.stdout)
+                assert isinstance(data, list)
+                assert len(data) == 1
+        finally:
+            os.unlink(log_path)
+
+
+class TestLogExport:
+    """Tests for log export command."""
+
+    def test_log_export_creates_file(self) -> None:
+        """Test log export creates output file."""
+        # Create a temp log file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Test message\n')
+            f.write('2024-01-15 10:31:00,456 - test - ERROR - Error message\n')
+            log_path = f.name
+
+        # Create temp output path using mkstemp for security
+        fd, output_path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['export', '--output', output_path])
+                assert result.exit_code == 0
+                assert os.path.exists(output_path)
+
+                # Check content
+                with open(output_path, 'r') as f:
+                    content = f.read()
+                assert 'Test message' in content
+                assert 'Error message' in content
+        finally:
+            os.unlink(log_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_log_export_with_since_filter(self) -> None:
+        """Test log export with time filter."""
+        from datetime import datetime, timedelta
+
+        # Use dynamic dates relative to current time
+        now = datetime.now()
+        old_dt = now - timedelta(days=2)  # 2 days ago (outside 1d window)
+        new_dt = now - timedelta(hours=1)  # 1 hour ago (inside 1d window)
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write(f'{old_dt.strftime("%Y-%m-%d %H:%M:%S")},123 - test - INFO - Old message\n')
+            f.write(f'{new_dt.strftime("%Y-%m-%d %H:%M:%S")},456 - test - INFO - New message\n')
+            log_path = f.name
+
+        # Create temp output path using mkstemp for security
+        fd, output_path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['export', '--output', output_path, '--since', '1d'])
+                assert result.exit_code == 0
+
+                with open(output_path, 'r') as f:
+                    content = f.read()
+                assert 'New message' in content
+                assert 'Old message' not in content
+        finally:
+            os.unlink(log_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_log_export_with_level_filter(self) -> None:
+        """Test log export with level filter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Info message\n')
+            f.write('2024-01-15 10:31:00,456 - test - ERROR - Error message\n')
+            f.write('2024-01-15 10:32:00,789 - test - WARNING - Warning message\n')
+            log_path = f.name
+
+        # Create temp output path using mkstemp for security
+        fd, output_path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['export', '--output', output_path, '--level', 'ERROR'])
+                assert result.exit_code == 0
+
+                with open(output_path, 'r') as f:
+                    content = f.read()
+                assert 'Error message' in content
+                assert 'Info message' not in content
+                assert 'Warning message' not in content
+        finally:
+            os.unlink(log_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_log_export_missing_file(self) -> None:
+        """Test export command when log file doesn't exist."""
+        with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+            mock_path.return_value = Path('/nonexistent/path.log')
+            result = runner.invoke(app, ['export', '--output', '/tmp/output.log'])
+            assert result.exit_code == 1
+            assert 'Log file not found' in result.stdout
+
+    def test_log_export_invalid_since(self) -> None:
+        """Test export command with invalid since parameter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - ERROR - Error message\n')
+            log_path = f.name
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+                result = runner.invoke(app, ['export', '--output', '/tmp/output.log', '--since', 'invalid'])
+                assert result.exit_code == 1
+                assert 'Invalid time format' in result.stdout
+        finally:
+            os.unlink(log_path)
+
+    def test_log_export_no_matches(self) -> None:
+        """Test export command when no logs match criteria."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Info message\n')
+            log_path = f.name
+
+        # Create temp output path using mkstemp for security
+        fd, output_path = tempfile.mkstemp(suffix='.log')
+        os.close(fd)
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['export', '--output', output_path, '--level', 'ERROR'])
+                assert result.exit_code == 0
+                assert 'No log entries match' in result.stdout
+        finally:
+            os.unlink(log_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+
+    def test_log_export_creates_parent_dirs(self) -> None:
+        """Test export creates parent directories if needed."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+            f.write('2024-01-15 10:30:00,123 - test - INFO - Test message\n')
+            log_path = f.name
+
+        # Create a unique temp directory for this test
+        temp_dir = tempfile.mkdtemp()
+        output_path = os.path.join(temp_dir, 'subdir', 'nested', 'output.log')
+
+        try:
+            with patch('cyberpulse.cli.commands.log.get_log_file_path') as mock_path:
+                mock_path.return_value = Path(log_path)
+
+                result = runner.invoke(app, ['export', '--output', output_path])
+                assert result.exit_code == 0
+                assert os.path.exists(output_path)
+        finally:
+            os.unlink(log_path)
+            import shutil
+            shutil.rmtree(temp_dir)

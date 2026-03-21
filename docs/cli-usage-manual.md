@@ -557,8 +557,10 @@ cyberpulse log tail --lines 500
 cyberpulse log errors [OPTIONS]
 
 Options:
-  --since DATETIME         起始时间
-  --limit INT              返回数量限制
+  --since, -s TEXT         起始时间（如 '1h', '24h', '7d'）
+  --source TEXT            按日志源过滤
+  --lines, -n INT          返回数量限制（默认 50）
+  --format, -f TEXT        输出格式：text 或 json
 ```
 
 **示例：**
@@ -567,8 +569,14 @@ Options:
 # 查看最近错误
 cyberpulse log errors
 
-# 查看指定时间后的错误
-cyberpulse log errors --since "2026-03-19T00:00:00"
+# 查看最近 24 小时错误
+cyberpulse log errors --since 24h
+
+# JSON 格式输出（便于程序化处理）
+cyberpulse log errors --format json
+
+# 按日志源过滤
+cyberpulse log errors --source cyberpulse.tasks
 ```
 
 ### 6.3 搜索日志
@@ -577,11 +585,12 @@ cyberpulse log errors --since "2026-03-19T00:00:00"
 cyberpulse log search PATTERN
 
 Arguments:
-  PATTERN                   搜索模式（正则表达式）
+  PATTERN                   搜索模式（支持关键词匹配）
 
 Options:
-  --level [DEBUG|INFO|WARNING|ERROR]  日志级别过滤
-  --limit INT                          返回数量限制
+  --lines, -n INT          返回数量限制（默认 50）
+  --level, -l TEXT         日志级别过滤（DEBUG, INFO, WARNING, ERROR, CRITICAL）
+  --format, -f TEXT        输出格式：text 或 json
 ```
 
 **示例：**
@@ -593,8 +602,11 @@ cyberpulse log search "timeout"
 # 搜索指定源相关日志
 cyberpulse log search "src_a1b2c3d4"
 
-# 使用正则表达式
-cyberpulse log search "error.*source"
+# JSON 格式输出
+cyberpulse log search "error" --format json
+
+# 按级别过滤
+cyberpulse log search "connection" --level ERROR
 ```
 
 ### 6.4 日志统计
@@ -616,6 +628,52 @@ cyberpulse log stats
 cyberpulse log stats --days 30
 ```
 
+### 6.5 日志导出
+
+```bash
+cyberpulse log export [OPTIONS]
+
+Options:
+  --output, -o TEXT        输出文件路径（必需）
+  --since, -s TEXT         导出起始时间（如 '1h', '24h', '7d'）
+  --level, -l TEXT         按日志级别过滤
+```
+
+**示例：**
+
+```bash
+# 导出所有日志到文件
+cyberpulse log export --output /tmp/cyberpulse.log
+
+# 导出最近 24 小时的日志
+cyberpulse log export --output /tmp/recent.log --since 24h
+
+# 仅导出错误日志
+cyberpulse log export --output /tmp/errors.log --level ERROR
+```
+
+### 6.6 日志清理
+
+```bash
+cyberpulse log clear [OPTIONS]
+
+Options:
+  --older-than, -o TEXT    清理指定时间前的日志（默认 7d）
+  --yes, -y                跳过确认提示
+```
+
+**示例：**
+
+```bash
+# 清理 7 天前的日志（需要确认）
+cyberpulse log clear
+
+# 清理 30 天前的日志（跳过确认）
+cyberpulse log clear --older-than 30d --yes
+```
+
+**注意：** 日志清理是不可逆操作，建议在清理前先导出日志备份。
+
 ---
 
 ## 7. 诊断工具（Diagnose）
@@ -632,15 +690,24 @@ System Health Check
 ===================
 Database: ✓ Connected (PostgreSQL 15.2)
 Redis: ✓ Connected (Redis 7.0)
-Scheduler: ✓ Running (3 jobs scheduled)
-Worker: ✓ Running (2 workers active)
 
-Storage:
-  Database size: 1.2 GB
-  Redis memory: 256 MB
+API Service:
+  ✓ API service: healthy
+  URL: http://127.0.0.1:8000/health
+
+Task Queue:
+  ✓ Dramatiq Redis: connected
+  Pending tasks in default queue: 3
+
+Configuration:
+  Log level: INFO
+  Log file: logs/cyberpulse.log
+  Scheduler enabled: True
 
 Recent Errors: 12 (last 24h)
 ```
+
+**注意：** API Service 和 Task Queue 检查在本地开发环境中可能显示为"not reachable"，这是正常的。
 
 ### 7.2 源诊断
 
@@ -648,7 +715,8 @@ Recent Errors: 12 (last 24h)
 cyberpulse diagnose sources [OPTIONS]
 
 Options:
-  --source-id TEXT         指定源 ID
+  --pending, -p            仅显示待审核源
+  --tier [T0|T1|T2|T3]     按分级筛选
 ```
 
 **示例：**
@@ -657,29 +725,26 @@ Options:
 # 诊断所有源
 cyberpulse diagnose sources
 
-# 诊断指定源
-cyberpulse diagnose sources --source-id src_a1b2c3d4
+# 仅显示待审核源
+cyberpulse diagnose sources --pending
+
+# 按分级筛选
+cyberpulse diagnose sources --tier T1
 ```
 
-**输出示例：**
-```
-Source Diagnostics
-==================
-src_a1b2c3d4 (安全客)
-  Status: Active
-  Tier: T1
-  Last Collection: 2026-03-19 14:30:00 (2 hours ago)
-  Success Rate: 98.5% (last 100 jobs)
-  Average Items: 45/collection
-  Warnings: None
+**输出包含：**
+- 源状态汇总（Active/Frozen/Removed）
+- 待审核源列表（含原因）
+- 观察期即将结束的源
+- **Recent Collection Activity 表格**（显示最后采集时间、Items 数量、状态）
 
-src_e5f6g7h8 (Example Feed)
-  Status: Frozen
-  Last Collection: Never
-  Warnings:
-    - Source is frozen
-    - No successful collections
-```
+**采集状态说明：**
+| 状态 | 说明 |
+|------|------|
+| Fresh | 最近 1 小时内采集 |
+| Recent | 最近 24 小时内采集 |
+| Stale | 超过 24 小时未采集 |
+| Never | 从未采集 |
 
 ### 7.3 错误诊断
 
@@ -687,44 +752,42 @@ src_e5f6g7h8 (Example Feed)
 cyberpulse diagnose errors [OPTIONS]
 
 Options:
-  --hours INT              时间范围（默认 24）
-  --limit INT              返回数量限制
+  --since, -s TEXT         时间范围（如 '1h', '24h', '7d'）
+  --source TEXT            按源 ID 过滤
 ```
 
 **示例：**
 
 ```bash
-# 诊断近 24 小时错误
+# 诊断最近 24 小时错误
 cyberpulse diagnose errors
 
-# 诊断近 72 小时错误
-cyberpulse diagnose errors --hours 72
+# 诊断最近 72 小时错误
+cyberpulse diagnose errors --since 72h
+
+# 按源过滤
+cyberpulse diagnose errors --source src_a1b2c3d4
 ```
 
 **输出示例：**
 ```
-Error Analysis (Last 24h)
-=========================
-Total Errors: 12
+Error Analysis
+==============
 
-By Type:
-  ConnectionError: 5
-  TimeoutError: 4
-  ValueError: 3
+Rejected Items:
+  Found 5 rejected items
+  ┌─────────────┬──────────┬────────────────────┬──────────────────────────┬─────────────────┐
+  │ Item ID     │ Source   │ Title              │ Rejection Reason         │ Fetched         │
+  ├─────────────┼──────────┼────────────────────┼──────────────────────────┼─────────────────┤
+  │ item_abc123 │ src_xyz  │ Test Item Title    │ Title too short; Empty... │ 2026-03-19 14:30│
+  └─────────────┴──────────┴────────────────────┴──────────────────────────┴─────────────────┘
 
-By Source:
-  src_a1b2c3d4: 8 errors
-  src_e5f6g7h8: 4 errors
-
-Top Errors:
-  1. ConnectionError: Redis connection refused (5 occurrences)
-     Source: src_a1b2c3d4
-     Last seen: 2026-03-19 15:45:00
-
-  2. TimeoutError: Request timed out after 30s (4 occurrences)
-     Source: src_e5f6g7h8
-     Last seen: 2026-03-19 14:20:00
+Recent Errors from Logs:
+  Found 3 error entries
+  ERROR   2026-03-19 15:45:00,123 cyberpulse.tasks - Connection timeout...
 ```
+
+**注意：** `diagnose errors` 现在会显示 Rejection Reason 列，展示 Item 被拒绝的具体原因（从 `raw_metadata["rejection_reason"]` 提取）。
 
 ---
 

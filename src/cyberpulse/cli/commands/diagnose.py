@@ -1,5 +1,8 @@
 """Diagnose command module."""
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -28,6 +31,8 @@ def diagnose_system() -> None:
     Performs comprehensive health checks on:
     - Database connectivity
     - Redis connectivity (for task queue)
+    - API service health
+    - Dramatiq task queue status
     - Configuration status
     """
     console.print(Panel("System Health Check", style="bold blue"))
@@ -43,6 +48,7 @@ def diagnose_system() -> None:
         console.print("  [green]✓[/green] Database connection: [green]healthy[/green]")
         console.print(f"  [dim]URL: {settings.database_url.split('@')[-1] if '@' in settings.database_url else settings.database_url}[/dim]")
     except Exception as e:
+        logger.error(f"Database health check failed: {e}")
         console.print("  [red]✗[/red] Database connection: [red]unhealthy[/red]")
         console.print(f"  [dim]Error: {e}[/dim]")
         all_healthy = False
@@ -85,6 +91,50 @@ def diagnose_system() -> None:
             console.print(f"  Log file size: {format_size(size)}")
         else:
             console.print("  [yellow]Log file not yet created[/yellow]")
+
+    # Check API service
+    console.print("\n[bold]API Service:[/bold]")
+    try:
+        url = f"http://{settings.api_host}:{settings.api_port}/health"
+        # Handle 0.0.0.0 binding
+        if '0.0.0.0' in url:
+            url = url.replace('0.0.0.0', '127.0.0.1')
+
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            if data.get('status') == 'healthy':
+                console.print("  [green]✓[/green] API service: [green]healthy[/green]")
+                console.print(f"  [dim]URL: {url}[/dim]")
+            else:
+                console.print("  [yellow]![/yellow] API service: [yellow]degraded[/yellow]")
+                console.print(f"  [dim]Status: {data.get('status')}[/dim]")
+    except urllib.error.URLError:
+        console.print("  [yellow]![/yellow] API service: [yellow]not reachable[/yellow]")
+        console.print("  [dim]This is normal if API is not running locally[/dim]")
+    except json.JSONDecodeError as e:
+        logger.warning(f"API health endpoint returned invalid JSON: {e}")
+        console.print("  [yellow]![/yellow] API service: [yellow]invalid response[/yellow]")
+        console.print("  [dim]Health endpoint returned invalid JSON[/dim]")
+    except Exception as e:
+        logger.error(f"API health check failed: {e}")
+        console.print("  [yellow]![/yellow] API service: [yellow]not reachable[/yellow]")
+        console.print(f"  [dim]{str(e)[:50]}[/dim]")
+
+    # Check Dramatiq queue status
+    console.print("\n[bold]Task Queue:[/bold]")
+    try:
+        import redis
+        r = redis.from_url(settings.dramatiq_broker_url)
+        # Check for pending messages in default queue
+        queue_len = r.llen("dramatiq:default")  # type: ignore[attr-defined]
+        console.print("  [green]✓[/green] Dramatiq Redis: [green]connected[/green]")
+        console.print(f"  [dim]Pending tasks in default queue: {queue_len}[/dim]")
+    except ImportError:
+        console.print("  [yellow]![/yellow] Redis client not installed (pip install redis)")
+    except Exception as e:
+        logger.warning(f"Could not check queue status: {e}")
+        console.print("  [yellow]![/yellow] Could not check queue status")
 
     # Summary
     console.print()
@@ -229,6 +279,50 @@ def diagnose_sources(
 
             console.print(obs_table)
 
+        # Recent collection activity
+        active_sources = [
+            s for s in sources
+            if s.status == SourceStatus.ACTIVE
+        ]
+
+        if active_sources:
+            console.print("\n[bold]Recent Collection Activity:[/bold]")
+            collection_table = Table(show_header=True, header_style="bold")
+            collection_table.add_column("Source")
+            collection_table.add_column("Last Collected")
+            collection_table.add_column("Items")
+            collection_table.add_column("Status")
+
+            # Sort by last_fetched_at, most recent first
+            sorted_sources = sorted(
+                active_sources,
+                key=lambda x: x.last_fetched_at or datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True
+            )
+
+            for s in sorted_sources[:15]:  # Show top 15
+                if s.last_fetched_at:
+                    age = now - s.last_fetched_at
+                    if age < timedelta(hours=1):
+                        status = "[green]Fresh[/green]"
+                    elif age < timedelta(hours=24):
+                        status = "[yellow]Recent[/yellow]"
+                    else:
+                        status = "[red]Stale[/red]"
+                    collected = s.last_fetched_at.strftime("%Y-%m-%d %H:%M")
+                else:
+                    status = "[dim]Never[/dim]"
+                    collected = "-"
+
+                collection_table.add_row(
+                    s.name[:25],
+                    collected,
+                    str(s.total_items or 0),
+                    status
+                )
+
+            console.print(collection_table)
+
     finally:
         db.close()
 
@@ -245,9 +339,8 @@ def diagnose_errors(
     """Analyze errors from logs and database.
 
     Shows:
+    - Items in rejected state (with rejection reason from raw_metadata)
     - Recent errors from the log file
-    - Items in rejected state
-    - Sources with errors
     """
     console.print(Panel("Error Analysis", style="bold blue"))
 
@@ -281,13 +374,23 @@ def diagnose_errors(
             table.add_column("Item ID", style="dim")
             table.add_column("Source")
             table.add_column("Title")
+            table.add_column("Rejection Reason")
             table.add_column("Fetched")
 
             for item in rejected_items[:10]:
+                # Extract rejection reason from raw_metadata
+                raw_meta = item.raw_metadata or {}  # type: ignore[var-annotated]
+                reason_raw = raw_meta.get("rejection_reason", "-")
+                # Ensure reason is a string (handle non-string types safely)
+                reason = str(reason_raw) if reason_raw is not None else "-"
+                if len(reason) > 40:
+                    reason = reason[:37] + "..."
+
                 table.add_row(
                     item.item_id,
                     item.source_id,
-                    (item.title or "")[:40],
+                    (item.title or "")[:30],
+                    reason,
                     item.fetched_at.strftime("%Y-%m-%d %H:%M") if item.fetched_at else "-"
                 )
 

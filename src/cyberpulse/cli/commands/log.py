@@ -1,4 +1,5 @@
 """Log command module."""
+import json
 import logging
 import re
 from datetime import datetime, timedelta
@@ -199,6 +200,9 @@ def error_logs(
         None, "--source", help="Filter by source/logger name"
     ),
     n: int = typer.Option(50, "--lines", "-n", help="Maximum number of errors to show"),
+    format: str = typer.Option(
+        "text", "--format", "-f", help="Output format: text or json"
+    ),
 ) -> None:
     """Show error logs from the cyber-pulse log file.
 
@@ -252,6 +256,11 @@ def error_logs(
         console.print("[dim]No error logs found.[/dim]")
         raise typer.Exit(0)
 
+    # JSON output
+    if format == "json":
+        print(json.dumps(errors, indent=2))
+        raise typer.Exit(0)
+
     console.print(Panel(f"Found {len(errors)} error entries", style="red bold"))
 
     for entry in errors:
@@ -272,6 +281,9 @@ def search_logs(
     n: int = typer.Option(50, "--lines", "-n", help="Maximum number of results"),
     level: Optional[str] = typer.Option(
         None, "--level", "-l", help="Filter by log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    ),
+    format: str = typer.Option(
+        "text", "--format", "-f", help="Output format: text or json"
     ),
 ) -> None:
     """Search logs for a specific text pattern.
@@ -318,6 +330,11 @@ def search_logs(
 
     if not matches:
         console.print(f"[dim]No matches found for '{text}'.[/dim]")
+        raise typer.Exit(0)
+
+    # JSON output
+    if format == "json":
+        print(json.dumps(matches, indent=2))
         raise typer.Exit(0)
 
     console.print(Panel(f"Found {len(matches)} matches for '{text}'", style="blue bold"))
@@ -471,3 +488,161 @@ def format_file_size(size_bytes: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
+
+
+@app.command("export")
+def export_logs(
+    output: str = typer.Option(..., "--output", "-o", help="Output file path"),
+    since: Optional[str] = typer.Option(
+        None, "--since", "-s", help="Export logs since time (e.g., '1h', '24h', '7d')"
+    ),
+    level: Optional[str] = typer.Option(
+        None, "--level", "-l", help="Filter by log level (ERROR, WARNING, INFO, DEBUG)"
+    ),
+) -> None:
+    """Export logs to a file.
+
+    Exports log entries to a file, optionally filtered by time and level.
+
+    Examples:
+        cyber-pulse log export --output /tmp/cyberpulse.log
+        cyber-pulse log export --output /tmp/errors.log --level ERROR --since 24h
+    """
+    log_path = get_log_file_path()
+
+    if not log_path.exists():
+        console.print(f"[red]Log file not found: {log_path}[/red]")
+        raise typer.Exit(1)
+
+    # Parse since parameter
+    since_dt = None
+    if since:
+        since_dt = parse_time_delta(since)
+        if since_dt is None:
+            console.print(f"[red]Invalid time format: {since}[/red]")
+            console.print("[dim]Use format like '1h', '24h', '7d', '30m'[/dim]")
+            raise typer.Exit(1)
+
+    # Read all lines
+    lines = read_log_lines(log_path, n=50000, from_end=True)
+
+    # Filter and export
+    exported = []
+    for line in lines:
+        parsed = parse_log_line(line)
+        if not parsed:
+            continue
+
+        # Apply filters
+        if since_dt:
+            try:
+                log_dt = datetime.strptime(parsed['timestamp'], '%Y-%m-%d %H:%M:%S,%f')
+                if log_dt < since_dt:
+                    continue
+            except ValueError:
+                logger.debug(f"Could not parse timestamp in log entry: {parsed['timestamp']}")
+                continue
+
+        if level and parsed['level'] != level.upper():
+            continue
+
+        exported.append(line)
+
+    if not exported:
+        console.print("[dim]No log entries match the criteria.[/dim]")
+        raise typer.Exit(0)
+
+    # Write to output file
+    try:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            for line in exported:
+                f.write(line + '\n')
+
+        console.print(f"[green]✓[/green] Exported {len(exported)} log entries to {output}")
+        console.print(f"[dim]File size: {format_file_size(output_path.stat().st_size)}[/dim]")
+    except OSError as e:
+        console.print(f"[red]Failed to write output file: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("clear")
+def clear_logs(
+    older_than: str = typer.Option(
+        "7d", "--older-than", "-o", help="Clear logs older than (e.g., '7d', '30d')"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip confirmation prompt"
+    ),
+) -> None:
+    """Clear old log entries from the log file.
+
+    Removes log entries older than the specified time period.
+    By default, removes entries older than 7 days.
+
+    Examples:
+        cyber-pulse log clear --older-than 7d
+        cyber-pulse log clear --older-than 30d --yes
+    """
+    log_path = get_log_file_path()
+
+    if not log_path.exists():
+        console.print(f"[yellow]Log file not found: {log_path}[/yellow]")
+        raise typer.Exit(0)
+
+    # Parse older_than parameter
+    threshold_dt = parse_time_delta(older_than)
+    if threshold_dt is None:
+        console.print(f"[red]Invalid time format: {older_than}[/red]")
+        console.print("[dim]Use format like '7d', '30d'[/dim]")
+        raise typer.Exit(1)
+
+    # Read all lines (use larger limit to avoid data loss)
+    # Reading from end to preserve most recent logs
+    lines = read_log_lines(log_path, n=500000, from_end=True)
+    # Reverse to process in chronological order for clear operation
+    lines = list(reversed(lines))
+
+    # Filter out old entries
+    kept_lines = []
+    removed_count = 0
+
+    for line in lines:
+        parsed = parse_log_line(line)
+        if parsed:
+            try:
+                log_dt = datetime.strptime(parsed['timestamp'], '%Y-%m-%d %H:%M:%S,%f')
+                if log_dt < threshold_dt:
+                    removed_count += 1
+                    continue
+            except ValueError:
+                logger.debug("Log entry has invalid timestamp format, keeping anyway")
+                pass  # Keep entries with invalid timestamps
+        kept_lines.append(line)
+
+    if removed_count == 0:
+        console.print("[dim]No log entries to remove.[/dim]")
+        raise typer.Exit(0)
+
+    # Confirm
+    if not yes:
+        console.print(f"[yellow]This will remove {removed_count} log entries older than {older_than}.[/yellow]")
+        confirm = typer.confirm("Continue?")
+        if not confirm:
+            console.print("[dim]Cancelled.[/dim]")
+            raise typer.Exit(0)
+
+    # Write back
+    try:
+        with open(log_path, 'w', encoding='utf-8') as f:
+            for line in kept_lines:
+                f.write(line + '\n')
+
+        console.print(f"[green]✓[/green] Removed {removed_count} log entries")
+        console.print(f"[dim]Remaining entries: {len(kept_lines)}[/dim]")
+        console.print(f"[dim]File size: {format_file_size(log_path.stat().st_size)}[/dim]")
+    except OSError as e:
+        console.print(f"[red]Failed to update log file: {e}[/red]")
+        raise typer.Exit(1)
