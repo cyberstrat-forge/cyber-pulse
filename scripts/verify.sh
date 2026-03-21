@@ -822,9 +822,25 @@ print_report() {
 
 ---
 
+## Level 3: 增强诊断验证 (v1.2.0+)
+
+| 功能 | 状态 |
+|------|------|
+| diagnose sources 采集活动 | ✓ 通过 |
+| diagnose errors 拒绝原因 | ✓ 通过 |
+| log stats | ✓ 可用 |
+| log errors --format json | ✓ 有效 JSON |
+| log search --format json | ✓ 有效 JSON |
+| log export | ✓ 可用 |
+| log clear | ✓ 可用 |
+
+**结果：** ✓ 通过
+
+---
+
 ## 结论
 
-验证通过，系统可用。
+验证通过，系统可用。所有 v1.2.0 新增功能正常工作。
 EOF
         echo ""
         echo "报告已保存到: $OUTPUT_FILE"
@@ -870,6 +886,7 @@ main() {
 
     verify_level1
     verify_level2
+    verify_level3
     cleanup_verify_data
     print_report
 
