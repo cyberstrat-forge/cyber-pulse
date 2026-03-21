@@ -21,6 +21,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
@@ -202,15 +203,21 @@ restore_database() {
     # 删除并重建数据库
     print_info "重建数据库..."
 
-    $DOCKER_COMPOSE exec -T postgres psql \
+    if ! $DOCKER_COMPOSE exec -T postgres psql \
         -U cyberpulse \
         -d postgres \
-        -c "DROP DATABASE IF EXISTS cyberpulse;" 2>/dev/null
+        -c "DROP DATABASE IF EXISTS cyberpulse;" 2>/dev/null; then
+        print_error "删除数据库失败"
+        return 1
+    fi
 
-    $DOCKER_COMPOSE exec -T postgres psql \
+    if ! $DOCKER_COMPOSE exec -T postgres psql \
         -U cyberpulse \
         -d postgres \
-        -c "CREATE DATABASE cyberpulse;" 2>/dev/null
+        -c "CREATE DATABASE cyberpulse;" 2>/dev/null; then
+        print_error "创建数据库失败"
+        return 1
+    fi
 
     # 恢复 SQL
     print_info "导入数据库..."

@@ -637,7 +637,9 @@ cmd_upgrade() {
         print_step "获取最新版本信息..."
 
         local version_info
-        version_info=$(bash "$UPGRADE_DIR/check-update.sh" 2>/dev/null) || true
+        version_info=$(bash "$UPGRADE_DIR/check-update.sh" 2>/dev/null) || {
+            print_warning "无法检查版本更新，可能是网络问题"
+        }
 
         if [[ -n "$version_info" ]]; then
             target_version=$(echo "$version_info" | grep "^LATEST_VERSION=" | cut -d= -f2)
@@ -823,7 +825,9 @@ cmd_upgrade() {
         exit 1
     else
         # 更新版本文件
-        echo "$target_version" > "$PROJECT_ROOT/.version" 2>/dev/null || true
+        if ! echo "$target_version" > "$PROJECT_ROOT/.version" 2>/dev/null; then
+            print_warning "无法写入版本文件"
+        fi
 
         # 清理快照（升级成功后删除）
         if [[ -n "$snapshot_name" && -d "$SNAPSHOTS_DIR/$snapshot_name" ]]; then

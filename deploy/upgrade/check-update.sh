@@ -66,12 +66,12 @@ get_latest_version() {
     elif command -v wget &>/dev/null; then
         # wget 退出码不是 HTTP 状态码，需要通过 --server-response 获取
         local wget_output
-        wget_output=$(wget --server-response -qO- "$GITHUB_API_URL" 2>&1) || true
+        if ! wget_output=$(wget --server-response -qO- "$GITHUB_API_URL" 2>&1); then
+            print_error "无法连接到 GitHub API，请检查网络连接"
+            return 1
+        fi
         http_code=$(echo "$wget_output" | grep -i "^  HTTP/" | tail -1 | awk '{print $2}')
         response=$(echo "$wget_output" | grep -v "^  HTTP/")
-        if [[ -z "$http_code" ]]; then
-            http_code="000"
-        fi
     else
         print_error "需要 curl 或 wget 来检查更新"
         return 1
