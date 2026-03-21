@@ -1,0 +1,56 @@
+# Docker Compose 开发环境覆盖配置
+#
+# 用法: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# 特性:
+#   - 挂载本地代码支持热重载
+#   - DEBUG 日志级别
+#   - 单进程模式
+#   - 所有端口对外暴露（便于调试）
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  api:
+    environment:
+      LOG_LEVEL: DEBUG
+      DEBUG: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      # 挂载本地代码支持热重载
+      - ../../src:/app/src:ro
+      - ../../tests:/app/tests:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: uvicorn cyberpulse.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    environment:
+      LOG_LEVEL: DEBUG
+      DEBUG: "true"
+    volumes:
+      # 挂载本地代码支持热重载
+      - ../../src:/app/src:ro
+      - ../../tests:/app/tests:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # 单进程模式便于调试
+    command: dramatiq cyberpulse.tasks --processes 1 --threads 1 --watch /app/src
+
+  scheduler:
+    environment:
+      LOG_LEVEL: DEBUG
+      DEBUG: "true"
+    volumes:
+      # 挂载本地代码支持热重载
+      - ../../src:/app/src:ro
+      - ../../tests:/app/tests:ro
+      - ./data:/app/data
+      - ./logs:/app/logs

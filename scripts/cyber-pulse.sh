@@ -41,6 +41,11 @@ SNAPSHOTS_DIR="$PROJECT_ROOT/.snapshots"
 BACKUP_DIR="$DEPLOY_DIR/backup"
 BACKUPS_DIR="$PROJECT_ROOT/backups"
 
+# 环境配置
+CURRENT_ENV="${CYBER_PULSE_ENV:-}"
+ENV_OVERRIDE_FILE="$PROJECT_ROOT/.cyber-pulse-env"
+COMPOSE_ENV_FILE=""
+
 # Docker Compose 命令
 if docker compose version &>/dev/null; then
     DOCKER_COMPOSE="docker compose"
@@ -120,14 +125,122 @@ ensure_env_file() {
     fi
 }
 
+# 获取当前环境
+get_current_env() {
+    if [[ -f "$ENV_OVERRIDE_FILE" ]]; then
+        cat "$ENV_OVERRIDE_FILE"
+    else
+        echo "dev"  # 默认开发环境
+    fi
+}
+
+# 设置环境
+set_env() {
+    local env="$1"
+    case "$env" in
+        dev|development)
+            echo "dev" > "$ENV_OVERRIDE_FILE"
+            ;;
+        test|testing)
+            echo "test" > "$ENV_OVERRIDE_FILE"
+            ;;
+        prod|production)
+            echo "prod" > "$ENV_OVERRIDE_FILE"
+            ;;
+        *)
+            print_error "无效环境: $env (可用: dev, test, prod)"
+            return 1
+            ;;
+    esac
+    print_success "环境已设置为: $(get_current_env)"
+}
+
+# 获取 Docker Compose 文件参数
+get_compose_files() {
+    local env="${1:-$(get_current_env)}"
+    local compose_files="-f $COMPOSE_FILE"
+
+    case "$env" in
+        dev)
+            compose_files="$compose_files -f $DEPLOY_DIR/docker-compose.dev.yml"
+            ;;
+        test)
+            compose_files="$compose_files -f $DEPLOY_DIR/docker-compose.test.yml"
+            ;;
+        prod)
+            compose_files="$compose_files -f $DEPLOY_DIR/docker-compose.prod.yml"
+            ;;
+        *)
+            print_warning "未知环境 '$env'，使用默认配置"
+            ;;
+    esac
+
+    echo "$compose_files"
+}
+
+# 显示环境信息
+print_env_info() {
+    local env
+    env=$(get_current_env)
+    echo -e "${BOLD}当前环境:${NC} ${CYAN}$env${NC}"
+
+    case "$env" in
+        dev)
+            echo -e "  - DEBUG 日志级别"
+            echo -e "  - 代码热重载"
+            echo -e "  - 所有端口对外暴露"
+            ;;
+        test)
+            echo -e "  - INFO 日志级别"
+            echo -e "  - 中等资源限制"
+            echo -e "  - 2 API workers"
+            ;;
+        prod)
+            echo -e "  - WARNING 日志级别"
+            echo -e "  - 严格资源限制"
+            echo -e "  - 4 API workers"
+            echo -e "  - 健康检查"
+            ;;
+    esac
+}
+
 # ============================================
 # 命令实现
 # ============================================
 
 # deploy 命令 - 完整部署
 cmd_deploy() {
+    local target_env=""
+
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --env|-e)
+                target_env="$2"
+                shift 2
+                ;;
+            --help|-h)
+                print_deploy_help
+                exit 0
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # 设置环境
+    if [[ -n "$target_env" ]]; then
+        set_env "$target_env" || exit 1
+    fi
+
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
+
     print_banner
-    print_header "部署 Cyber Pulse"
+    print_header "部署 Cyber Pulse ($current_env 环境)"
 
     # 1. 检查依赖
     print_step "检查系统依赖..."
@@ -152,11 +265,11 @@ cmd_deploy() {
     # 4. 拉取/构建镜像
     print_step "构建 Docker 镜像..."
     cd "$DEPLOY_DIR"
-    $DOCKER_COMPOSE build --no-cache
+    $DOCKER_COMPOSE $compose_files build --no-cache
 
     # 5. 启动服务
     print_step "启动服务..."
-    $DOCKER_COMPOSE up -d
+    $DOCKER_COMPOSE $compose_files up -d
 
     # 6. 等待服务就绪
     print_step "等待服务启动..."
@@ -164,10 +277,12 @@ cmd_deploy() {
 
     # 7. 显示状态
     print_step "服务状态:"
-    $DOCKER_COMPOSE ps
+    $DOCKER_COMPOSE $compose_files ps
 
     echo ""
     print_success "部署完成！"
+    echo ""
+    print_env_info
     echo ""
     echo -e "${GREEN}访问地址:${NC}"
     echo -e "  API:      ${CYAN}http://localhost:8000${NC}"
@@ -179,9 +294,47 @@ cmd_deploy() {
     echo -e "  停止服务: ${CYAN}cyber-pulse.sh stop${NC}"
 }
 
+# 打印 deploy 帮助
+print_deploy_help() {
+    echo ""
+    echo "部署命令:"
+    echo "  --env <env>    指定环境 (dev/test/prod)"
+    echo "                 默认使用当前环境或 dev"
+    echo ""
+    echo "示例:"
+    echo "  cyber-pulse.sh deploy              # 使用当前环境部署"
+    echo "  cyber-pulse.sh deploy --env prod   # 部署到生产环境"
+    echo "  cyber-pulse.sh deploy -e test      # 部署到测试环境"
+}
+
 # start 命令 - 启动服务
 cmd_start() {
-    print_header "启动 Cyber Pulse 服务"
+    local target_env=""
+
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --env|-e)
+                target_env="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # 设置环境
+    if [[ -n "$target_env" ]]; then
+        set_env "$target_env" || exit 1
+    fi
+
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
+
+    print_header "启动 Cyber Pulse 服务 ($current_env 环境)"
 
     check_docker
     check_docker_compose
@@ -190,18 +343,23 @@ cmd_start() {
     cd "$DEPLOY_DIR"
 
     print_step "启动服务..."
-    $DOCKER_COMPOSE up -d
+    $DOCKER_COMPOSE $compose_files up -d
 
     sleep 3
     print_step "服务状态:"
-    $DOCKER_COMPOSE ps
+    $DOCKER_COMPOSE $compose_files ps
 
     print_success "服务已启动"
 }
 
 # stop 命令 - 停止服务
 cmd_stop() {
-    print_header "停止 Cyber Pulse 服务"
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
+
+    print_header "停止 Cyber Pulse 服务 ($current_env 环境)"
 
     check_docker
     check_docker_compose
@@ -209,14 +367,39 @@ cmd_stop() {
     cd "$DEPLOY_DIR"
 
     print_step "停止服务..."
-    $DOCKER_COMPOSE down
+    $DOCKER_COMPOSE $compose_files down
 
     print_success "服务已停止"
 }
 
 # restart 命令 - 重启服务
 cmd_restart() {
-    print_header "重启 Cyber Pulse 服务"
+    local target_env=""
+
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --env|-e)
+                target_env="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # 设置环境
+    if [[ -n "$target_env" ]]; then
+        set_env "$target_env" || exit 1
+    fi
+
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
+
+    print_header "重启 Cyber Pulse 服务 ($current_env 环境)"
 
     check_docker
     check_docker_compose
@@ -225,27 +408,36 @@ cmd_restart() {
     cd "$DEPLOY_DIR"
 
     print_step "重启服务..."
-    $DOCKER_COMPOSE down
-    $DOCKER_COMPOSE up -d
+    $DOCKER_COMPOSE $compose_files down
+    $DOCKER_COMPOSE $compose_files up -d
 
     sleep 3
     print_step "服务状态:"
-    $DOCKER_COMPOSE ps
+    $DOCKER_COMPOSE $compose_files ps
 
     print_success "服务已重启"
 }
 
 # status 命令 - 查看服务状态
 cmd_status() {
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
+
     print_header "Cyber Pulse 服务状态"
 
     check_docker
 
     cd "$DEPLOY_DIR"
 
+    # 显示环境信息
+    print_env_info
+    echo ""
+
     # 检查容器状态
     echo -e "${BOLD}容器状态:${NC}"
-    $DOCKER_COMPOSE ps
+    $DOCKER_COMPOSE $compose_files ps
 
     echo ""
 
@@ -255,7 +447,7 @@ cmd_status() {
 
     for service in "${services[@]}"; do
         local status
-        status=$($DOCKER_COMPOSE ps --status running "$service" 2>/dev/null | grep -c "$service" 2>/dev/null || echo "0")
+        status=$($DOCKER_COMPOSE $compose_files ps --status running "$service" 2>/dev/null | grep -c "$service" 2>/dev/null || echo "0")
         status=$(echo "$status" | tr -d '[:space:]')
 
         if [[ "$status" -gt 0 ]]; then
@@ -269,7 +461,7 @@ cmd_status() {
 
     # 显示资源使用
     echo -e "${BOLD}资源使用:${NC}"
-    $DOCKER_COMPOSE top 2>/dev/null || echo "  (无运行中的容器)"
+    $DOCKER_COMPOSE $compose_files top 2>/dev/null || echo "  (无运行中的容器)"
 }
 
 # logs 命令 - 查看日志
@@ -277,6 +469,25 @@ cmd_logs() {
     local service="${1:-}"
     local follow="${2:-false}"
     local tail="${3:-100}"
+    local target_env="${4:-}"
+
+    # 解析环境参数
+    if [[ "$service" == "--env" || "$service" == "-e" ]]; then
+        target_env="$2"
+        service="${3:-}"
+        follow="${4:-false}"
+        tail="${5:-100}"
+    fi
+
+    # 设置环境
+    if [[ -n "$target_env" ]]; then
+        set_env "$target_env" || exit 1
+    fi
+
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
 
     check_docker
     cd "$DEPLOY_DIR"
@@ -293,7 +504,7 @@ cmd_logs() {
         cmd_args+=("$service")
     fi
 
-    $DOCKER_COMPOSE "${cmd_args[@]}"
+    $DOCKER_COMPOSE $compose_files "${cmd_args[@]}"
 }
 
 # config 命令 - 配置管理
@@ -723,20 +934,63 @@ print_backup_help() {
     echo "  cyber-pulse.sh restore backup-xxx -f     强制恢复"
 }
 
+# env 命令 - 环境管理
+cmd_env() {
+    local action="${1:-show}"
+
+    case "$action" in
+        show|"")
+            print_header "当前环境"
+            print_env_info
+            ;;
+        dev|development)
+            set_env "dev"
+            ;;
+        test|testing)
+            set_env "test"
+            ;;
+        prod|production)
+            set_env "prod"
+            ;;
+        *)
+            print_error "无效环境: $action"
+            echo ""
+            echo "可用环境:"
+            echo "  dev   - 开发环境（热重载、调试模式）"
+            echo "  test  - 测试环境（中等资源）"
+            echo "  prod  - 生产环境（严格资源限制）"
+            return 1
+            ;;
+    esac
+}
+
 # 显示帮助信息
 show_help() {
     print_banner
 
     echo "用法: cyber-pulse.sh <命令> [选项]"
     echo ""
+    echo -e "${BOLD}环境选项:${NC}"
+    echo "  --env <env>, -e <env>   指定环境 (dev/test/prod)"
+    echo "                          默认: dev 或 .cyber-pulse-env 文件中的设置"
+    echo ""
     echo -e "${BOLD}命令:${NC}"
-    echo "  deploy              部署服务（完整部署流程）"
-    echo "  start               启动服务"
+    echo "  deploy [选项]       部署服务（完整部署流程）"
+    echo "                      --env <env>    指定环境"
+    echo "  start [选项]        启动服务"
+    echo "                      --env <env>    指定环境"
     echo "  stop                停止服务"
-    echo "  restart             重启服务"
-    echo "  status              查看服务状态"
-    echo "  logs [service]      查看日志（可选指定服务）"
+    echo "  restart [选项]      重启服务"
+    echo "                      --env <env>    指定环境"
+    echo "  status              查看服务状态（显示当前环境）"
+    echo "  logs [service] [选项] 查看日志"
     echo "                      服务: api, worker, scheduler, postgres, redis"
+    echo "                      -f, --follow   实时跟踪"
+    echo "                      --env <env>    指定环境"
+    echo "  env <env>           设置/显示当前环境"
+    echo "                      dev   - 开发环境（热重载、调试模式）"
+    echo "                      test  - 测试环境（中等资源）"
+    echo "                      prod  - 生产环境（严格资源限制）"
     echo "  config <subcommand> 配置管理"
     echo "                      show [--reveal]    显示配置"
     echo "                      generate [--force] 生成配置"
@@ -756,18 +1010,31 @@ show_help() {
     echo "                      --from-archive     从压缩包恢复"
     echo "  help                显示此帮助信息"
     echo ""
-    echo -e "${BOLD}日志选项:${NC}"
-    echo "  cyber-pulse.sh logs              查看所有服务日志"
-    echo "  cyber-pulse.sh logs api          查看指定服务日志"
-    echo "  cyber-pulse.sh logs api -f       实时跟踪日志"
+    echo -e "${BOLD}环境说明:${NC}"
+    echo "  dev   开发环境"
+    echo "        - DEBUG 日志级别，代码热重载"
+    echo "        - 所有端口对外暴露 (8000, 5432, 6379)"
+    echo "        - 单进程模式，便于调试"
+    echo ""
+    echo "  test  测试环境"
+    echo "        - INFO 日志级别"
+    echo "        - 中等资源限制"
+    echo "        - 2 API workers"
+    echo ""
+    echo "  prod  生产环境"
+    echo "        - WARNING 日志级别"
+    echo "        - 严格资源限制"
+    echo "        - 4 API workers，健康检查"
+    echo "        - 仅 API 端口对外暴露"
     echo ""
     echo -e "${BOLD}示例:${NC}"
-    echo "  cyber-pulse.sh deploy            # 首次部署"
-    echo "  cyber-pulse.sh status            # 查看状态"
-    echo "  cyber-pulse.sh logs api -f       # 实时查看 API 日志"
-    echo "  cyber-pulse.sh config show       # 查看配置"
-    echo "  cyber-pulse.sh check-update      # 检查更新"
-    echo "  cyber-pulse.sh upgrade           # 升级系统"
+    echo "  cyber-pulse.sh deploy --env prod   # 部署到生产环境"
+    echo "  cyber-pulse.sh env dev             # 切换到开发环境"
+    echo "  cyber-pulse.sh status              # 查看状态（显示当前环境）"
+    echo "  cyber-pulse.sh logs api -f         # 实时查看 API 日志"
+    echo "  cyber-pulse.sh config show         # 查看配置"
+    echo "  cyber-pulse.sh check-update        # 检查更新"
+    echo "  cyber-pulse.sh upgrade             # 升级系统"
 }
 
 # 打印简短帮助
@@ -784,27 +1051,64 @@ main() {
 
     case "$command" in
         deploy)
-            cmd_deploy
+            shift || true
+            cmd_deploy "$@"
             ;;
         start)
-            cmd_start
+            shift || true
+            cmd_start "$@"
             ;;
         stop)
             cmd_stop
             ;;
         restart)
-            cmd_restart
+            shift || true
+            cmd_restart "$@"
             ;;
         status)
             cmd_status
             ;;
         logs)
-            local service="${2:-}"
+            shift || true
+            # 解析参数
+            local service=""
             local follow="false"
-            if [[ "${3:-}" == "-f" || "${3:-}" == "--follow" ]]; then
-                follow="true"
+            local tail="100"
+            local target_env=""
+
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --env|-e)
+                        target_env="$2"
+                        shift 2
+                        ;;
+                    -f|--follow)
+                        follow="true"
+                        shift
+                        ;;
+                    --tail)
+                        tail="$2"
+                        shift 2
+                        ;;
+                    api|worker|scheduler|postgres|redis)
+                        service="$1"
+                        shift
+                        ;;
+                    *)
+                        shift
+                        ;;
+                esac
+            done
+
+            if [[ -n "$target_env" ]]; then
+                set_env "$target_env" || exit 1
             fi
-            cmd_logs "$service" "$follow" "100"
+
+            cmd_logs "$service" "$follow" "$tail"
+            ;;
+        env)
+            shift || true
+            cmd_env "${1:-show}"
             ;;
         config)
             cmd_config "${2:-show}" "${3:-}"
