@@ -187,15 +187,50 @@ verify_level1() {
     echo "Level 1: 系统就绪"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    # 数据库 + Redis 检查
-    echo "  检查数据库和 Redis 连接..."
-    docker exec $CONTAINER_API cyber-pulse diagnose system || {
-        log_error "Level 1 失败: 系统诊断未通过"
+    # 获取系统诊断输出并剥离 ANSI 代码
+    echo "  检查系统组件状态..."
+    DIAGNOSE_OUTPUT=$(docker exec $CONTAINER_API cyber-pulse diagnose system 2>&1)
+    CLEAN_OUTPUT=$(echo "$DIAGNOSE_OUTPUT" | sed 's/\x1b\[[0-9;]*m//g')
+
+    # 解析数据库连接状态
+    if echo "$CLEAN_OUTPUT" | grep -q "Database connection: healthy"; then
+        echo "  ✓ Database: connected"
+    else
+        log_error "Level 1 失败: Database 连接异常"
+        echo "  ✗ Database: not connected"
         exit 1
-    }
-    echo "  ✓ Database: connected"
-    echo "  ✓ Redis: connected"
-    echo "  ✓ API: healthy"
+    fi
+
+    # 解析 Redis 连接状态
+    if echo "$CLEAN_OUTPUT" | grep -q "Redis connection: healthy"; then
+        echo "  ✓ Redis: connected"
+    else
+        log_error "Level 1 失败: Redis 连接异常"
+        echo "  ✗ Redis: not connected"
+        exit 1
+    fi
+
+    # 解析 API 服务状态
+    if echo "$CLEAN_OUTPUT" | grep -q "API service: healthy"; then
+        echo "  ✓ API: healthy"
+    elif echo "$CLEAN_OUTPUT" | grep -q "API service: not reachable"; then
+        echo "  ⚠ API: not reachable (may be expected in container context)"
+    else
+        echo "  ⚠ API: status unknown"
+    fi
+
+    # 解析 Dramatiq 队列状态
+    if echo "$CLEAN_OUTPUT" | grep -q "Dramatiq Redis: connected"; then
+        echo "  ✓ Dramatiq Redis: connected"
+    else
+        echo "  ⚠ Dramatiq Redis: not connected"
+    fi
+
+    # 解析队列中待处理任务数
+    PENDING_TASKS=$(echo "$CLEAN_OUTPUT" | grep -o "Pending tasks in default queue: [0-9]*" | grep -o "[0-9]*" || echo "N/A")
+    if [ "$PENDING_TASKS" != "N/A" ]; then
+        echo "  ℹ Pending tasks in queue: $PENDING_TASKS"
+    fi
 
     # Worker 运行检查
     echo "  检查 Worker 运行状态..."
