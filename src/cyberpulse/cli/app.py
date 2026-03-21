@@ -6,7 +6,7 @@ registering all command modules and providing core commands.
 """
 import typer
 
-from .commands import source, source_io, job, content, client, config, log, diagnose
+from .commands import source, job, content, client, config, log, diagnose
 
 app = typer.Typer(
     name="cyber-pulse",
@@ -16,7 +16,6 @@ app = typer.Typer(
 
 # Register command modules
 app.add_typer(source.app, name="source")
-app.add_typer(source_io.app, name="source-io")
 app.add_typer(job.app, name="job")
 app.add_typer(content.app, name="content")
 app.add_typer(client.app, name="client")

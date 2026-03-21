@@ -54,7 +54,7 @@ class TestDetectFormat:
 
     def test_detect_opml_by_extension(self) -> None:
         """Test detecting OPML format by file extension."""
-        from cyberpulse.cli.commands.source_io import _detect_format
+        from cyberpulse.cli.commands.source import _detect_format
 
         with tempfile.NamedTemporaryFile(suffix=".opml", delete=False) as f:
             f.write(OPML_SAMPLE.encode())
@@ -65,7 +65,7 @@ class TestDetectFormat:
 
     def test_detect_yaml_by_extension(self) -> None:
         """Test detecting YAML format by file extension."""
-        from cyberpulse.cli.commands.source_io import _detect_format
+        from cyberpulse.cli.commands.source import _detect_format
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
             f.write(YAML_SAMPLE.encode())
@@ -76,7 +76,7 @@ class TestDetectFormat:
 
     def test_detect_opml_by_content(self) -> None:
         """Test detecting OPML format by content."""
-        from cyberpulse.cli.commands.source_io import _detect_format
+        from cyberpulse.cli.commands.source import _detect_format
 
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
             f.write(OPML_SAMPLE.encode())
@@ -87,7 +87,7 @@ class TestDetectFormat:
 
     def test_detect_yaml_by_content(self) -> None:
         """Test detecting YAML format by content."""
-        from cyberpulse.cli.commands.source_io import _detect_format
+        from cyberpulse.cli.commands.source import _detect_format
 
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
             f.write(YAML_SAMPLE.encode())
@@ -98,7 +98,7 @@ class TestDetectFormat:
 
     def test_detect_unknown_format(self) -> None:
         """Test detecting unknown format."""
-        from cyberpulse.cli.commands.source_io import _detect_format
+        from cyberpulse.cli.commands.source import _detect_format
 
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
             f.write(b"random content")
@@ -113,7 +113,7 @@ class TestParseOPML:
 
     def test_parse_opml_success(self) -> None:
         """Test parsing valid OPML."""
-        from cyberpulse.cli.commands.source_io import _parse_opml
+        from cyberpulse.cli.commands.source import _parse_opml
 
         with tempfile.NamedTemporaryFile(suffix=".opml", delete=False) as f:
             f.write(OPML_SAMPLE.encode())
@@ -128,7 +128,7 @@ class TestParseOPML:
 
     def test_parse_opml_invalid(self) -> None:
         """Test parsing invalid OPML."""
-        from cyberpulse.cli.commands.source_io import _parse_opml
+        from cyberpulse.cli.commands.source import _parse_opml
 
         with tempfile.NamedTemporaryFile(suffix=".opml", delete=False) as f:
             f.write(b"not valid xml")
@@ -146,7 +146,7 @@ class TestParseYAML:
 
     def test_parse_yaml_success(self) -> None:
         """Test parsing valid YAML."""
-        from cyberpulse.cli.commands.source_io import _parse_yaml
+        from cyberpulse.cli.commands.source import _parse_yaml
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
             f.write(YAML_SAMPLE.encode())
@@ -160,7 +160,7 @@ class TestParseYAML:
 
     def test_parse_yaml_invalid_structure(self) -> None:
         """Test parsing YAML with invalid structure."""
-        from cyberpulse.cli.commands.source_io import _parse_yaml
+        from cyberpulse.cli.commands.source import _parse_yaml
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
             f.write(b"just a string")
@@ -174,7 +174,7 @@ class TestParseYAML:
 
     def test_parse_yaml_missing_sources_key(self) -> None:
         """Test parsing YAML without sources key."""
-        from cyberpulse.cli.commands.source_io import _parse_yaml
+        from cyberpulse.cli.commands.source import _parse_yaml
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
             f.write(b"other_key: value")
@@ -196,9 +196,9 @@ class TestImportSources:
             f.write(YAML_SAMPLE.encode())
             f.flush()
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "import", f.name, "--dry-run"])
+            result = runner.invoke(app, ["source", "import", f.name, "--dry-run"])
 
         assert result.exit_code == 0
         assert "Dry run complete" in result.stdout
@@ -210,9 +210,9 @@ class TestImportSources:
             f.write(YAML_SAMPLE.encode())
             f.flush()
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "import", f.name])
+            result = runner.invoke(app, ["source", "import", f.name])
 
         assert result.exit_code == 0
         assert "Imported: 2" in result.stdout
@@ -223,18 +223,18 @@ class TestImportSources:
             f.write(OPML_SAMPLE.encode())
             f.flush()
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "import", f.name])
+            result = runner.invoke(app, ["source", "import", f.name])
 
         assert result.exit_code == 0
         assert "Imported:" in result.stdout
 
     def test_import_file_not_found(self, db_session) -> None:
         """Test importing non-existent file."""
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "import", "/nonexistent/file.yaml"])
+            result = runner.invoke(app, ["source", "import", "/nonexistent/file.yaml"])
 
         assert result.exit_code == 1
         assert "File not found" in result.stdout
@@ -245,9 +245,9 @@ class TestImportSources:
             f.write(b"random content")
             f.flush()
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "import", f.name])
+            result = runner.invoke(app, ["source", "import", f.name])
 
         assert result.exit_code == 1
         assert "Could not detect file format" in result.stdout
@@ -261,9 +261,9 @@ class TestImportSources:
             f.write(YAML_SAMPLE.encode())
             f.flush()
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "import", f.name, "--skip-existing"])
+            result = runner.invoke(app, ["source", "import", f.name, "--skip-existing"])
 
         assert result.exit_code == 0
         assert "Skipped:" in result.stdout
@@ -281,9 +281,9 @@ class TestExportSources:
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
             output_path = f.name
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "export", "-o", output_path])
+            result = runner.invoke(app, ["source", "export", "-o", output_path])
 
         assert result.exit_code == 0
         assert "Exported to:" in result.stdout
@@ -301,9 +301,9 @@ class TestExportSources:
         with tempfile.NamedTemporaryFile(suffix=".opml", delete=False) as f:
             output_path = f.name
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "export", "-o", output_path, "--format", "opml"])
+            result = runner.invoke(app, ["source", "export", "-o", output_path, "--format", "opml"])
 
         assert result.exit_code == 0
         assert "Exported to:" in result.stdout
@@ -322,9 +322,9 @@ class TestExportSources:
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
             output_path = f.name
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "export", "-o", output_path, "--tier", "T0"])
+            result = runner.invoke(app, ["source", "export", "-o", output_path, "--tier", "T0"])
 
         assert result.exit_code == 0
 
@@ -335,18 +335,18 @@ class TestExportSources:
 
     def test_export_empty(self, db_session) -> None:
         """Test exporting when no sources."""
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "export"])
+            result = runner.invoke(app, ["source", "export"])
 
         assert result.exit_code == 0
         assert "No sources to export" in result.stdout
 
     def test_export_invalid_format(self, db_session) -> None:
         """Test exporting with invalid format."""
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "export", "--format", "invalid"])
+            result = runner.invoke(app, ["source", "export", "--format", "invalid"])
 
         assert result.exit_code == 1
         assert "Invalid format" in result.stdout
@@ -361,9 +361,9 @@ class TestListSources:
         service.add_source("List Test 1", "rss", tier=SourceTier.T1)
         service.add_source("List Test 2", "api", tier=SourceTier.T0)
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "list"])
+            result = runner.invoke(app, ["source", "list"])
 
         assert result.exit_code == 0
         assert "List Test 1" in result.stdout
@@ -374,9 +374,9 @@ class TestListSources:
         service = SourceService(db_session)
         service.add_source("YAML List Test", "rss", tier=SourceTier.T1)
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "list", "--format", "yaml"])
+            result = runner.invoke(app, ["source", "list", "--format", "yaml"])
 
         assert result.exit_code == 0
         assert "YAML List Test" in result.stdout
@@ -387,9 +387,9 @@ class TestListSources:
         service = SourceService(db_session)
         service.add_source("JSON List Test", "rss", tier=SourceTier.T1)
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "list", "--format", "json"])
+            result = runner.invoke(app, ["source", "list", "--format", "json"])
 
         assert result.exit_code == 0
         assert "JSON List Test" in result.stdout
@@ -404,9 +404,9 @@ class TestListSources:
         assert t0_source is not None, "Failed to create T0 source"
         assert t2_source is not None, "Failed to create T2 source"
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "list", "--tier", "T0"])
+            result = runner.invoke(app, ["source", "list", "--tier", "T0"])
 
         assert result.exit_code == 0
         assert t0_source.source_id in result.stdout  # type: ignore[operator]
@@ -414,27 +414,27 @@ class TestListSources:
 
     def test_list_sources_empty(self, db_session) -> None:
         """Test listing when no sources."""
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "list"])
+            result = runner.invoke(app, ["source", "list"])
 
         assert result.exit_code == 0
         assert "No sources found" in result.stdout
 
     def test_list_sources_invalid_tier(self, db_session) -> None:
         """Test listing with invalid tier filter."""
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "list", "--tier", "T9"])
+            result = runner.invoke(app, ["source", "list", "--tier", "T9"])
 
         assert result.exit_code == 1
         assert "Invalid tier" in result.stdout
 
     def test_list_sources_invalid_status(self, db_session) -> None:
         """Test listing with invalid status filter."""
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "list", "--status", "invalid"])
+            result = runner.invoke(app, ["source", "list", "--status", "invalid"])
 
         assert result.exit_code == 1
         assert "Invalid status" in result.stdout
@@ -454,9 +454,9 @@ class TestExportImportRoundTrip:
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
             output_path = f.name
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "export", "-o", output_path])
+            result = runner.invoke(app, ["source", "export", "-o", output_path])
             assert result.exit_code == 0
 
         # Clear sources (simulate new database)
@@ -465,9 +465,9 @@ class TestExportImportRoundTrip:
         db_session.commit()
 
         # Import
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "import", output_path])
+            result = runner.invoke(app, ["source", "import", output_path])
 
         assert result.exit_code == 0
         assert "Imported:" in result.stdout
@@ -485,9 +485,9 @@ class TestOPMLConstraints:
         with tempfile.NamedTemporaryFile(suffix=".opml", delete=False) as f:
             output_path = f.name
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "export", "-o", output_path, "--format", "opml"])
+            result = runner.invoke(app, ["source", "export", "-o", output_path, "--format", "opml"])
 
         assert result.exit_code == 0
         assert "non-RSS sources will be excluded" in result.stdout
@@ -503,9 +503,9 @@ class TestOPMLConstraints:
             f.write(OPML_SAMPLE.encode())
             f.flush()
 
-        with patch("cyberpulse.cli.commands.source_io.SessionLocal") as mock_session:
+        with patch("cyberpulse.cli.commands.source.SessionLocal") as mock_session:
             mock_session.return_value = db_session
-            result = runner.invoke(app, ["source-io", "import", f.name])
+            result = runner.invoke(app, ["source", "import", f.name])
 
         assert result.exit_code == 0
 
