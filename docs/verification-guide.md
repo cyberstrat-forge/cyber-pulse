@@ -38,7 +38,8 @@ make verify
 检查项：
 - 数据库连接
 - Redis 连接
-- API 服务健康
+- API 服务健康（v1.2.0+）
+- 任务队列状态（v1.2.0+）
 - Worker 运行状态
 - Scheduler 运行状态
 
@@ -50,6 +51,17 @@ make verify
 - 数据采集任务执行
 - CLI 数据查询
 - API 查询功能
+
+### Level 3: 增强诊断验证（v1.2.0+）
+
+检查项：
+- diagnose sources 采集活动表格（Fresh/Recent/Stale/Never）
+- diagnose errors Rejection Reason 列
+- log stats 日志统计
+- log errors --format json JSON 输出
+- log search --format json JSON 输出
+- log export 日志导出
+- log clear 日志清理（命令可用性）
 
 ## 命令参考
 
@@ -90,6 +102,14 @@ make verify-report
 |------|----------|----------|
 | 情报源连接失败 | URL 不可达或格式错误 | 检查网络连接 |
 | 采集无数据 | 情报源无内容或解析错误 | `docker-compose logs worker` |
+
+### Level 3 失败
+
+| 症状 | 可能原因 | 排查命令 |
+|------|----------|----------|
+| 采集活动表格未显示 | 无活跃情报源 | `cyber-pulse source list --status active` |
+| log export 失败 | 日志文件不存在或权限问题 | `docker logs cyber-pulse-api-1` |
+| JSON 输出无效 | 命令执行错误 | 检查命令参数是否正确 |
 
 ## 环境变量
 
