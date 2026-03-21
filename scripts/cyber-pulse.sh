@@ -578,9 +578,33 @@ cmd_upgrade() {
 
         if [[ -n "$snapshot_name" ]]; then
             echo ""
-            print_warning "可以尝试回滚:"
-            echo "  cyber-pulse.sh snapshot restore $snapshot_name --force"
-            echo "  cyber-pulse.sh restart"
+            print_warning "正在自动回滚..."
+
+            # 恢复快照（数据库和配置）
+            if bash "$UPGRADE_DIR/restore-snapshot.sh" "$snapshot_name" --force; then
+                print_success "快照已恢复"
+
+                # 切换回原来的代码版本
+                print_step "切换回原版本代码..."
+                cd "$PROJECT_ROOT"
+                if git checkout "$current_branch" 2>/dev/null; then
+                    print_success "已切换回分支: $current_branch"
+                else
+                    print_warning "无法切换回原分支: $current_branch"
+                fi
+
+                # 重启服务
+                print_step "重启服务..."
+                cd "$DEPLOY_DIR"
+                $DOCKER_COMPOSE down
+                $DOCKER_COMPOSE up -d
+                sleep 3
+
+                print_success "回滚完成，服务已恢复"
+            else
+                print_error "快照恢复失败，请手动处理"
+                echo "  手动回滚命令: cyber-pulse.sh snapshot restore $snapshot_name --force"
+            fi
         fi
 
         exit 1
@@ -588,9 +612,11 @@ cmd_upgrade() {
         # 更新版本文件
         echo "$target_version" > "$PROJECT_ROOT/.version" 2>/dev/null || true
 
-        # 清理快照（成功后删除，保留最近一个）
-        if [[ -n "$snapshot_name" ]]; then
-            print_info "升级成功，快照已保留: $snapshot_name"
+        # 清理快照（升级成功后删除）
+        if [[ -n "$snapshot_name" && -d "$SNAPSHOTS_DIR/$snapshot_name" ]]; then
+            print_step "清理升级快照..."
+            rm -rf "$SNAPSHOTS_DIR/$snapshot_name"
+            print_success "快照已清理: $snapshot_name"
         fi
 
         echo ""
