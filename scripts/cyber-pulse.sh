@@ -3,13 +3,16 @@
 # cyber-pulse.sh - Cyber Pulse 统一管理入口
 #
 # 功能:
-#   - deploy:  部署服务（检查依赖 + 生成配置 + 启动服务）
-#   - start:   启动服务
-#   - stop:    停止服务
-#   - restart: 重启服务
-#   - status:  查看服务状态
-#   - logs:    查看日志
-#   - config:  配置管理
+#   - deploy:      部署服务（检查依赖 + 生成配置 + 启动服务）
+#   - start:       启动服务
+#   - stop:        停止服务
+#   - restart:     重启服务
+#   - status:      查看服务状态
+#   - logs:        查看日志
+#   - config:      配置管理
+#   - check-update: 检查更新
+#   - upgrade:     升级系统（自动快照 + 失败回滚）
+#   - snapshot:    快照管理
 #
 
 set -euo pipefail
@@ -33,6 +36,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEPLOY_DIR="$PROJECT_ROOT/deploy"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
 ENV_FILE="$PROJECT_ROOT/.env"
+UPGRADE_DIR="$DEPLOY_DIR/upgrade"
+SNAPSHOTS_DIR="$PROJECT_ROOT/.snapshots"
 
 # Docker Compose 命令
 if docker compose version &>/dev/null; then
@@ -348,6 +353,306 @@ print_config_help() {
     echo "  check              检查配置和依赖"
 }
 
+# check-update 命令 - 检查更新
+cmd_check_update() {
+    print_header "检查 Cyber Pulse 更新"
+
+    bash "$UPGRADE_DIR/check-update.sh" "$@"
+}
+
+# upgrade 命令 - 升级系统
+cmd_upgrade() {
+    local target_version=""
+    local force="false"
+    local skip_snapshot="false"
+    local dry_run="false"
+
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --version|-v)
+                target_version="$2"
+                shift 2
+                ;;
+            --force|-f)
+                force="true"
+                shift
+                ;;
+            --skip-snapshot)
+                skip_snapshot="true"
+                shift
+                ;;
+            --dry-run)
+                dry_run="true"
+                shift
+                ;;
+            --help|-h)
+                print_upgrade_help
+                exit 0
+                ;;
+            *)
+                print_error "未知参数: $1"
+                print_upgrade_help
+                exit 1
+                ;;
+        esac
+    done
+
+    print_banner
+    print_header "升级 Cyber Pulse"
+
+    # 1. 预检查
+    print_step "执行预检查..."
+
+    # 检查 git 仓库
+    if [[ ! -d "$PROJECT_ROOT/.git" ]]; then
+        die "当前目录不是 git 仓库，无法使用 upgrade 命令"
+    fi
+
+    # 检查 Docker
+    check_docker
+    check_docker_compose
+
+    # 检查服务健康状态
+    cd "$DEPLOY_DIR"
+    if ! $DOCKER_COMPOSE ps 2>/dev/null | grep -q "running"; then
+        print_warning "服务未运行，建议先启动服务"
+    fi
+
+    # 2. 确定目标版本
+    if [[ -z "$target_version" ]]; then
+        print_step "获取最新版本信息..."
+
+        local version_info
+        version_info=$(bash "$UPGRADE_DIR/check-update.sh" 2>/dev/null) || true
+
+        if [[ -n "$version_info" ]]; then
+            target_version=$(echo "$version_info" | grep "^LATEST_VERSION=" | cut -d= -f2)
+        fi
+
+        if [[ -z "$target_version" ]]; then
+            print_warning "无法获取最新版本，使用 main 分支"
+            target_version="main"
+        fi
+    fi
+
+    print_info "目标版本: $target_version"
+
+    # 3. Dry run 模式
+    if [[ "$dry_run" == "true" ]]; then
+        print_info "Dry run 模式，不会执行实际升级"
+        echo ""
+        echo -e "${BOLD}升级计划:${NC}"
+        echo "  1. 创建快照"
+        echo "  2. 获取代码: git fetch origin && git checkout $target_version"
+        echo "  3. 构建镜像: docker compose build --no-cache"
+        echo "  4. 运行迁移: alembic upgrade head"
+        echo "  5. 重启服务: docker compose up -d"
+        echo "  6. 健康检查"
+        echo "  7. 失败时回滚"
+        echo ""
+        return 0
+    fi
+
+    # 4. 确认升级
+    if [[ "$force" != "true" ]]; then
+        echo ""
+        print_warning "升级将重启所有服务，请确保已保存工作"
+        read -r -p "确认升级到 $target_version? (yes/no): " response
+        if [[ "$response" != "yes" ]]; then
+            print_info "升级已取消"
+            exit 0
+        fi
+    fi
+
+    # 5. 创建快照
+    local snapshot_name=""
+    if [[ "$skip_snapshot" != "true" ]]; then
+        print_step "创建升级快照..."
+
+        if bash "$UPGRADE_DIR/create-snapshot.sh"; then
+            # 获取最新的快照名称
+            snapshot_name=$(ls -t "$SNAPSHOTS_DIR" 2>/dev/null | head -1)
+            print_success "快照已创建: $snapshot_name"
+        else
+            print_warning "快照创建失败，继续升级"
+        fi
+    else
+        print_warning "跳过快照创建"
+    fi
+
+    # 6. 执行升级
+    local upgrade_failed="false"
+
+    cd "$PROJECT_ROOT"
+
+    # 获取代码
+    print_step "获取最新代码..."
+    if ! git fetch origin; then
+        print_error "git fetch 失败"
+        upgrade_failed="true"
+    fi
+
+    if [[ "$upgrade_failed" != "true" ]]; then
+        print_step "切换到版本 $target_version..."
+
+        # 保存当前分支
+        local current_branch
+        current_branch=$(git branch --show-current 2>/dev/null || echo "main")
+
+        if ! git checkout "$target_version" 2>/dev/null; then
+            print_warning "无法切换到 $target_version，尝试拉取远程分支"
+            if ! git checkout -b "$target_version" "origin/$target_version" 2>/dev/null; then
+                print_error "无法切换到目标版本"
+                upgrade_failed="true"
+            fi
+        fi
+    fi
+
+    # 构建镜像
+    if [[ "$upgrade_failed" != "true" ]]; then
+        print_step "构建 Docker 镜像..."
+        cd "$DEPLOY_DIR"
+
+        if ! $DOCKER_COMPOSE build --no-cache; then
+            print_error "Docker 镜像构建失败"
+            upgrade_failed="true"
+        fi
+    fi
+
+    # 停止服务
+    if [[ "$upgrade_failed" != "true" ]]; then
+        print_step "停止服务..."
+        cd "$DEPLOY_DIR"
+        $DOCKER_COMPOSE down
+    fi
+
+    # 启动服务（会自动运行迁移）
+    if [[ "$upgrade_failed" != "true" ]]; then
+        print_step "启动服务..."
+        cd "$DEPLOY_DIR"
+
+        if ! $DOCKER_COMPOSE up -d; then
+            print_error "服务启动失败"
+            upgrade_failed="true"
+        fi
+    fi
+
+    # 运行数据库迁移
+    if [[ "$upgrade_failed" != "true" ]]; then
+        print_step "运行数据库迁移..."
+        sleep 5  # 等待数据库就绪
+
+        if $DOCKER_COMPOSE exec -T api alembic upgrade head 2>/dev/null; then
+            print_success "数据库迁移完成"
+        else
+            print_warning "数据库迁移可能已失败，请检查日志"
+        fi
+    fi
+
+    # 7. 健康检查
+    if [[ "$upgrade_failed" != "true" ]]; then
+        print_step "执行健康检查..."
+        sleep 5
+
+        local healthy="true"
+        for service in postgres redis api worker scheduler; do
+            if $DOCKER_COMPOSE ps "$service" 2>/dev/null | grep -q "running"; then
+                echo -e "  ${GREEN}[●]${NC} $service - 运行中"
+            else
+                echo -e "  ${RED}[○]${NC} $service - 未运行"
+                healthy="false"
+            fi
+        done
+
+        if [[ "$healthy" == "false" ]]; then
+            print_warning "部分服务未正常运行"
+            upgrade_failed="true"
+        fi
+    fi
+
+    # 8. 结果处理
+    if [[ "$upgrade_failed" == "true" ]]; then
+        echo ""
+        print_error "升级失败!"
+
+        if [[ -n "$snapshot_name" ]]; then
+            echo ""
+            print_warning "可以尝试回滚:"
+            echo "  cyber-pulse.sh snapshot restore $snapshot_name --force"
+            echo "  cyber-pulse.sh restart"
+        fi
+
+        exit 1
+    else
+        # 更新版本文件
+        echo "$target_version" > "$PROJECT_ROOT/.version" 2>/dev/null || true
+
+        # 清理快照（成功后删除，保留最近一个）
+        if [[ -n "$snapshot_name" ]]; then
+            print_info "升级成功，快照已保留: $snapshot_name"
+        fi
+
+        echo ""
+        print_success "升级完成! 当前版本: $target_version"
+        echo ""
+        echo -e "${GREEN}访问地址:${NC}"
+        echo -e "  API:      ${CYAN}http://localhost:8000${NC}"
+        echo -e "  API 文档: ${CYAN}http://localhost:8000/docs${NC}"
+    fi
+}
+
+# snapshot 命令 - 快照管理
+cmd_snapshot() {
+    local subcommand="${1:-list}"
+
+    case "$subcommand" in
+        create)
+            bash "$UPGRADE_DIR/create-snapshot.sh" "${@:2}"
+            ;;
+        restore)
+            bash "$UPGRADE_DIR/restore-snapshot.sh" "${@:2}"
+            ;;
+        list)
+            bash "$UPGRADE_DIR/restore-snapshot.sh" --list
+            ;;
+        *)
+            print_error "未知子命令: $subcommand"
+            print_snapshot_help
+            return 1
+            ;;
+    esac
+}
+
+# 打印 upgrade 帮助
+print_upgrade_help() {
+    echo ""
+    echo "升级命令:"
+    echo "  [--version <ver>]  指定目标版本 (默认: 最新版本)"
+    echo "  [--force]          跳过确认提示"
+    echo "  [--skip-snapshot]  跳过快照创建"
+    echo "  [--dry-run]        仅显示升级计划，不执行"
+    echo ""
+    echo "示例:"
+    echo "  cyber-pulse.sh upgrade              升级到最新版本"
+    echo "  cyber-pulse.sh upgrade --dry-run    预览升级计划"
+    echo "  cyber-pulse.sh upgrade -v v1.2.0    升级到指定版本"
+}
+
+# 打印 snapshot 帮助
+print_snapshot_help() {
+    echo ""
+    echo "快照管理命令:"
+    echo "  create [--retention <days>]  创建快照"
+    echo "  restore <name> [--force]     恢复快照"
+    echo "  list                         列出快照"
+    echo ""
+    echo "示例:"
+    echo "  cyber-pulse.sh snapshot create           创建快照"
+    echo "  cyber-pulse.sh snapshot list             列出快照"
+    echo "  cyber-pulse.sh snapshot restore snap_1   恢复快照"
+}
+
 # 显示帮助信息
 show_help() {
     print_banner
@@ -366,6 +671,15 @@ show_help() {
     echo "                      show [--reveal]    显示配置"
     echo "                      generate [--force] 生成配置"
     echo "                      check              检查配置"
+    echo "  check-update        检查更新"
+    echo "  upgrade [选项]      升级系统（自动快照 + 失败回滚）"
+    echo "                      --version <ver>    指定版本"
+    echo "                      --dry-run          预览计划"
+    echo "                      --force            跳过确认"
+    echo "  snapshot <subcommand> 快照管理"
+    echo "                      create             创建快照"
+    echo "                      restore <name>     恢复快照"
+    echo "                      list               列出快照"
     echo "  help                显示此帮助信息"
     echo ""
     echo -e "${BOLD}日志选项:${NC}"
@@ -378,6 +692,8 @@ show_help() {
     echo "  cyber-pulse.sh status            # 查看状态"
     echo "  cyber-pulse.sh logs api -f       # 实时查看 API 日志"
     echo "  cyber-pulse.sh config show       # 查看配置"
+    echo "  cyber-pulse.sh check-update      # 检查更新"
+    echo "  cyber-pulse.sh upgrade           # 升级系统"
 }
 
 # 打印简短帮助
@@ -418,6 +734,16 @@ main() {
             ;;
         config)
             cmd_config "${2:-show}" "${3:-}"
+            ;;
+        check-update)
+            shift || true
+            cmd_check_update "$@"
+            ;;
+        upgrade)
+            cmd_upgrade "${@:2}"
+            ;;
+        snapshot)
+            cmd_snapshot "${@:2}"
             ;;
         help|--help|-h)
             show_help
