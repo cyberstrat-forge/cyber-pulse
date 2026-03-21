@@ -38,6 +38,8 @@ COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
 ENV_FILE="$PROJECT_ROOT/.env"
 UPGRADE_DIR="$DEPLOY_DIR/upgrade"
 SNAPSHOTS_DIR="$PROJECT_ROOT/.snapshots"
+BACKUP_DIR="$DEPLOY_DIR/backup"
+BACKUPS_DIR="$PROJECT_ROOT/backups"
 
 # Docker Compose 命令
 if docker compose version &>/dev/null; then
@@ -665,6 +667,32 @@ print_upgrade_help() {
     echo "  cyber-pulse.sh upgrade -v v1.2.0    升级到指定版本"
 }
 
+# backup 命令 - 创建备份
+cmd_backup() {
+    print_banner
+    print_header "创建 Cyber Pulse 备份"
+
+    bash "$BACKUP_DIR/create-backup.sh" "$@"
+}
+
+# restore 命令 - 从备份恢复
+cmd_restore() {
+    local subcommand="${1:-list}"
+
+    case "$subcommand" in
+        --list|-l)
+            bash "$BACKUP_DIR/restore-backup.sh" --list
+            ;;
+        --from-archive)
+            bash "$BACKUP_DIR/restore-backup.sh" "$@"
+            ;;
+        *)
+            # 默认是恢复指定备份
+            bash "$BACKUP_DIR/restore-backup.sh" "$@"
+            ;;
+    esac
+}
+
 # 打印 snapshot 帮助
 print_snapshot_help() {
     echo ""
@@ -677,6 +705,22 @@ print_snapshot_help() {
     echo "  cyber-pulse.sh snapshot create           创建快照"
     echo "  cyber-pulse.sh snapshot list             列出快照"
     echo "  cyber-pulse.sh snapshot restore snap_1   恢复快照"
+}
+
+# 打印 backup 帮助
+print_backup_help() {
+    echo ""
+    echo "备份管理命令:"
+    echo "  backup [--no-compress]      创建完整备份"
+    echo "  restore <name> [--force]    恢复指定备份"
+    echo "  restore --list              列出可用备份"
+    echo "  restore --from-archive <file>  从压缩包恢复"
+    echo ""
+    echo "示例:"
+    echo "  cyber-pulse.sh backup                    创建备份"
+    echo "  cyber-pulse.sh restore --list            列出备份"
+    echo "  cyber-pulse.sh restore backup-xxx        恢复备份"
+    echo "  cyber-pulse.sh restore backup-xxx -f     强制恢复"
 }
 
 # 显示帮助信息
@@ -706,6 +750,10 @@ show_help() {
     echo "                      create             创建快照"
     echo "                      restore <name>     恢复快照"
     echo "                      list               列出快照"
+    echo "  backup              创建完整备份（用于灾难恢复/迁移）"
+    echo "  restore <name>      恢复备份"
+    echo "                      --list             列出备份"
+    echo "                      --from-archive     从压缩包恢复"
     echo "  help                显示此帮助信息"
     echo ""
     echo -e "${BOLD}日志选项:${NC}"
@@ -770,6 +818,12 @@ main() {
             ;;
         snapshot)
             cmd_snapshot "${@:2}"
+            ;;
+        backup)
+            cmd_backup "${@:2}"
+            ;;
+        restore)
+            cmd_restore "${@:2}"
             ;;
         help|--help|-h)
             show_help

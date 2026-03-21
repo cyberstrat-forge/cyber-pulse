@@ -52,3 +52,7 @@ htmlcov/
 
 # Worktrees
 .worktrees/
+
+# Backups (keep directory structure)
+backups/*
+!backups/.gitkeep
