@@ -335,8 +335,13 @@ verify_diagnose_sources_collection() {
         # 检查状态标签（Fresh/Recent/Stale/Never）
         if echo "$CLEAN_OUTPUT" | grep -qE "(Fresh|Recent|Stale|Never)"; then
             # 统计各状态数量
+            # 注意: "Recent Collection Activity" 表头包含 "Recent"，需要减去 1
             FRESH_COUNT=$(echo "$CLEAN_OUTPUT" | grep -c "Fresh" || echo "0")
             RECENT_COUNT=$(echo "$CLEAN_OUTPUT" | grep -c "Recent" || echo "0")
+            # 减去表头中的 "Recent" 匹配
+            if [ "$RECENT_COUNT" -gt 0 ]; then
+                RECENT_COUNT=$((RECENT_COUNT - 1))
+            fi
             STALE_COUNT=$(echo "$CLEAN_OUTPUT" | grep -c "Stale" || echo "0")
             NEVER_COUNT=$(echo "$CLEAN_OUTPUT" | grep -c "Never" || echo "0")
 
@@ -429,7 +434,7 @@ verify_log_features() {
         EXPORT_COUNT=$(echo "$CLEAN_EXPORT" | grep -o "Exported [0-9]*" | grep -o "[0-9]*" || echo "0")
         echo "  ✓ log export: 导出成功 ($EXPORT_COUNT 条)"
         # 清理导出文件
-        docker exec $CONTAINER_API rm -f "$EXPORT_PATH" 2>/dev/null
+        docker exec $CONTAINER_API rm -f "$EXPORT_PATH" 2>/dev/null || log_debug "清理导出文件失败: $EXPORT_PATH"
     else
         echo "  ⚠ log export: 导出失败或无日志"
     fi
