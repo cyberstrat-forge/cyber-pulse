@@ -4,12 +4,39 @@
 
 ## 目录
 
+- [快速备份](#快速备份)
 - [备份策略](#备份策略)
-- [数据库备份](#数据库备份)
-- [配置备份](#配置备份)
 - [恢复流程](#恢复流程)
 - [自动化备份](#自动化备份)
 - [最佳实践](#最佳实践)
+
+---
+
+## 快速备份
+
+### 使用管理脚本（推荐）
+
+```bash
+# 创建快照（升级前推荐）
+./scripts/cyber-pulse.sh snapshot
+
+# 创建完整备份
+./scripts/cyber-pulse.sh backup
+```
+
+快照和备份存储位置：
+- 快照：`<项目根目录>/.snapshots/`
+- 备份：`<项目根目录>/backups/`
+
+### 恢复备份
+
+```bash
+# 列出可用备份
+./scripts/cyber-pulse.sh restore --list
+
+# 恢复指定备份
+./scripts/cyber-pulse.sh restore <backup-file>
+```
 
 ---
 

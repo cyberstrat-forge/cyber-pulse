@@ -30,6 +30,28 @@
 
 ## 必需配置
 
+### 自动配置（推荐）
+
+使用部署脚本自动生成安全配置：
+
+```bash
+# 部署时自动生成
+./scripts/cyber-pulse.sh deploy
+
+# 或单独生成配置
+./scripts/cyber-pulse.sh config regenerate
+```
+
+自动生成的配置包括：
+- `POSTGRES_PASSWORD` - 数据库密码（随机 32 字符）
+- `SECRET_KEY` - 应用密钥（随机 64 字符）
+
+配置文件位置：`<项目根目录>/.env`（权限 600）
+
+### 手动配置
+
+如需自定义配置，可手动编辑 `.env` 文件：
+
 ### 1. SECRET_KEY 配置
 
 **要求**：生产环境必须设置强随机密钥（≥32 字符）

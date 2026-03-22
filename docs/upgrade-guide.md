@@ -4,12 +4,36 @@
 
 ## 目录
 
+- [快速升级](#快速升级)
 - [升级前准备](#升级前准备)
-- [版本升级](#版本升级)
+- [手动升级](#手动升级)
 - [数据库迁移](#数据库迁移)
-- [配置迁移](#配置迁移)
 - [回滚操作](#回滚操作)
 - [兼容性说明](#兼容性说明)
+
+---
+
+## 快速升级
+
+### 使用管理脚本（推荐）
+
+```bash
+# 检查是否有更新
+./scripts/cyber-pulse.sh check-update
+
+# 执行升级（自动快照 + 失败回滚）
+./scripts/cyber-pulse.sh upgrade
+```
+
+升级命令自动完成：
+1. 创建快照备份
+2. 拉取最新代码
+3. 重新构建镜像
+4. 运行数据库迁移
+5. 重启服务
+6. 验证升级结果
+
+如果升级失败，系统自动回滚到快照状态。
 
 ---
 
@@ -46,73 +70,43 @@ git describe --tags
 
 ---
 
-## 版本升级
+## 手动升级
 
-### Docker Compose 升级
+如果需要手动控制升级过程：
 
 ```bash
-# 进入项目目录
-cd /opt/cyber-pulse
+# 1. 创建快照
+./scripts/cyber-pulse.sh snapshot
 
-# 停止服务
-docker-compose down
+# 2. 检查更新
+./scripts/cyber-pulse.sh check-update
 
-# 拉取最新代码
+# 3. 停止服务
+./scripts/cyber-pulse.sh stop
+
+# 4. 拉取最新代码
 git fetch --tags
-git checkout v1.2.0  # 替换为目标版本
+git checkout v1.3.0  # 替换为目标版本
 
-# 拉取最新镜像（如使用预构建镜像）
-docker-compose pull
+# 5. 启动服务（自动运行迁移）
+./scripts/cyber-pulse.sh start
 
-# 重新构建（如本地构建）
-docker-compose build
-
-# 启动服务
-docker-compose up -d
-
-# 运行数据库迁移
-docker-compose exec api alembic upgrade head
-
-# 验证服务
-docker-compose ps
+# 6. 验证
+./scripts/cyber-pulse.sh status
 curl http://localhost:8000/health
 ```
 
-### 手动部署升级
+### 升级到指定版本
 
 ```bash
-# 进入项目目录
-cd /opt/cyber-pulse
+# 查看可用版本
+git tag
 
-# 激活虚拟环境
-source .venv/bin/activate
+# 切换到指定版本
+git checkout v1.2.0
 
-# 停止服务
-sudo systemctl stop cyberpulse-api cyberpulse-worker cyberpulse-scheduler
-
-# 拉取最新代码
-git fetch --tags
-git checkout v1.2.0  # 替换为目标版本
-
-# 更新依赖
-pip install -e ".[dev]"
-
-# 运行数据库迁移
-alembic upgrade head
-
-# 启动服务
-sudo systemctl start cyberpulse-api cyberpulse-worker cyberpulse-scheduler
-
-# 验证服务
-systemctl status cyberpulse-api
-curl http://localhost:8000/health
-```
-
-### 使用安装脚本升级
-
-```bash
-# 下载并运行升级脚本
-curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --version v1.2.0
+# 重新部署
+./scripts/cyber-pulse.sh deploy
 ```
 
 ---
@@ -247,6 +241,16 @@ echo "Configuration migrated successfully"
 ---
 
 ## 回滚操作
+
+### 使用快照回滚（推荐）
+
+```bash
+# 列出可用快照
+./scripts/cyber-pulse.sh snapshot --list
+
+# 恢复到指定快照
+./scripts/cyber-pulse.sh restore <snapshot-file>
+```
 
 ### 快速回滚
 

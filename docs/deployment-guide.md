@@ -1,13 +1,13 @@
 # 部署指南
 
-本指南涵盖 Cyber Pulse 在生产环境的完整部署流程。
+本指南涵盖 Cyber Pulse 的完整部署流程，包括多环境部署配置。
 
 ## 目录
 
 - [环境要求](#环境要求)
-- [部署方式](#部署方式)
-- [Docker Compose 部署](#docker-compose-部署)
-- [手动部署](#手动部署)
+- [快速部署](#快速部署)
+- [多环境部署](#多环境部署)
+- [管理命令详解](#管理命令详解)
 - [安全配置](#安全配置)
 - [验证部署](#验证部署)
 - [生产环境检查清单](#生产环境检查清单)
@@ -16,274 +16,266 @@
 
 ## 环境要求
 
-### 硬件要求
+### 必需软件
 
-| 组件 | 最低配置 | 推荐配置 |
-|------|----------|----------|
-| CPU | 2 核 | 4 核+ |
-| 内存 | 4 GB | 8 GB+ |
-| 存储 | 50 GB SSD | 100 GB+ SSD |
+| 软件 | 版本要求 | 说明 |
+|------|----------|------|
+| Docker | 24+ | 容器运行环境 |
+| git | 任意版本 | 代码获取 |
 
-### 软件要求
+> **提示**：数据库、Redis 等服务均由 Docker 容器提供，无需单独安装。
 
-| 软件 | 版本 | 说明 |
-|------|------|------|
-| Python | 3.11+ | 运行环境 |
-| PostgreSQL | 15+ | 主数据库 |
-| Redis | 7+ | 任务队列 |
-| Docker | 24+ | 容器运行时（可选） |
-| Docker Compose | 2.0+ | 容器编排（可选） |
+### 系统资源
 
----
+| 环境 | CPU | 内存 | 存储 |
+|------|-----|------|------|
+| 开发环境 | 2 核 | 4 GB | 50 GB SSD |
+| 测试环境 | 2 核 | 4 GB | 50 GB SSD |
+| 生产环境 | 4 核+ | 8 GB+ | 100 GB+ SSD |
 
-## 部署方式
-
-| 方式 | 适用场景 | 复杂度 |
-|------|----------|--------|
-| Docker Compose | 生产环境、快速部署 | ⭐ 推荐 |
-| 手动部署 | 定制化需求、裸机部署 | ⭐⭐⭐ |
-
----
-
-## Docker Compose 部署
-
-### 1. 准备配置文件
+### 验证环境
 
 ```bash
-# 克隆仓库
-git clone https://github.com/cyberstrat-forge/cyber-pulse.git
+docker --version
+git --version
+```
+
+---
+
+## 快速部署
+
+### 第一步：安装
+
+```bash
+# 使用安装脚本
+curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash
+
+# 进入项目目录
 cd cyber-pulse
-
-# 创建环境变量文件
-cp deploy/.env.example deploy/.env
 ```
 
-### 2. 配置环境变量
-
-编辑 `deploy/.env`：
+### 第二步：部署
 
 ```bash
-# 数据库配置（必需）
-POSTGRES_USER=cyberpulse
-POSTGRES_PASSWORD=your_secure_password_here
-POSTGRES_DB=cyberpulse
-
-# 应用配置
-ENVIRONMENT=production
-SECRET_KEY=your_secret_key_at_least_32_characters_long
-LOG_LEVEL=INFO
-
-# 可选配置
-API_HOST=0.0.0.0
-API_PORT=8000
+# 执行部署
+./scripts/cyber-pulse.sh deploy
 ```
 
-> ⚠️ **安全警告**:
-> - `SECRET_KEY` 必须是至少 32 字符的随机字符串
-> - `POSTGRES_PASSWORD` 必须使用强密码
-> - 生产环境禁止使用默认值
+部署命令自动完成：
 
-### 3. 启动服务
+1. **环境检查** - 验证 Docker 和 Docker Compose
+2. **配置生成** - 自动生成安全配置（数据库密码、密钥等）
+3. **镜像构建** - 构建应用镜像
+4. **服务启动** - 启动所有服务
+5. **数据库初始化** - 运行迁移脚本
+
+### 第三步：验证
 
 ```bash
-cd deploy
-
-# 启动所有服务
-docker-compose up -d
-
 # 查看服务状态
-docker-compose ps
+./scripts/cyber-pulse.sh status
 
-# 查看日志
-docker-compose logs -f api
-```
-
-### 4. 服务组件
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| api | 8000 | FastAPI REST API |
-| worker | - | Dramatiq 任务处理 |
-| scheduler | - | APScheduler 定时调度 |
-| postgres | 5432 | PostgreSQL 数据库 |
-| redis | 6379 | Redis 缓存/队列 |
-
-### 5. 初始化数据
-
-```bash
-# 进入 API 容器
-docker-compose exec api bash
-
-# 运行数据库迁移
-alembic upgrade head
-
-# 创建管理员客户端
-cyberpulse client create "admin" --description "管理员"
+# 健康检查
+curl http://localhost:8000/health
 ```
 
 ---
 
-## 手动部署
+## 多环境部署
 
-### 1. 安装依赖
+Cyber Pulse 支持三种部署环境：
 
-```bash
-# 创建虚拟环境
-python -m venv .venv
-source .venv/bin/activate
+| 环境 | 用途 | 特点 |
+|------|------|------|
+| dev | 开发环境 | DEBUG 日志、代码热重载、端口全部暴露 |
+| test | 测试环境 | INFO 日志、中等资源限制 |
+| prod | 生产环境 | WARNING 日志、资源优化、安全加固 |
 
-# 安装依赖
-pip install -e .
-
-# 安装生产依赖（如使用 PostgreSQL）
-pip install psycopg2-binary
-```
-
-### 2. 配置环境变量
-
-创建 `/etc/cyberpulse/config.env`：
+### 切换环境
 
 ```bash
-# 数据库
-DATABASE_URL=postgresql://cyberpulse:password@localhost:5432/cyberpulse
+# 设置环境
+./scripts/cyber-pulse.sh config set-env dev    # 开发环境
+./scripts/cyber-pulse.sh config set-env test   # 测试环境
+./scripts/cyber-pulse.sh config set-env prod   # 生产环境
 
-# Redis
-REDIS_URL=redis://localhost:6379/0
-DRAMATIQ_BROKER_URL=redis://localhost:6379/1
-
-# 安全
-ENVIRONMENT=production
-SECRET_KEY=your_secret_key_at_least_32_characters_long
-
-# 日志
-LOG_LEVEL=INFO
-LOG_FILE=/var/log/cyberpulse/cyberpulse.log
+# 查看当前环境
+./scripts/cyber-pulse.sh config get-env
 ```
 
-### 3. 初始化数据库
+### 开发环境部署
 
 ```bash
-# 创建数据库
-createdb -U postgres cyberpulse
+# 设置为开发环境
+./scripts/cyber-pulse.sh config set-env dev
 
-# 运行迁移
-alembic upgrade head
+# 部署
+./scripts/cyber-pulse.sh deploy
 ```
 
-### 4. 配置 Systemd 服务
+开发环境特点：
+- DEBUG 日志级别
+- API 代码热重载
+- PostgreSQL 5432 端口暴露
+- Redis 6379 端口暴露
 
-创建 `/etc/systemd/system/cyberpulse-api.service`：
-
-```ini
-[Unit]
-Description=Cyber Pulse API Service
-After=network.target postgresql.service redis.service
-
-[Service]
-Type=simple
-User=cyberpulse
-Group=cyberpulse
-WorkingDirectory=/opt/cyber-pulse
-EnvironmentFile=/etc/cyberpulse/config.env
-ExecStart=/opt/cyber-pulse/.venv/bin/uvicorn cyberpulse.api.main:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-创建 `/etc/systemd/system/cyberpulse-worker.service`：
-
-```ini
-[Unit]
-Description=Cyber Pulse Worker Service
-After=network.target redis.service
-
-[Service]
-Type=simple
-User=cyberpulse
-Group=cyberpulse
-WorkingDirectory=/opt/cyber-pulse
-EnvironmentFile=/etc/cyberpulse/config.env
-ExecStart=/opt/cyber-pulse/.venv/bin/dramatiq cyberpulse.tasks --processes 2 --threads 4
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-创建 `/etc/systemd/system/cyberpulse-scheduler.service`：
-
-```ini
-[Unit]
-Description=Cyber Pulse Scheduler Service
-After=network.target redis.service
-
-[Service]
-Type=simple
-User=cyberpulse
-Group=cyberpulse
-WorkingDirectory=/opt/cyber-pulse
-EnvironmentFile=/etc/cyberpulse/config.env
-ExecStart=/opt/cyber-pulse/.venv/bin/python -m cyberpulse.scheduler.main
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### 5. 启动服务
+### 测试环境部署
 
 ```bash
-# 重载 systemd
-systemctl daemon-reload
+# 设置为测试环境
+./scripts/cyber-pulse.sh config set-env test
+
+# 部署
+./scripts/cyber-pulse.sh deploy
+```
+
+测试环境特点：
+- INFO 日志级别
+- 中等资源限制
+- 2 API workers
+- 内置验证脚本支持
+
+### 生产环境部署
+
+```bash
+# 设置为生产环境
+./scripts/cyber-pulse.sh config set-env prod
+
+# 部署
+./scripts/cyber-pulse.sh deploy
+```
+
+生产环境特点：
+- WARNING 日志级别
+- 资源优化配置
+- 安全加固（数据库端口不暴露）
+- API 文档禁用
+
+---
+
+## 管理命令详解
+
+### 服务管理
+
+```bash
+# 部署服务
+./scripts/cyber-pulse.sh deploy
 
 # 启动服务
-systemctl enable --now cyberpulse-api
-systemctl enable --now cyberpulse-worker
-systemctl enable --now cyberpulse-scheduler
+./scripts/cyber-pulse.sh start
 
-# 检查状态
-systemctl status cyberpulse-api
+# 停止服务
+./scripts/cyber-pulse.sh stop
+
+# 重启服务
+./scripts/cyber-pulse.sh restart
+
+# 查看状态
+./scripts/cyber-pulse.sh status
+```
+
+### 日志查看
+
+```bash
+# 查看所有日志
+./scripts/cyber-pulse.sh logs
+
+# 查看特定服务日志
+./scripts/cyber-pulse.sh logs api
+./scripts/cyber-pulse.sh logs worker
+./scripts/cyber-pulse.sh logs scheduler
+
+# 实时跟踪
+./scripts/cyber-pulse.sh logs -f api
+```
+
+### 配置管理
+
+```bash
+# 查看配置
+./scripts/cyber-pulse.sh config show
+
+# 设置环境
+./scripts/cyber-pulse.sh config set-env prod
+
+# 重新生成安全配置
+./scripts/cyber-pulse.sh config regenerate
+```
+
+### 升级管理
+
+```bash
+# 检查更新
+./scripts/cyber-pulse.sh check-update
+
+# 升级系统（自动快照 + 失败回滚）
+./scripts/cyber-pulse.sh upgrade
+```
+
+### 快照与备份
+
+```bash
+# 创建快照（用于升级前备份）
+./scripts/cyber-pulse.sh snapshot
+
+# 创建备份
+./scripts/cyber-pulse.sh backup
+
+# 恢复备份
+./scripts/cyber-pulse.sh restore <backup-file>
 ```
 
 ---
 
 ## 安全配置
 
-### 必需的安全配置
+### 自动配置
 
-1. **SECRET_KEY** - 必须设置强随机密钥
+部署时自动生成：
 
-   ```bash
-   # 生成随机密钥
-   python -c "import secrets; print(secrets.token_hex(32))"
-   ```
+- `POSTGRES_PASSWORD` - 数据库密码
+- `SECRET_KEY` - 应用密钥
 
-2. **数据库密码** - 使用强密码，禁止使用默认值
+配置文件位置：`<项目根目录>/.env`（权限 600）
 
-3. **网络安全**
-   - API 服务仅暴露必要的 8000 端口
-   - PostgreSQL 和 Redis 不应暴露公网
-   - 使用防火墙限制访问
+### 手动配置
 
-4. **API 文档**
-   - 生产环境自动禁用 `/docs` 和 `/redoc`
-   - 确保 `ENVIRONMENT=production`
+如需自定义配置：
 
-### 推荐的安全配置
+```bash
+# 编辑配置文件
+nano .env
+```
 
-1. **HTTPS** - 使用反向代理配置 SSL
+配置示例：
 
-   Nginx 示例：
+```bash
+# 数据库配置
+POSTGRES_USER=cyberpulse
+POSTGRES_PASSWORD=your_secure_password_here
+
+# 应用配置
+SECRET_KEY=your_secret_key_at_least_32_characters_long
+ENVIRONMENT=production
+LOG_LEVEL=WARNING
+
+# 可选：外部数据库
+# DATABASE_URL=postgresql://user:pass@external-db:5432/cyberpulse
+```
+
+### 安全建议
+
+1. **网络安全**
+   - 生产环境仅暴露 API 端口 8000
+   - 数据库和 Redis 端口不对外暴露
+
+2. **HTTPS 配置**（推荐）
+   使用反向代理配置 SSL：
 
    ```nginx
    server {
        listen 443 ssl http2;
-       server_name api.cyberpulse.example.com;
+       server_name api.example.com;
 
        ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
        ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
@@ -298,44 +290,56 @@ systemctl status cyberpulse-api
    }
    ```
 
-2. **API Key 管理**
-   - 定期轮换 API Key
+3. **API Key 管理**
    - 为不同系统创建独立客户端
-   - 设置合理的过期时间
+   - 定期轮换 API Key
 
 ---
 
 ## 验证部署
 
-### 1. 健康检查
+### 健康检查
 
 ```bash
-# 检查 API 健康状态
+# API 健康检查
 curl http://localhost:8000/health
 
 # 预期响应
-{
-  "status": "healthy",
-  "database": "connected",
-  "redis": "connected"
-}
+# {"status":"healthy","database":"connected","redis":"connected"}
 ```
 
-### 2. API 测试
+### 创建 API 客户端
 
 ```bash
-# 创建测试客户端
-cyberpulse client create "test"
+# 进入容器
+docker compose exec api bash
 
-# 使用 API Key 测试
-curl -H "Authorization: Bearer cp_live_xxx" \
-     http://localhost:8000/api/v1/contents
+# 创建客户端
+cyberpulse client create "admin" --description "管理员账户"
+
+# 记录 API Key
+# Client ID: cli_xxxxxxxxxxxxxxxx
+# API Key: cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### 3. 系统诊断
+### API 测试
 
 ```bash
-# 运行系统诊断
+# 设置 API Key
+export API_KEY="cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# 测试 API
+curl -H "Authorization: Bearer $API_KEY" \
+     "http://localhost:8000/api/v1/contents?limit=5"
+```
+
+### 系统诊断
+
+```bash
+# 进入容器
+docker compose exec api bash
+
+# 运行诊断
 cyberpulse diagnose system
 ```
 
@@ -343,30 +347,26 @@ cyberpulse diagnose system
 
 ## 生产环境检查清单
 
-部署前请确认以下项目：
+### 部署前
 
-### 安全配置
-
-- [ ] `SECRET_KEY` 已设置为强随机值（≥32 字符）
-- [ ] `POSTGRES_PASSWORD` 已设置为强密码
-- [ ] `ENVIRONMENT` 设置为 `production`
-- [ ] API 文档已自动禁用（`/docs` 返回 404）
+- [ ] 环境设置为 `prod`
+- [ ] 配置文件权限正确（.env 为 600）
+- [ ] 端口 8000 可访问
 - [ ] 数据库端口未暴露公网
-- [ ] Redis 端口未暴露公网
 
-### 功能验证
+### 部署后
 
-- [ ] 健康检查端点返回 `healthy`
+- [ ] 健康检查返回 `healthy`
 - [ ] 已创建管理员客户端
-- [ ] API Key 认证正常工作
-- [ ] 日志正常记录到文件
+- [ ] API Key 认证正常
+- [ ] 日志正常记录
 
 ### 运维配置
 
-- [ ] 配置了日志轮转
-- [ ] 配置了数据库备份
-- [ ] 配置了监控告警
-- [ ] 配置了 HTTPS（推荐）
+- [ ] 配置日志轮转
+- [ ] 配置数据库备份（`./scripts/cyber-pulse.sh snapshot`）
+- [ ] 配置监控告警
+- [ ] 配置 HTTPS（推荐）
 
 ---
 
@@ -374,26 +374,41 @@ cyberpulse diagnose system
 
 ### 服务无法启动
 
-1. 检查环境变量是否正确设置
-2. 检查数据库和 Redis 连接
-3. 查看日志：`docker-compose logs api` 或 `journalctl -u cyberpulse-api`
+```bash
+# 检查日志
+./scripts/cyber-pulse.sh logs
+
+# 检查 Docker 状态
+docker info
+
+# 常见原因：
+# 1. Docker 服务未启动
+# 2. 端口冲突
+# 3. 内存不足
+```
 
 ### 数据库连接失败
 
-1. 确认 PostgreSQL 服务运行中
-2. 检查 `DATABASE_URL` 格式
-3. 检查网络连通性
+```bash
+# 检查 PostgreSQL 状态
+./scripts/cyber-pulse.sh status
 
-### Redis 连接失败
+# 查看数据库日志
+./scripts/cyber-pulse.sh logs postgres
+```
 
-1. 确认 Redis 服务运行中
-2. 检查 `REDIS_URL` 格式
-3. 检查防火墙规则
+### 配置丢失
+
+```bash
+# 重新生成配置
+./scripts/cyber-pulse.sh config regenerate
+```
 
 ---
 
 ## 下一步
 
-- [API 使用指南](./api-guide.md) - 学习如何使用 API
-- [安全配置指南](./security-guide.md) - 详细安全配置
-- [故障排查手册](./troubleshooting.md) - 问题诊断与解决
+- [API 使用指南](./api-guide.md) - 下游系统集成
+- [备份与恢复](./backup-restore.md) - 数据保护
+- [升级迁移指南](./upgrade-guide.md) - 版本升级
+- [故障排查手册](./troubleshooting.md) - 问题诊断
