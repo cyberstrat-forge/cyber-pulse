@@ -98,9 +98,13 @@ def validate_url_for_ssrf(url: str, allow_localhost: bool = False) -> str:
 
     except socket.gaierror as e:
         raise SSRFError(f"Failed to resolve hostname: {hostname}") from e
+    except (socket.timeout, socket.herror, OSError) as e:
+        # Network/DNS errors - fail closed for security
+        raise SSRFError(f"DNS resolution error for {hostname}: {e}") from e
     except Exception as e:
-        logger.warning(f"Error during SSRF validation for {url}: {e}")
-        # Don't block on resolution errors, but log them
+        # Unexpected errors - fail closed to prevent SSRF bypass
+        logger.error(f"Unexpected error during SSRF validation for {url}: {e}")
+        raise SSRFError(f"SSRF validation failed for {url}") from e
 
     return url
 
