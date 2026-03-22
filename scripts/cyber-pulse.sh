@@ -158,7 +158,7 @@ set_env() {
 # 获取 Docker Compose 文件参数
 get_compose_files() {
     local env="${1:-$(get_current_env)}"
-    local compose_files="-f $COMPOSE_FILE"
+    local compose_files="-f $COMPOSE_FILE --env-file $ENV_FILE"
 
     case "$env" in
         dev)
