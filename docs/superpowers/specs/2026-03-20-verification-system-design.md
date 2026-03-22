@@ -612,7 +612,7 @@ verify_api_query() {
     # 测试 Content API
     RESPONSE=$(curl -s -w "\n%{http_code}" \
         -H "Authorization: Bearer $API_KEY" \
-        "${API_URL}/api/v1/content?limit=10")
+        "${API_URL}/api/v1/contents?limit=10")
 
     HTTP_CODE=$(echo "$RESPONSE" | tail -1)
     BODY=$(echo "$RESPONSE" | head -n -1)

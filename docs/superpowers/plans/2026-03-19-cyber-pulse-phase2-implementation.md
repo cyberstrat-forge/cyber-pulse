@@ -1923,7 +1923,7 @@ def diagnose_errors():
 ./cli content list --limit 10
 
 # 4. 通过 API 获取内容
-curl -H "Authorization: Bearer cp_live_xxx" http://localhost:8000/api/v1/content
+curl -H "Authorization: Bearer cp_live_xxx" http://localhost:8000/api/v1/contents
 ```
 
 **验证检查点：**

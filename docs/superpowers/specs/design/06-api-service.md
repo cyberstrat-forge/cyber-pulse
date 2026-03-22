@@ -34,7 +34,7 @@ Source → cyber-pulse → Curated Storage → Pull API → cyber-nexus → iNBo
 **获取内容：**
 
 ```http
-GET /api/v1/content?cursor=12345&since=2026-03-18T10:00:00Z&limit=100
+GET /api/v1/contents?cursor=12345&since=2026-03-18T10:00:00Z&limit=100
 Authorization: Bearer cp_live_xxx
 ```
 
@@ -179,7 +179,7 @@ class CyberPulseConsumer:
         }
 
         response = requests.get(
-            f"{self.api_url}/api/v1/content",
+            f"{self.api_url}/api/v1/contents",
             headers=self.headers,
             params=params
         )

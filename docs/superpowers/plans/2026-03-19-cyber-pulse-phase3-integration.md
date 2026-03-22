@@ -562,7 +562,7 @@ class TestAPIDataRetrieval:
         client = TestClient(app)
 
         # This will fail without auth, but verifies endpoint exists
-        response = client.get("/api/v1/content")
+        response = client.get("/api/v1/contents")
         assert response.status_code in [200, 401]  # 401 if auth required
 
     def test_health_endpoint(self) -> None:
