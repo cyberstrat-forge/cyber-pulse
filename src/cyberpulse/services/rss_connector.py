@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import feedparser
+import httpx
 
+from .base import SSRFError, validate_url_for_ssrf
 from .connector_service import BaseConnector, ConnectorError
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,7 @@ class RSSConnector(BaseConnector):
             True if configuration is valid
 
         Raises:
-            ValueError: If feed_url is missing
+            ValueError: If feed_url is missing or invalid
         """
         if "feed_url" not in self.config:
             raise ValueError("RSS connector requires 'feed_url' in config")
@@ -37,6 +39,12 @@ class RSSConnector(BaseConnector):
         feed_url = self.config["feed_url"]
         if not feed_url or not isinstance(feed_url, str):
             raise ValueError("RSS connector 'feed_url' must be a non-empty string")
+
+        # SSRF protection: validate URL scheme and destination
+        try:
+            validate_url_for_ssrf(feed_url)
+        except SSRFError as e:
+            raise ValueError(f"Invalid feed_url: {e}") from e
 
         return True
 
@@ -54,7 +62,33 @@ class RSSConnector(BaseConnector):
         feed_url = self.config["feed_url"]
 
         try:
-            feed = feedparser.parse(feed_url)
+            # SSRF protection: fetch content via httpx first (not feedparser directly)
+            # This prevents feedparser's file:// protocol support from being exploited
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                # Validate final URL after any redirects
+                response = await client.get(feed_url)
+                response.raise_for_status()
+
+                # Validate the final URL (in case of redirects)
+                final_url = str(response.url)
+                try:
+                    validate_url_for_ssrf(final_url)
+                except SSRFError as e:
+                    raise ConnectorError(f"RSS feed redirect to blocked URL: {e}") from e
+
+                content = response.content
+
+            # Parse the fetched content with feedparser
+            feed = feedparser.parse(content)
+
+        except httpx.HTTPStatusError as e:
+            raise ConnectorError(
+                f"Failed to fetch RSS feed '{feed_url}': HTTP {e.response.status_code}"
+            ) from e
+        except httpx.RequestError as e:
+            raise ConnectorError(
+                f"Failed to fetch RSS feed '{feed_url}': {type(e).__name__}: {e}"
+            ) from e
         except Exception as e:
             raise ConnectorError(
                 f"Failed to fetch RSS feed '{feed_url}': {type(e).__name__}: {e}"

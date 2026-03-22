@@ -1,10 +1,11 @@
 """Tests for RSS Connector."""
 
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, AsyncMock
 import time
 
 import pytest
+import httpx
 
 from cyberpulse.services import RSSConnector, ConnectorError
 
@@ -77,12 +78,29 @@ class TestRSSConnectorFetch:
         }
         return result
 
+    def _create_mock_response(self, content: bytes = b""):
+        """Create a mock httpx response."""
+        mock_response = MagicMock()
+        mock_response.content = content
+        mock_response.url = "https://example.com/feed.xml"
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
     @pytest.mark.asyncio
     async def test_fetch_success(self, mock_feedparser_result):
         """Test successful fetch returns items."""
-        with patch("feedparser.parse", return_value=mock_feedparser_result):
-            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = await connector.fetch()
+        mock_response = self._create_mock_response(b"<rss></rss>")
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=mock_feedparser_result):
+                connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+                items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["external_id"] == "guid-123"
@@ -112,9 +130,18 @@ class TestRSSConnectorFetch:
             "bozo": False,
         }
 
-        with patch("feedparser.parse", return_value=result):
-            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = await connector.fetch()
+        mock_response = self._create_mock_response(b"<rss></rss>")
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=result):
+                connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+                items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["external_id"] == "https://example.com/article/456"
@@ -141,9 +168,18 @@ class TestRSSConnectorFetch:
             "bozo": False,
         }
 
-        with patch("feedparser.parse", return_value=result):
-            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = await connector.fetch()
+        mock_response = self._create_mock_response(b"<rss></rss>")
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=result):
+                connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+                items = await connector.fetch()
 
         assert len(items) == RSSConnector.MAX_ITEMS
 
@@ -172,9 +208,18 @@ class TestRSSConnectorFetch:
             "bozo": False,
         }
 
-        with patch("feedparser.parse", return_value=result):
-            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = await connector.fetch()
+        mock_response = self._create_mock_response(b"<rss></rss>")
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=result):
+                connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+                items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["external_id"] == "with-link-guid"
@@ -199,17 +244,54 @@ class TestRSSConnectorFetch:
             "bozo_exception": Exception("Malformed XML"),
         }
 
-        with patch("feedparser.parse", return_value=result):
-            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = await connector.fetch()
+        mock_response = self._create_mock_response(b"<rss></rss>")
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=result):
+                connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+                items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["external_id"] == "bozo-guid"
 
     @pytest.mark.asyncio
-    async def test_fetch_raises_connector_error_on_parse_failure(self):
-        """Test that fetch raises ConnectorError on parse failure."""
-        with patch("feedparser.parse", side_effect=Exception("Network error")):
+    async def test_fetch_raises_connector_error_on_http_error(self):
+        """Test that fetch raises ConnectorError on HTTP error."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        http_error = httpx.HTTPStatusError(
+            "Not Found", request=MagicMock(), response=mock_response
+        )
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=http_error)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+            with pytest.raises(ConnectorError, match="Failed to fetch RSS feed"):
+                await connector.fetch()
+
+    @pytest.mark.asyncio
+    async def test_fetch_raises_connector_error_on_request_error(self):
+        """Test that fetch raises ConnectorError on request error."""
+        request_error = httpx.RequestError("Connection refused")
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=request_error)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
             connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
             with pytest.raises(ConnectorError, match="Failed to fetch RSS feed"):
                 await connector.fetch()
@@ -238,9 +320,18 @@ class TestRSSConnectorFetch:
             "bozo": False,
         }
 
-        with patch("feedparser.parse", return_value=result):
-            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = await connector.fetch()
+        mock_response = self._create_mock_response(b"<rss></rss>")
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=result):
+                connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+                items = await connector.fetch()
 
         assert len(items) == 1
         assert items[0]["author"] == "John Doe"
@@ -397,9 +488,21 @@ class TestRSSConnectorContentHash:
             "bozo": False,
         }
 
-        with patch("feedparser.parse", return_value=result):
-            connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-            items = await connector.fetch()
+        mock_response = MagicMock()
+        mock_response.content = b"<rss></rss>"
+        mock_response.url = "https://example.com/feed.xml"
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=result):
+                connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
+                items = await connector.fetch()
 
         assert "content_hash" in items[0]
         assert items[0]["content_hash"] == connector.generate_content_hash("Content for hashing")

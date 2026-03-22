@@ -3,9 +3,8 @@ Client API router.
 
 Provides administrative endpoints for managing API clients.
 
-Note: These endpoints do NOT require authentication as they are intended
-for internal admin use. In production, these should be protected by
-network-level access controls or admin authentication.
+SECURITY: These endpoints require admin permissions.
+Only clients with 'admin' permission can access these endpoints.
 """
 
 import logging
@@ -24,7 +23,7 @@ from ..schemas.client import (
     ClientListResponse,
 )
 from ...models import ApiClientStatus
-from ..auth import ApiClientService
+from ..auth import ApiClientService, require_permissions, ApiClient
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +50,7 @@ def validate_client_id(client_id: str) -> None:
 async def create_client(
     client: ClientCreate,
     db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> ClientCreatedResponse:
     """
     Create a new API client.
@@ -58,7 +58,7 @@ async def create_client(
     **IMPORTANT**: The API key is returned ONCE in this response.
     Store it securely - it cannot be retrieved again.
 
-    This is an administrative endpoint for internal use.
+    **SECURITY**: Requires admin permission.
     """
     logger.info(f"Creating API client: name={client.name}")
 
@@ -85,13 +85,14 @@ async def list_clients(
         description="Filter by status (ACTIVE, SUSPENDED, REVOKED)"
     ),
     db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> ClientListResponse:
     """
     List all API clients.
 
     Returns all clients ordered by creation date (newest first).
 
-    This is an administrative endpoint for internal use.
+    **SECURITY**: Requires admin permission.
     """
     logger.debug(f"Listing API clients: status={status}")
 
@@ -121,6 +122,7 @@ async def list_clients(
 async def delete_client(
     client_id: str,
     db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> None:
     """
     Revoke an API client.
@@ -128,7 +130,7 @@ async def delete_client(
     Sets the client status to 'revoked'. The client will no longer
     be able to authenticate.
 
-    This is an administrative endpoint for internal use.
+    **SECURITY**: Requires admin permission.
 
     **Note**: This is a soft delete - the client record remains in the
     database for audit purposes.

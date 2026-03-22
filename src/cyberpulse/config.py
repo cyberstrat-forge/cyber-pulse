@@ -1,5 +1,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Default secret key for development only - MUST be changed in production
+DEFAULT_SECRET_KEY = "change-this-to-a-random-secret-key"
 
 
 class Settings(BaseSettings):
@@ -30,8 +36,11 @@ class Settings(BaseSettings):
     log_file: Optional[str] = "logs/cyberpulse.log"
 
     # Security
-    secret_key: str = "change-this-to-a-random-secret-key"
+    secret_key: str = DEFAULT_SECRET_KEY
     api_token_expire_minutes: int = 1440
+
+    # Environment
+    environment: str = "development"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -40,5 +49,26 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    def validate_security_settings(self) -> None:
+        """Validate security settings on startup.
+
+        Raises:
+            RuntimeError: If security settings are insecure in production
+        """
+        is_production = self.environment.lower() in ("production", "prod")
+
+        if is_production and self.secret_key == DEFAULT_SECRET_KEY:
+            raise RuntimeError(
+                "SECURITY ERROR: secret_key is set to the default value in production! "
+                "Please set SECRET_KEY environment variable to a secure random string. "
+                "You can generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+
+        if is_production:
+            logger.info("Security validation passed for production environment")
+
 
 settings = Settings()
+
+# Validate security settings on startup (only in production)
+settings.validate_security_settings()
