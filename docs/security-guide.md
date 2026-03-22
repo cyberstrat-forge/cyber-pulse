@@ -213,10 +213,10 @@ server {
 
 ```bash
 # 创建管理员客户端（用于 /clients 端点管理）
-cyberpulse client create "admin" --description "系统管理员"
+cyber-pulse client create "admin" --description "系统管理员"
 
 # 创建下游系统客户端
-cyberpulse client create "分析系统" --description "下游分析系统"
+cyber-pulse client create "分析系统" --description "下游分析系统"
 ```
 
 **权限说明**：
@@ -258,7 +258,7 @@ curl -H "Authorization: Bearer $CYBERPULSE_API_KEY" \
 
 ```bash
 # 创建 admin 客户端
-cyberpulse client create "admin"
+cyber-pulse client create "admin"
 
 # 使用 admin API Key 访问 /clients
 curl -H "Authorization: Bearer cp_live_admin_key" \
@@ -346,8 +346,8 @@ LOG_LEVEL=DEBUG
 
 ```bash
 # 查看审计日志
-cyberpulse log search "client create" --level INFO
-cyberpulse log search "authentication failed" --level WARNING
+cyber-pulse log search "client create" --level INFO
+cyber-pulse log search "authentication failed" --level WARNING
 ```
 
 ---
@@ -400,10 +400,10 @@ cyberpulse log search "authentication failed" --level WARNING
 
 ```bash
 # 尝试添加访问内部服务的情报源（会被拒绝）
-cyberpulse source add "test" rss --url "http://127.0.0.1:8080/feed.xml"
+cyber-pulse source add "test" rss "http://127.0.0.1:8080/feed.xml" --yes
 # 错误：Access to localhost is not allowed
 
-cyberpulse source add "test" rss --url "http://10.0.0.1/feed.xml"
+cyber-pulse source add "test" rss "http://10.0.0.1/feed.xml" --yes
 # 错误：Access to private IP address is not allowed
 ```
 

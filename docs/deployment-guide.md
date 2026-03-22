@@ -315,7 +315,7 @@ curl http://localhost:8000/health
 docker compose exec api bash
 
 # 创建客户端
-cyberpulse client create "admin" --description "管理员账户"
+cyber-pulse client create "admin" --description "管理员账户"
 
 # 记录 API Key
 # Client ID: cli_xxxxxxxxxxxxxxxx
@@ -340,7 +340,7 @@ curl -H "Authorization: Bearer $API_KEY" \
 docker compose exec api bash
 
 # 运行诊断
-cyberpulse diagnose system
+cyber-pulse diagnose system
 ```
 
 ---

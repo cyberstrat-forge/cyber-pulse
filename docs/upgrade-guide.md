@@ -62,7 +62,7 @@ cp deploy/docker-compose.yml deploy/docker-compose.yml.backup
 
 ```bash
 # 查看安装版本
-cyberpulse version
+cyber-pulse version
 
 # 或查看 git 标签
 git describe --tags
@@ -352,7 +352,7 @@ curl -H "Authorization: Bearer $API_KEY" \
      http://localhost:8000/api/v1/contents?limit=1
 
 # 系统诊断
-cyberpulse diagnose system
+cyber-pulse diagnose system
 
 # 数据库检查
 psql $DATABASE_URL -c "SELECT count(*) FROM sources;"
@@ -363,7 +363,7 @@ psql $DATABASE_URL -c "SELECT count(*) FROM contents;"
 
 ```bash
 # 确认版本
-cyberpulse version
+cyber-pulse version
 
 # 确认数据库迁移版本
 alembic current
@@ -378,7 +378,7 @@ systemctl status cyberpulse-api
 
 ```bash
 # 检查错误日志
-cyberpulse log errors --since 1h
+cyber-pulse log errors --since 1h
 
 # 检查服务指标
 curl http://localhost:8000/health
@@ -443,8 +443,8 @@ export SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
 **解决**：
 ```bash
 # 检查客户端状态
-cyberpulse client list
+cyber-pulse client list
 
 # 重新创建客户端
-cyberpulse client create "test"
+cyber-pulse client create "test"
 ```

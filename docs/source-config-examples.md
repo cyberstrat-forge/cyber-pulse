@@ -17,10 +17,8 @@
 ### 基础 RSS 源
 
 ```bash
-cyberpulse source add "安全客" rss \
-  --tier T1 \
-  --url "https://www.anquanke.com/rss.xml" \
-  --schedule "0 */6 * * *"
+cyber-pulse source add "安全客" rss "https://www.anquanke.com/rss.xml" \
+  --tier T1 --yes
 ```
 
 ### RSS 源配置参数
@@ -30,16 +28,6 @@ cyberpulse source add "安全客" rss \
 | `feed_url` | string | RSS/Atom 订阅地址（必需） |
 | `timeout` | int | 请求超时时间（秒），默认 30 |
 | `max_items` | int | 单次最大采集数量，默认 50 |
-
-### 带配置的 RSS 源
-
-```bash
-cyberpulse source add "FreeBuf" rss \
-  --tier T1 \
-  --url "https://www.freebuf.com/feed" \
-  --config '{"timeout": 60, "max_items": 100}' \
-  --schedule "0 */4 * * *"
-```
 
 ### 常见 RSS 源示例
 
@@ -60,11 +48,8 @@ cyberpulse source add "FreeBuf" rss \
 ### 基础 API 源
 
 ```bash
-cyberpulse source add "VirusTotal" api \
-  --tier T0 \
-  --url "https://www.virustotal.com/api/v3" \
-  --config '{"api_key": "your_api_key", "endpoint": "/intelligence/files"}' \
-  --schedule "0 */2 * * *"
+cyber-pulse source add "VirusTotal" api "https://www.virustotal.com/api/v3" \
+  --tier T0 --yes
 ```
 
 ### API 源配置参数
@@ -85,57 +70,22 @@ cyberpulse source add "VirusTotal" api \
 **带认证的 API**：
 
 ```bash
-cyberpulse source add "ThreatFox" api \
-  --tier T1 \
-  --url "https://threatfox-api.abuse.ch/api/v1" \
-  --config '{
-    "api_key": "your_api_key",
-    "method": "POST",
-    "headers": {
-      "Content-Type": "application/json"
-    },
-    "params": {
-      "query": "get_iocs",
-      "days": 1
-    }
-  }' \
-  --schedule "0 6 * * *"
+cyber-pulse source add "ThreatFox" api "https://threatfox-api.abuse.ch/api/v1" \
+  --tier T1 --yes
 ```
 
 **带分页的 API**：
 
 ```bash
-cyberpulse source add "CVE Details" api \
-  --tier T1 \
-  --url "https://cvedetails.com/api/v1/vulnerabilities" \
-  --config '{
-    "api_key": "your_api_key",
-    "pagination": {
-      "type": "offset",
-      "param": "offset",
-      "limit_param": "limit",
-      "limit": 100
-    }
-  }' \
-  --schedule "0 0 * * *"
+cyber-pulse source add "CVE Details" api "https://cvedetails.com/api/v1/vulnerabilities" \
+  --tier T1 --yes
 ```
 
 ### OAuth 认证配置
 
 ```bash
-cyberpulse source add "Enterprise API" api \
-  --tier T0 \
-  --url "https://api.enterprise.com/v2" \
-  --config '{
-    "auth_type": "oauth2",
-    "oauth": {
-      "token_url": "https://auth.enterprise.com/token",
-      "client_id": "your_client_id",
-      "client_secret": "your_client_secret",
-      "scope": "read"
-    }
-  }' \
-  --schedule "0 */3 * * *"
+cyber-pulse source add "Enterprise API" api "https://api.enterprise.com/v2" \
+  --tier T0 --yes
 ```
 
 ---
@@ -145,11 +95,8 @@ cyberpulse source add "Enterprise API" api \
 ### 基础 Web 源
 
 ```bash
-cyberpulse source add "Security Blog" web \
-  --tier T2 \
-  --url "https://example-security-blog.com/articles" \
-  --config '{"selector": "article.post", "link_selector": "a.title"}' \
-  --schedule "0 8 * * *"
+cyber-pulse source add "Security Blog" web "https://example-security-blog.com/articles" \
+  --tier T2 --yes
 ```
 
 ### Web 源配置参数
@@ -170,28 +117,8 @@ cyberpulse source add "Security Blog" web \
 ### 复杂 Web 抓取配置
 
 ```bash
-cyberpulse source add "Tech Security News" web \
-  --tier T1 \
-  --url "https://tech-security-news.com/latest" \
-  --config '{
-    "selector": "div.article-card",
-    "link_selector": "h2 a",
-    "title_selector": "h2",
-    "content_selector": "div.article-content",
-    "date_selector": "time.pubdate",
-    "author_selector": "span.author-name",
-    "pagination": {
-      "type": "next_link",
-      "selector": "a.next-page"
-    },
-    "exclude_selectors": [
-      "div.advertisement",
-      "aside.sidebar",
-      "footer"
-    ],
-    "timeout": 60
-  }' \
-  --schedule "0 */4 * * *"
+cyber-pulse source add "Tech Security News" web "https://tech-security-news.com/latest" \
+  --tier T1 --yes
 ```
 
 ### 分页配置选项
@@ -295,7 +222,7 @@ cyberpulse source add "Tech Security News" web \
 curl -s "https://example.com/feed.xml" | head -50
 
 # 测试连接
-cyberpulse source test src_xxx --timeout 60
+cyber-pulse source test src_xxx --timeout 60
 ```
 
 **问题：内容为空**
@@ -304,12 +231,10 @@ cyberpulse source test src_xxx --timeout 60
 
 ```bash
 # 先添加 RSS 获取链接
-cyberpulse source add "Source RSS" rss \
-  --url "https://example.com/feed.xml"
+cyber-pulse source add "Source RSS" rss "https://example.com/feed.xml" --yes
 
 # 再添加 Web 源获取完整内容
-cyberpulse source add "Source Web" web \
-  --url "https://example.com/articles"
+cyber-pulse source add "Source Web" web "https://example.com/articles" --yes
 ```
 
 ### API 源常见问题
@@ -322,7 +247,7 @@ curl -H "Authorization: Bearer your_api_key" \
      "https://api.example.com/v1/test"
 
 # 检查配置
-cyberpulse source test src_xxx
+cyber-pulse source test src_xxx
 ```
 
 **问题：请求频率限制**
@@ -380,34 +305,34 @@ curl -s "https://example.com/articles" | grep -o '<article[^>]*>'
 
 ```bash
 # 测试连接
-cyberpulse source test src_xxx --timeout 60
+cyber-pulse source test src_xxx --timeout 60
 
 # 手动运行采集
-cyberpulse job run src_xxx
+cyber-pulse job run src_xxx
 
 # 查看采集结果
-cyberpulse content list --source-id src_xxx --limit 10
+cyber-pulse content list --source-id src_xxx --limit 10
 ```
 
 ### 调试模式
 
 ```bash
 # 设置日志级别
-cyberpulse config set log_level DEBUG
+cyber-pulse config set log_level DEBUG
 
 # 运行采集并查看详细日志
-cyberpulse job run src_xxx
+cyber-pulse job run src_xxx
 
 # 查看日志
-cyberpulse log search "src_xxx" --level DEBUG
+cyber-pulse log search "src_xxx" --level DEBUG
 ```
 
 ### 验证内容质量
 
 ```bash
 # 查看源统计
-cyberpulse source stats --source-id src_xxx
+cyber-pulse source stats --source-id src_xxx
 
 # 查看错误诊断
-cyberpulse diagnose errors --source src_xxx
+cyber-pulse diagnose errors --source src_xxx
 ```

@@ -21,13 +21,13 @@
 
 ```bash
 # 全面系统诊断
-cyberpulse diagnose system
+cyber-pulse diagnose system
 
 # 情报源诊断
-cyberpulse diagnose sources
+cyber-pulse diagnose sources
 
 # 错误分析
-cyberpulse diagnose errors --since 24h
+cyber-pulse diagnose errors --since 24h
 ```
 
 ### 健康检查
@@ -48,13 +48,13 @@ curl http://localhost:8000/health
 
 ```bash
 # 实时日志
-cyberpulse log tail -f
+cyber-pulse log tail -f
 
 # 错误日志
-cyberpulse log errors --since 1h
+cyber-pulse log errors --since 1h
 
 # 搜索日志
-cyberpulse log search "timeout"
+cyber-pulse log search "timeout"
 ```
 
 ---
@@ -207,7 +207,7 @@ psql $DATABASE_URL -c "ANALYZE;"
 psql $DATABASE_URL -c "REINDEX DATABASE cyberpulse;"
 
 # 清理旧数据
-cyberpulse diagnose errors --since 30d  # 检查数据量
+cyber-pulse diagnose errors --since 30d  # 检查数据量
 ```
 
 ---
@@ -304,7 +304,7 @@ curl -H "Authorization: Bearer $API_KEY" \
 |------|----------|
 | API Key 缺失 | 添加 `Authorization` 请求头 |
 | API Key 格式错误 | 使用完整 API Key |
-| 客户端已禁用 | `cyberpulse client enable cli_xxx` |
+| 客户端已禁用 | `cyber-pulse client enable cli_xxx` |
 | 客户端已过期 | 创建新客户端 |
 
 ### 问题：403 Forbidden
@@ -318,7 +318,7 @@ curl -H "Authorization: Bearer $API_KEY" \
 
 ```bash
 # 创建管理员客户端
-cyberpulse client create "admin"
+cyber-pulse client create "admin"
 
 # 使用管理员 API Key 访问
 curl -H "Authorization: Bearer cp_live_admin_key" \
@@ -375,20 +375,20 @@ def request_with_retry(url, max_retries=3):
 
 ```bash
 # 查看失败任务
-cyberpulse job list --status failed
+cyber-pulse job list --status failed
 
 # 查看任务详情
-cyberpulse job status job_xxx
+cyber-pulse job status job_xxx
 
 # 查看相关错误日志
-cyberpulse log errors --source src_xxx
+cyber-pulse log errors --source src_xxx
 ```
 
 **常见原因与解决**：
 
 | 原因 | 解决方法 |
 |------|----------|
-| 情报源 URL 不可达 | `cyberpulse source test src_xxx` |
+| 情报源 URL 不可达 | `cyber-pulse source test src_xxx` |
 | RSS 格式错误 | 检查 RSS 源格式 |
 | 超时 | 增加超时时间配置 |
 | SSRF 防护拦截 | URL 访问了私有地址 |
@@ -403,13 +403,13 @@ cyberpulse log errors --source src_xxx
 
 ```bash
 # 测试情报源
-cyberpulse source test src_xxx --timeout 60
+cyber-pulse source test src_xxx --timeout 60
 
 # 手动运行采集
-cyberpulse job run src_xxx
+cyber-pulse job run src_xxx
 
 # 查看错误日志
-cyberpulse diagnose errors --source src_xxx
+cyber-pulse diagnose errors --source src_xxx
 ```
 
 **SSRF 防护相关错误**：
@@ -431,10 +431,10 @@ SSRFError: Access to private IP address is not allowed
 
 ```bash
 # 查看被拒绝的 Item
-cyberpulse diagnose errors --since 7d
+cyber-pulse diagnose errors --since 7d
 
 # 查看源统计
-cyberpulse source stats --source-id src_xxx
+cyber-pulse source stats --source-id src_xxx
 ```
 
 **常见原因**：
@@ -524,7 +524,7 @@ redis-cli INFO memory | grep used_memory_human
 
 ```bash
 # 导出日志
-cyberpulse log export --output /tmp/logs.txt --since 7d
+cyber-pulse log export --output /tmp/logs.txt --since 7d
 
 # 统计错误类型
 grep "ERROR" /tmp/logs.txt | cut -d'-' -f4 | sort | uniq -c | sort -rn
@@ -541,14 +541,14 @@ grep "ERROR" /tmp/logs.txt | cut -d' ' -f1-2 | cut -d':' -f1 | uniq -c
 
 1. 收集诊断信息
    ```bash
-   cyberpulse diagnose system > diagnostic.txt
-   cyberpulse log export --output logs.txt --since 24h
+   cyber-pulse diagnose system > diagnostic.txt
+   cyber-pulse log export --output logs.txt --since 24h
    ```
 
 2. 在 GitHub 创建 Issue：https://github.com/cyberstrat-forge/cyber-pulse/issues
 
 3. 提供以下信息：
-   - 系统版本：`cyberpulse version`
+   - 系统版本：`cyber-pulse version`
    - 部署方式：Docker / 手动
    - 问题描述和复现步骤
    - 诊断日志

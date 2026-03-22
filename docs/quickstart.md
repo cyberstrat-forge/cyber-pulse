@@ -104,7 +104,7 @@ curl http://localhost:8000/health
 docker compose exec api bash
 
 # 创建客户端
-cyberpulse client create "admin" --description "管理员账户"
+cyber-pulse client create "admin" --description "管理员账户"
 
 # 记录输出的 API Key
 # Client ID: cli_xxxxxxxxxxxxxxxx
@@ -126,10 +126,8 @@ export API_KEY="cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 ```bash
 # 添加安全客 RSS 源
-docker compose exec api cyberpulse source add "安全客" rss \
-  --tier T1 \
-  --url "https://www.anquanke.com/rss.xml" \
-  --schedule "0 */6 * * *"
+docker compose exec api cyber-pulse source add "安全客" rss \
+  "https://www.anquanke.com/rss.xml" --tier T1 --yes
 
 # 记录输出的 Source ID
 # Source ID: src_xxxxxxxx
@@ -139,16 +137,12 @@ docker compose exec api cyberpulse source add "安全客" rss \
 
 ```bash
 # Hacker News
-docker compose exec api cyberpulse source add "Hacker News" rss \
-  --tier T0 \
-  --url "https://hnrss.org/frontpage" \
-  --schedule "0 */2 * * *"
+docker compose exec api cyber-pulse source add "Hacker News" rss \
+  "https://hnrss.org/frontpage" --tier T0 --yes
 
 # FreeBuf
-docker compose exec api cyberpulse source add "FreeBuf" rss \
-  --tier T1 \
-  --url "https://www.freebuf.com/feed" \
-  --schedule "0 */4 * * *"
+docker compose exec api cyber-pulse source add "FreeBuf" rss \
+  "https://www.freebuf.com/feed" --tier T1 --yes
 ```
 
 ---
@@ -159,23 +153,23 @@ docker compose exec api cyberpulse source add "FreeBuf" rss \
 
 ```bash
 # 立即执行采集
-docker compose exec api cyberpulse job run src_xxxxxxxx
+docker compose exec api cyber-pulse job run src_xxxxxxxx
 
 # 查看任务状态
-docker compose exec api cyberpulse job list --limit 5
+docker compose exec api cyber-pulse job list --limit 5
 ```
 
 ### 检查采集结果
 
 ```bash
 # 查看采集的内容
-docker compose exec api cyberpulse content list --limit 10
+docker compose exec api cyber-pulse content list --limit 10
 
 # 查看源统计
-docker compose exec api cyberpulse source stats
+docker compose exec api cyber-pulse source stats
 
 # 系统诊断
-docker compose exec api cyberpulse diagnose system
+docker compose exec api cyber-pulse diagnose system
 ```
 
 ---
@@ -263,10 +257,10 @@ for content in response.json()["data"]:
 
 ```bash
 # 检查情报源连接
-docker compose exec api cyberpulse source test src_xxx
+docker compose exec api cyber-pulse source test src_xxx
 
 # 检查错误日志
-docker compose exec api cyberpulse log errors --since 1h
+docker compose exec api cyber-pulse log errors --since 1h
 ```
 
 ### Q: API 返回 401
@@ -276,7 +270,7 @@ docker compose exec api cyberpulse log errors --since 1h
 # 格式：cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # 确认客户端未禁用
-docker compose exec api cyberpulse client list
+docker compose exec api cyber-pulse client list
 ```
 
 ### Q: 如何更新

@@ -162,7 +162,7 @@ async def metrics():
 
 ```bash
 # 统计各级别日志数量
-cyberpulse log stats --days 1
+cyber-pulse log stats --days 1
 
 # 输出示例
 # DEBUG: 0
@@ -175,10 +175,10 @@ cyberpulse log stats --days 1
 
 ```bash
 # 查看最近错误
-cyberpulse log errors --since 1h
+cyber-pulse log errors --since 1h
 
 # 导出错误日志
-cyberpulse log export --output /tmp/errors.log --level ERROR --since 24h
+cyber-pulse log export --output /tmp/errors.log --level ERROR --since 24h
 ```
 
 ### 日志告警规则
@@ -189,7 +189,7 @@ cyberpulse log export --output /tmp/errors.log --level ERROR --since 24h
 #!/bin/bash
 # log_alert.sh
 
-ERROR_COUNT=$(cyberpulse log errors --since 1h --format json | jq 'length')
+ERROR_COUNT=$(cyber-pulse log errors --since 1h --format json | jq 'length')
 
 if [ "$ERROR_COUNT" -gt 10 ]; then
     echo "WARNING: $ERROR_COUNT errors in the last hour"
@@ -360,7 +360,7 @@ curl -X POST $WEBHOOK_URL \
 
 ```bash
 # 一键诊断
-cyberpulse diagnose system
+cyber-pulse diagnose system
 
 # 输出示例
 System Health Check
