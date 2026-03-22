@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-22
+
+### Added
+
+#### Documentation
+- 完整用户文档体系
+  - 快速入门教程 (docs/quickstart.md)
+  - 部署指南 (docs/deployment-guide.md)
+  - API 使用指南 (docs/api-guide.md)
+  - API 参考 (docs/api-reference.md)
+  - 安全配置指南 (docs/security-guide.md)
+  - 故障排查手册 (docs/troubleshooting.md)
+  - 备份与恢复指南 (docs/backup-restore.md)
+  - 升级迁移指南 (docs/upgrade-guide.md)
+  - 情报源配置示例 (docs/source-config-examples.md)
+  - 监控与告警指南 (docs/monitoring.md)
+
+### Fixed
+- SSRF 防护 DNS 解析失败时改为 fail closed（防止绕过）
+- Docker Compose healthcheck 使用 POSTGRES_USER 环境变量
+
 ## [1.2.0] - 2026-03-21
 
 ### Added
