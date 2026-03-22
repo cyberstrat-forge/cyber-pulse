@@ -262,10 +262,10 @@ cmd_deploy() {
     mkdir -p "$PROJECT_ROOT/data"
     mkdir -p "$PROJECT_ROOT/logs"
 
-    # 4. 拉取/构建镜像
-    print_step "构建 Docker 镜像..."
+    # 4. 拉取镜像
+    print_step "拉取 Docker 镜像..."
     cd "$DEPLOY_DIR"
-    $DOCKER_COMPOSE $compose_files build --no-cache
+    $DOCKER_COMPOSE $compose_files pull
 
     # 5. 启动服务
     print_step "启动服务..."

@@ -32,9 +32,7 @@ services:
     restart: unless-stopped
 
   api:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: crpi-tuxci06y0zyoionf.cn-guangzhou.personal.cr.aliyuncs.com/cyberstrat-forge/cyber-pulse:${CYBER_PULSE_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
@@ -53,9 +51,7 @@ services:
     command: uvicorn cyberpulse.api.main:app --host 0.0.0.0 --port 8000
 
   worker:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: crpi-tuxci06y0zyoionf.cn-guangzhou.personal.cr.aliyuncs.com/cyberstrat-forge/cyber-pulse:${CYBER_PULSE_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
@@ -72,9 +68,7 @@ services:
     command: dramatiq cyberpulse.tasks --processes 1 --threads 2
 
   scheduler:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: crpi-tuxci06y0zyoionf.cn-guangzhou.personal.cr.aliyuncs.com/cyberstrat-forge/cyber-pulse:${CYBER_PULSE_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
