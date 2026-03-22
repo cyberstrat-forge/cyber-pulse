@@ -397,7 +397,7 @@ class TestAPIDataRetrieval:
         # Test without authentication - should return 401
         app.dependency_overrides[content_get_db] = lambda: db_session
         try:
-            response = api_client.get("/api/v1/content")
+            response = api_client.get("/api/v1/contents")
             assert response.status_code == 401
         finally:
             app.dependency_overrides.clear()
@@ -406,7 +406,7 @@ class TestAPIDataRetrieval:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = api_client.get("/api/v1/content")
+            response = api_client.get("/api/v1/contents")
 
             assert response.status_code == 200
             data = response.json()
@@ -520,7 +520,7 @@ class TestAPIDataRetrieval:
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
             # List content
-            response = api_client.get("/api/v1/content")
+            response = api_client.get("/api/v1/contents")
             assert response.status_code == 200
 
             data = response.json()
@@ -531,7 +531,7 @@ class TestAPIDataRetrieval:
             assert content.content_id in content_ids
 
             # Get single content
-            response = api_client.get(f"/api/v1/content/{content.content_id}")
+            response = api_client.get(f"/api/v1/contents/{content.content_id}")
             assert response.status_code == 200
 
             content_data = response.json()

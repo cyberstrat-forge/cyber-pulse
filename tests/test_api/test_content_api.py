@@ -39,7 +39,7 @@ def auth_headers(mock_api_client):
 
 
 class TestListContent:
-    """Tests for GET /api/v1/content endpoint."""
+    """Tests for GET /api/v1/contents endpoint."""
 
     def test_list_content_empty(self, client, db_session, mock_api_client):
         """Test listing content when no content exists."""
@@ -47,7 +47,7 @@ class TestListContent:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/content")
+            response = client.get("/api/v1/contents")
         finally:
             app.dependency_overrides.clear()
 
@@ -82,7 +82,7 @@ class TestListContent:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/content")
+            response = client.get("/api/v1/contents")
         finally:
             app.dependency_overrides.clear()
 
@@ -117,7 +117,7 @@ class TestListContent:
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
             # First page
-            response = client.get("/api/v1/content?limit=50")
+            response = client.get("/api/v1/contents?limit=50")
             assert response.status_code == 200
             data = response.json()
             assert len(data["data"]) == 50
@@ -127,7 +127,7 @@ class TestListContent:
 
             # Second page using cursor
             cursor = data["next_cursor"]
-            response2 = client.get(f"/api/v1/content?cursor={cursor}&limit=50")
+            response2 = client.get(f"/api/v1/contents?cursor={cursor}&limit=50")
             assert response2.status_code == 200
             data2 = response2.json()
             assert len(data2["data"]) == 50
@@ -182,7 +182,7 @@ class TestListContent:
             # Use URL-encoded ISO datetime (the + in timezone needs encoding)
             since_dt = datetime.now(timezone.utc) - timedelta(days=3)
             since_iso = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")  # Use Z suffix for UTC
-            response = client.get(f"/api/v1/content?since={since_iso}")
+            response = client.get(f"/api/v1/contents?since={since_iso}")
 
             assert response.status_code == 200
             data = response.json()
@@ -197,19 +197,19 @@ class TestListContent:
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
             # Minimum limit
-            response = client.get("/api/v1/content?limit=1")
+            response = client.get("/api/v1/contents?limit=1")
             assert response.status_code == 200
 
             # Maximum limit
-            response = client.get("/api/v1/content?limit=1000")
+            response = client.get("/api/v1/contents?limit=1000")
             assert response.status_code == 200
 
             # Over maximum - should fail validation
-            response = client.get("/api/v1/content?limit=1001")
+            response = client.get("/api/v1/contents?limit=1001")
             assert response.status_code == 422
 
             # Under minimum - should fail validation
-            response = client.get("/api/v1/content?limit=0")
+            response = client.get("/api/v1/contents?limit=0")
             assert response.status_code == 422
         finally:
             app.dependency_overrides.clear()
@@ -218,7 +218,7 @@ class TestListContent:
         """Test that authentication is required."""
         app.dependency_overrides[content_get_db] = lambda: db_session
         try:
-            response = client.get("/api/v1/content")
+            response = client.get("/api/v1/contents")
             # Without valid auth header, should get 401
             assert response.status_code == 401
         finally:
@@ -226,7 +226,7 @@ class TestListContent:
 
 
 class TestGetContent:
-    """Tests for GET /api/v1/content/{content_id} endpoint."""
+    """Tests for GET /api/v1/contents/{content_id} endpoint."""
 
     def test_get_content_found(self, client, db_session, mock_api_client):
         """Test getting a content by ID."""
@@ -248,7 +248,7 @@ class TestGetContent:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/content/cnt_20260319143052_test1")
+            response = client.get("/api/v1/contents/cnt_20260319143052_test1")
 
             assert response.status_code == 200
             data = response.json()
@@ -268,7 +268,7 @@ class TestGetContent:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/content/cnt_nonexistent")
+            response = client.get("/api/v1/contents/cnt_nonexistent")
 
             assert response.status_code == 404
             assert "not found" in response.json()["detail"].lower()
@@ -279,7 +279,7 @@ class TestGetContent:
         """Test that authentication is required."""
         app.dependency_overrides[content_get_db] = lambda: db_session
         try:
-            response = client.get("/api/v1/content/cnt_test123")
+            response = client.get("/api/v1/contents/cnt_test123")
             # Without valid auth header, should get 401
             assert response.status_code == 401
         finally:
@@ -307,7 +307,7 @@ class TestGetContent:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/content/cnt_20260319143052_full")
+            response = client.get("/api/v1/contents/cnt_20260319143052_full")
 
             assert response.status_code == 200
             data = response.json()
@@ -346,7 +346,7 @@ class TestContentResponseFormat:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/content/cnt_20260319143052_datetime")
+            response = client.get("/api/v1/contents/cnt_20260319143052_datetime")
 
             assert response.status_code == 200
             data = response.json()
@@ -361,7 +361,7 @@ class TestContentResponseFormat:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/content")
+            response = client.get("/api/v1/contents")
 
             assert response.status_code == 200
             data = response.json()
@@ -385,7 +385,7 @@ class TestContentResponseFormat:
         app.dependency_overrides[content_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/content")
+            response = client.get("/api/v1/contents")
 
             assert response.status_code == 200
             data = response.json()
@@ -428,7 +428,7 @@ class TestPaginationEdgeCases:
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
             # Get first page
-            response = client.get("/api/v1/content")
+            response = client.get("/api/v1/contents")
             assert response.status_code == 200
             data = response.json()
             # When we get exactly limit items, has_more is True (conservative)
@@ -437,7 +437,7 @@ class TestPaginationEdgeCases:
 
             # Use cursor - should return empty (proving there were no more)
             cursor = data["next_cursor"]
-            response2 = client.get(f"/api/v1/content?cursor={cursor}")
+            response2 = client.get(f"/api/v1/contents?cursor={cursor}")
             assert response2.status_code == 200
             data2 = response2.json()
             assert len(data2["data"]) == 0
@@ -451,7 +451,7 @@ class TestPaginationEdgeCases:
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
             # Use a cursor that doesn't match any content
-            response = client.get("/api/v1/content?cursor=cnt_20999999999999_xxx")
+            response = client.get("/api/v1/contents?cursor=cnt_20999999999999_xxx")
             assert response.status_code == 200
             data = response.json()
             # No content should match this cursor

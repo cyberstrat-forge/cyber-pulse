@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/content", response_model=ContentListResponse)
+@router.get("/contents", response_model=ContentListResponse)
 async def list_content(
     cursor: Optional[str] = Query(
         None,
@@ -102,7 +102,7 @@ async def list_content(
     )
 
 
-@router.get("/content/{content_id}", response_model=ContentResponse)
+@router.get("/contents/{content_id}", response_model=ContentResponse)
 async def get_content(
     content_id: str,
     client: ApiClient = Depends(get_current_client),

@@ -263,6 +263,153 @@ curl -H "Authorization: Bearer cp_live_xxx" \
 
 ---
 
+## 客户端 API
+
+> **注意**：客户端 API 需要 admin 权限。请在创建客户端时添加 `--admin` 参数。
+
+### 创建客户端
+
+创建新的 API 客户端。
+
+**请求**
+
+```
+POST /api/v1/clients
+```
+
+**认证**
+
+需要 admin 权限的 API Key。
+
+**请求体**
+
+```json
+{
+  "name": "分析系统",
+  "description": "下游分析系统接入"
+}
+```
+
+**参数**
+
+| 参数 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| name | string | 是 | 客户端名称 |
+| description | string | 否 | 客户端描述 |
+
+**响应**
+
+```json
+{
+  "client_id": "cli_a1b2c3d4e5f6g7h8",
+  "name": "分析系统",
+  "description": "下游分析系统接入",
+  "api_key": "cp_live_1234567890abcdef1234567890abcdef",
+  "status": "active",
+  "permissions": ["read"],
+  "created_at": "2026-03-22T10:00:00Z"
+}
+```
+
+**重要**：`api_key` 仅在创建时返回一次，请妥善保存。
+
+**示例**
+
+```bash
+curl -X POST -H "Authorization: Bearer cp_live_xxx" \
+     -H "Content-Type: application/json" \
+     -d '{"name": "分析系统", "description": "下游分析系统接入"}' \
+     "https://api.example.com/api/v1/clients"
+```
+
+---
+
+### 获取客户端列表
+
+获取所有客户端列表。
+
+**请求**
+
+```
+GET /api/v1/clients
+```
+
+**认证**
+
+需要 admin 权限的 API Key。
+
+**参数**
+
+| 参数 | 类型 | 位置 | 必需 | 说明 |
+|------|------|------|------|------|
+| limit | integer | query | 否 | 返回数量限制，默认 50 |
+
+**响应**
+
+```json
+{
+  "data": [
+    {
+      "client_id": "cli_a1b2c3d4e5f6g7h8",
+      "name": "分析系统",
+      "description": "下游分析系统接入",
+      "status": "active",
+      "permissions": ["read"],
+      "created_at": "2026-03-22T10:00:00Z",
+      "last_used_at": "2026-03-22T15:00:00Z"
+    }
+  ]
+}
+```
+
+**示例**
+
+```bash
+curl -H "Authorization: Bearer cp_live_xxx" \
+     "https://api.example.com/api/v1/clients"
+```
+
+---
+
+### 删除客户端
+
+删除指定客户端。
+
+**请求**
+
+```
+DELETE /api/v1/clients/{client_id}
+```
+
+**认证**
+
+需要 admin 权限的 API Key。
+
+**参数**
+
+| 参数 | 类型 | 位置 | 必需 | 说明 |
+|------|------|------|------|------|
+| client_id | string | path | 是 | 客户端 ID |
+
+**响应**
+
+成功时返回 204 状态码，无响应体。
+
+**错误响应**
+
+| 状态码 | 说明 |
+|--------|------|
+| 404 | 客户端不存在 |
+
+**示例**
+
+```bash
+curl -X DELETE -H "Authorization: Bearer cp_live_xxx" \
+     "https://api.example.com/api/v1/clients/cli_a1b2c3d4e5f6g7h8"
+```
+
+---
+
 ## 健康检查 API
 
 ### 服务健康状态

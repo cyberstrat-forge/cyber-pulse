@@ -721,7 +721,7 @@ verify_api_query() {
 
     RESPONSE=$(curl -s -w "\n%{http_code}" \
         -H "Authorization: Bearer $API_KEY" \
-        "${API_URL}/api/v1/content?limit=10")
+        "${API_URL}/api/v1/contents?limit=10")
 
     # macOS compatible: use sed to remove last line instead of head -n -1
     HTTP_CODE=$(echo "$RESPONSE" | tail -1)

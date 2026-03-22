@@ -86,6 +86,14 @@ curl -H "Authorization: Bearer cp_live_xxx" \
 | `/api/v1/sources` | GET | 获取情报源列表 |
 | `/api/v1/sources/{id}` | GET | 获取情报源详情 |
 
+### 客户端 API（需 admin 权限）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/clients` | POST | 创建客户端 |
+| `/api/v1/clients` | GET | 获取客户端列表 |
+| `/api/v1/clients/{id}` | DELETE | 删除客户端 |
+
 ### 健康检查
 
 | 端点 | 方法 | 说明 |
