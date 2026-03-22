@@ -666,7 +666,7 @@ cmd_upgrade() {
         echo -e "${BOLD}升级计划:${NC}"
         echo "  1. 创建快照"
         echo "  2. 获取代码: git fetch origin && git checkout $target_version"
-        echo "  3. 构建镜像: docker compose build --no-cache"
+        echo "  3. 拉取镜像: docker compose pull"
         echo "  4. 运行迁移: alembic upgrade head"
         echo "  5. 重启服务: docker compose up -d"
         echo "  6. 健康检查"
@@ -730,13 +730,13 @@ cmd_upgrade() {
         fi
     fi
 
-    # 构建镜像
+    # 拉取镜像
     if [[ "$upgrade_failed" != "true" ]]; then
-        print_step "构建 Docker 镜像..."
+        print_step "拉取 Docker 镜像..."
         cd "$DEPLOY_DIR"
 
-        if ! $DOCKER_COMPOSE build --no-cache; then
-            print_error "Docker 镜像构建失败"
+        if ! $DOCKER_COMPOSE pull; then
+            print_error "Docker 镜像拉取失败"
             upgrade_failed="true"
         fi
     fi
