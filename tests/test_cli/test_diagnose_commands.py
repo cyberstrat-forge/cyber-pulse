@@ -713,3 +713,31 @@ class TestDiagnoseSystemServices:
                 assert result.exit_code == 0
                 assert 'API' in result.stdout
                 assert 'not reachable' in result.stdout or 'unavailable' in result.stdout.lower()
+
+
+class TestDiagnoseRedisNotInstalled:
+    """Tests for diagnose when redis client is not installed."""
+
+    def test_diagnose_system_shows_uv_sync_hint(self) -> None:
+        """Test system diagnosis shows 'uv sync' hint when redis not installed."""
+        with patch('cyberpulse.cli.commands.diagnose.SessionLocal') as mock_db, \
+             patch('cyberpulse.cli.commands.diagnose.settings') as mock_settings:
+            mock_session = MagicMock()
+            mock_session.execute.return_value = None
+            mock_db.return_value = mock_session
+            mock_settings.database_url = 'postgresql://localhost/db'
+            mock_settings.redis_url = 'redis://localhost:6379/0'
+            mock_settings.dramatiq_broker_url = 'redis://localhost:6379/1'
+            mock_settings.log_level = 'INFO'
+            mock_settings.log_file = None
+            mock_settings.scheduler_enabled = True
+            mock_settings.api_host = '127.0.0.1'
+            mock_settings.api_port = 8000
+
+            # Remove redis module to simulate ImportError
+            with patch.dict('sys.modules', {'redis': None}):
+                result = runner.invoke(app, ['system'])
+                # Should show uv sync hint
+                assert "uv sync" in result.stdout
+                # Should NOT show pip
+                assert "pip install" not in result.stdout
