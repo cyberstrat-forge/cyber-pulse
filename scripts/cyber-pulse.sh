@@ -292,9 +292,14 @@ cmd_deploy() {
 
     # 7. 运行数据库迁移
     print_step "运行数据库迁移..."
-    $DOCKER_COMPOSE $compose_files exec -T api alembic upgrade head 2>/dev/null || {
-        print_warning "数据库迁移失败或已是最新版本"
-    }
+    if $DOCKER_COMPOSE $compose_files exec -T api alembic upgrade head; then
+        print_success "数据库迁移完成"
+    else
+        print_error "数据库迁移失败，请检查日志"
+        print_info "查看日志: cyber-pulse.sh logs api"
+        # 不退出，因为 entrypoint 会自动重试迁移
+        print_warning "服务将继续启动，迁移可能已在 entrypoint 中完成"
+    fi
 
     # 8. 显示状态
     print_step "服务状态:"
@@ -781,10 +786,11 @@ cmd_upgrade() {
         print_step "运行数据库迁移..."
         sleep 5  # 等待数据库就绪
 
-        if $DOCKER_COMPOSE exec -T api alembic upgrade head 2>/dev/null; then
+        if $DOCKER_COMPOSE exec -T api alembic upgrade head; then
             print_success "数据库迁移完成"
         else
             print_warning "数据库迁移可能已失败，请检查日志"
+            print_info "查看日志: cyber-pulse.sh logs api"
         fi
     fi
 
