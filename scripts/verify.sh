@@ -54,7 +54,7 @@ parse_json_field() {
     fi
 
     local result
-    result=$(echo "$json_input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$field', $default))" 2>/dev/null)
+    result=$(echo "$json_input" | uv run --no-sync python -c "import sys,json; print(json.load(sys.stdin).get('$field', $default))" 2>/dev/null)
 
     if [ $? -ne 0 ] || [ -z "$result" ]; then
         log_debug "Failed to parse JSON for field '$field'"
@@ -67,7 +67,7 @@ parse_json_field() {
 # 验证 JSON 格式是否有效
 validate_json() {
     local json_input="$1"
-    echo "$json_input" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null
+    echo "$json_input" | uv run --no-sync python -c "import sys,json; json.load(sys.stdin)" 2>/dev/null
     return $?
 }
 
@@ -128,14 +128,14 @@ validate_sources_file() {
     fi
 
     # 验证 YAML 语法
-    python3 -c "import yaml; yaml.safe_load(open('$SOURCES_FILE'))" || {
+    uv run --no-sync python -c "import yaml; yaml.safe_load(open('$SOURCES_FILE'))" || {
         log_error "YAML 语法错误: $SOURCES_FILE"
         exit 1
     }
 
     # 验证必需字段
     export SOURCES_FILE
-    python3 << 'PYEOF'
+    uv run --no-sync python << 'PYEOF'
 import yaml
 import sys
 import os
@@ -411,7 +411,7 @@ verify_log_features() {
     LOG_ERRORS_JSON=$(docker exec $CONTAINER_API cyber-pulse log errors --format json 2>&1 || true)
     if validate_json "$LOG_ERRORS_JSON"; then
         # JSON 是数组，计算长度
-        ERROR_COUNT=$(echo "$LOG_ERRORS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+        ERROR_COUNT=$(echo "$LOG_ERRORS_JSON" | uv run --no-sync python -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
         echo "  ✓ log errors --format json: 有效 JSON ($ERROR_COUNT 条错误)"
     else
         echo "  ⚠ log errors --format json: 无错误或格式异常"
@@ -515,7 +515,7 @@ verify_source_management() {
     export SOURCES_FILE
     export CONTAINER_API
     export API_URL
-    python3 << 'PYEOF'
+    uv run --no-sync python << 'PYEOF'
 import yaml
 import subprocess
 import sys
@@ -733,10 +733,10 @@ verify_api_query() {
         exit 1
     fi
 
-    COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('count', len(d) if isinstance(d, list) else 0))")
+    COUNT=$(echo "$BODY" | uv run --no-sync python -c "import sys,json; d=json.load(sys.stdin); print(d.get('count', len(d) if isinstance(d, list) else 0))")
     echo "  ✓ Content API: HTTP $HTTP_CODE, $COUNT items returned"
 
-    CURSOR=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_cursor', ''))" 2>/dev/null || echo "")
+    CURSOR=$(echo "$BODY" | uv run --no-sync python -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_cursor', ''))" 2>/dev/null || echo "")
     if [ -n "$CURSOR" ]; then
         echo "  ✓ Cursor pagination: working"
     else
@@ -945,3 +945,4 @@ main() {
 }
 
 main "$@"
+exit 0
