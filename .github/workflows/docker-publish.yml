@@ -11,6 +11,9 @@ env:
   NAMESPACE: cyberstrat-forge
   IMAGE_NAME: cyber-pulse
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
