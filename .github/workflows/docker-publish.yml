@@ -36,12 +36,15 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
+          # Validate and sanitize GITHUB_REF
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            # Sanitize: only allow alphanumeric, dots, and dashes
+            VERSION="${VERSION//[^a-zA-Z0-9.\-]/}"
           else
-            VERSION=latest
+            VERSION="latest"
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building version: $VERSION"
 
       - name: Build and push
