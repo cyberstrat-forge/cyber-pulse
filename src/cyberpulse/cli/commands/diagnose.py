@@ -70,7 +70,7 @@ def diagnose_system() -> None:
             r2.ping()
             console.print("  [green]✓[/green] Dramatiq Redis: [green]healthy[/green]")
     except ImportError:
-        console.print("  [yellow]![/yellow] Redis client not installed (pip install redis)")
+        console.print("  [yellow]![/yellow] Redis client not installed (run 'uv sync')")
     except Exception as e:
         console.print("  [red]✗[/red] Redis connection: [red]unhealthy[/red]")
         console.print(f"  [dim]Error: {e}[/dim]")
@@ -131,7 +131,7 @@ def diagnose_system() -> None:
         console.print("  [green]✓[/green] Dramatiq Redis: [green]connected[/green]")
         console.print(f"  [dim]Pending tasks in default queue: {queue_len}[/dim]")
     except ImportError:
-        console.print("  [yellow]![/yellow] Redis client not installed (pip install redis)")
+        console.print("  [yellow]![/yellow] Redis client not installed (run 'uv sync')")
     except Exception as e:
         logger.warning(f"Could not check queue status: {e}")
         console.print("  [yellow]![/yellow] Could not check queue status")
