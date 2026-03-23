@@ -824,18 +824,16 @@ teardown_infrastructure() {
     echo "[清理基础设施]"
 
     # 停止容器
-    stop_containers
+    stop_containers || return 1
 
     # 清理悬空镜像
     echo ""
     echo "清理悬空镜像..."
-    local dangling_images
-    dangling_images=$(docker images --filter "dangling=true" -q 2>/dev/null)
-    if [ -n "$dangling_images" ]; then
-        local count
-        count=$(echo "$dangling_images" | wc -l | tr -d ' ')
+    local dangling_count
+    dangling_count=$(docker images --filter "dangling=true" -q 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$dangling_count" -gt 0 ]; then
         docker image prune -f
-        echo "  ✓ 已清理 $count 个悬空镜像"
+        echo "  ✓ 已清理 $dangling_count 个悬空镜像"
     else
         echo "  ✓ 无悬空镜像"
     fi
@@ -991,9 +989,9 @@ main() {
 
     # 验证成功后清理基础设施
     if [ "$TEARDOWN_AFTER" = "true" ]; then
-        teardown_infrastructure
+        teardown_infrastructure || log_error "teardown_infrastructure 执行失败"
     elif [ "$STOP_AFTER" = "true" ]; then
-        stop_containers
+        stop_containers || log_error "stop_containers 执行失败"
     fi
 
     # 释放锁
