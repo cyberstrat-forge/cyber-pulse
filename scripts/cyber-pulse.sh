@@ -277,6 +277,17 @@ cmd_deploy() {
     if [[ "$use_local" == "true" ]]; then
         print_step "构建本地 Docker 镜像..."
         $DOCKER_COMPOSE $compose_files build
+
+        # 清理悬空镜像（构建产生的旧版本）
+        print_step "清理悬空镜像..."
+        local dangling_count
+        dangling_count=$(docker images --filter "dangling=true" -q 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$dangling_count" -gt 0 ]]; then
+            docker image prune -f
+            print_success "已清理 $dangling_count 个悬空镜像"
+        else
+            print_success "无悬空镜像"
+        fi
     else
         print_step "拉取 Docker 镜像..."
         $DOCKER_COMPOSE $compose_files pull

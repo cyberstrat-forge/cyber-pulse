@@ -21,6 +21,8 @@ API_URL="${API_URL:-http://localhost:8000}"
 OUTPUT_FILE=""
 KEEP_SOURCES=false
 DEBUG="${DEBUG:-false}"
+STOP_AFTER=false
+TEARDOWN_AFTER=false
 
 # ============================================================================
 # 日志函数
@@ -90,6 +92,14 @@ parse_args() {
                 KEEP_SOURCES=true
                 shift
                 ;;
+            --stop)
+                STOP_AFTER=true
+                shift
+                ;;
+            --teardown)
+                TEARDOWN_AFTER=true
+                shift
+                ;;
             --cleanup)
                 cleanup_verify_data
                 exit 0
@@ -101,6 +111,8 @@ parse_args() {
                 echo "  --output, -o FILE    输出报告到文件 (Markdown 格式)"
                 echo "  --sources, -s FILE   指定情报源清单 (默认: sources.yaml)"
                 echo "  --keep-sources       保留测试情报源"
+                echo "  --stop               验证成功后停止容器"
+                echo "  --teardown           验证成功后停止容器并清理镜像"
                 echo "  --cleanup            清理测试数据并退出"
                 echo "  --help, -h           显示此帮助"
                 echo ""
@@ -789,6 +801,47 @@ cleanup_verify_data() {
 }
 
 # ============================================================================
+# 基础设施清理
+# ============================================================================
+
+stop_containers() {
+    echo ""
+    echo "[停止容器]"
+
+    local project_root
+    project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+    if [ -f "$project_root/scripts/cyber-pulse.sh" ]; then
+        bash "$project_root/scripts/cyber-pulse.sh" stop
+    else
+        log_error "cyber-pulse.sh 未找到"
+        return 1
+    fi
+}
+
+teardown_infrastructure() {
+    echo ""
+    echo "[清理基础设施]"
+
+    # 停止容器
+    stop_containers
+
+    # 清理悬空镜像
+    echo ""
+    echo "清理悬空镜像..."
+    local dangling_images
+    dangling_images=$(docker images --filter "dangling=true" -q 2>/dev/null)
+    if [ -n "$dangling_images" ]; then
+        local count
+        count=$(echo "$dangling_images" | wc -l | tr -d ' ')
+        docker image prune -f
+        echo "  ✓ 已清理 $count 个悬空镜像"
+    else
+        echo "  ✓ 无悬空镜像"
+    fi
+}
+
+# ============================================================================
 # 报告输出
 # ============================================================================
 
@@ -935,6 +988,13 @@ main() {
     verify_level3
     cleanup_verify_data
     print_report
+
+    # 验证成功后清理基础设施
+    if [ "$TEARDOWN_AFTER" = "true" ]; then
+        teardown_infrastructure
+    elif [ "$STOP_AFTER" = "true" ]; then
+        stop_containers
+    fi
 
     # 释放锁
     if command -v flock &> /dev/null; then
