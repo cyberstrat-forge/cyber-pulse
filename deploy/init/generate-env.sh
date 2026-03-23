@@ -20,7 +20,8 @@ NC='\033[0m' # No Color
 
 # 默认配置
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="$PROJECT_ROOT/.env"
+# .env 文件放在 deploy 目录，docker-compose 在此目录执行
+ENV_FILE="$PROJECT_ROOT/deploy/.env"
 BACKUP_SUFFIX=".backup.$(date +%Y%m%d%H%M%S)"
 
 # 生成安全密码的函数

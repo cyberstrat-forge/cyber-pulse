@@ -35,7 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEPLOY_DIR="$PROJECT_ROOT/deploy"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
-ENV_FILE="$PROJECT_ROOT/.env"
+ENV_FILE="$DEPLOY_DIR/.env"
 UPGRADE_DIR="$DEPLOY_DIR/upgrade"
 SNAPSHOTS_DIR="$PROJECT_ROOT/.snapshots"
 BACKUP_DIR="$DEPLOY_DIR/backup"
@@ -211,6 +211,7 @@ print_env_info() {
 # deploy 命令 - 完整部署
 cmd_deploy() {
     local target_env=""
+    local use_local=false
 
     # 解析参数
     while [[ $# -gt 0 ]]; do
@@ -218,6 +219,10 @@ cmd_deploy() {
             --env|-e)
                 target_env="$2"
                 shift 2
+                ;;
+            --local|-l)
+                use_local=true
+                shift
                 ;;
             --help|-h)
                 print_deploy_help
@@ -238,6 +243,11 @@ cmd_deploy() {
     current_env=$(get_current_env)
     local compose_files
     compose_files=$(get_compose_files "$current_env")
+
+    # 如果使用 --local，添加本地构建覆盖文件
+    if [[ "$use_local" == "true" ]]; then
+        compose_files="$compose_files -f docker-compose.local.yml"
+    fi
 
     print_banner
     print_header "部署 Cyber Pulse ($current_env 环境)"
@@ -262,10 +272,15 @@ cmd_deploy() {
     mkdir -p "$PROJECT_ROOT/data"
     mkdir -p "$PROJECT_ROOT/logs"
 
-    # 4. 拉取镜像
-    print_step "拉取 Docker 镜像..."
+    # 4. 构建/拉取镜像
     cd "$DEPLOY_DIR"
-    $DOCKER_COMPOSE $compose_files pull
+    if [[ "$use_local" == "true" ]]; then
+        print_step "构建本地 Docker 镜像..."
+        $DOCKER_COMPOSE $compose_files build
+    else
+        print_step "拉取 Docker 镜像..."
+        $DOCKER_COMPOSE $compose_files pull
+    fi
 
     # 5. 启动服务
     print_step "启动服务..."
@@ -306,11 +321,13 @@ print_deploy_help() {
     echo "部署命令:"
     echo "  --env <env>    指定环境 (dev/test/prod)"
     echo "                 默认使用当前环境或 dev"
+    echo "  --local, -l    使用本地构建镜像（开发测试用）"
+    echo "                 默认从阿里云镜像仓库拉取"
     echo ""
     echo "示例:"
-    echo "  cyber-pulse.sh deploy              # 使用当前环境部署"
+    echo "  cyber-pulse.sh deploy              # 使用当前环境部署（远程镜像）"
     echo "  cyber-pulse.sh deploy --env prod   # 部署到生产环境"
-    echo "  cyber-pulse.sh deploy -e test      # 部署到测试环境"
+    echo "  cyber-pulse.sh deploy -e test -l   # 测试环境本地构建部署"
 }
 
 # start 命令 - 启动服务

@@ -14,7 +14,37 @@
 
 ---
 
-## 快速开始
+## 部署与验证
+
+### 部署命令
+
+```bash
+# 测试环境
+./scripts/cyber-pulse.sh deploy --env test
+
+# 生产环境
+./scripts/cyber-pulse.sh deploy --env prod
+```
+
+### 验证命令
+
+```bash
+./scripts/verify.sh                           # 端到端验证
+./scripts/verify.sh --output report.md        # 生成报告
+```
+
+### 常用管理命令
+
+```bash
+./scripts/cyber-pulse.sh status               # 查看状态
+./scripts/cyber-pulse.sh logs                 # 查看日志
+./scripts/cyber-pulse.sh stop                 # 停止服务
+./scripts/cyber-pulse.sh restart              # 重启服务
+```
+
+---
+
+## 快速开始（开发环境）
 
 ```bash
 # 环境变量（必需）
@@ -26,7 +56,7 @@ uv sync
 uv run alembic upgrade head
 ```
 
-### 常用命令
+### 开发常用命令
 
 ```bash
 # 测试
@@ -41,14 +71,17 @@ uv run mypy src/ --ignore-missing-imports  # 类型检查
 uv run alembic upgrade head             # 迁移
 uv run alembic revision --autogenerate -m "description"  # 创建迁移
 
-# Docker
-cd deploy && docker-compose up -d       # 启动服务
-docker-compose logs -f                  # 查看日志
-docker-compose down                     # 停止服务
-
 # CLI
 uv run cyber-pulse --help               # CLI 帮助
 ```
+
+---
+
+## 情报源配置
+
+- **配置文件**: `sources.yaml`（已包含 58 个情报源）
+- **示例文件**: `examples/sources-example.yaml`
+- **文档**: [情报源配置示例](./docs/source-config-examples.md)
 
 ---
 
@@ -108,7 +141,16 @@ uv run pytest  # 覆盖率 ≥ 80%
 
 ## 文档索引
 
+### 开发文档
 - [技术规格说明书](./docs/superpowers/specs/2026-03-18-cyber-pulse-design.md)
 - [CLI 使用手册](./docs/cli-usage-manual.md)
 - [项目总结报告](./docs/2026-03-20-project-summary-report.md)
+
+### 运维文档
+- [部署指南](./docs/deployment-guide.md) - 部署流程详解
+- [验证指南](./docs/verification-guide.md) - 端到端验证说明
+- [API 参考](./docs/api-reference.md) - API 接口文档
+- [故障排查](./docs/troubleshooting.md) - 问题诊断手册
+
+### 变更记录
 - [变更日志](./CHANGELOG.md)

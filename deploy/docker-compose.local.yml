@@ -1,0 +1,18 @@
+# Docker Compose 本地构建覆盖配置
+#
+# 用法: docker compose -f docker-compose.yml -f docker-compose.test.yml -f docker-compose.local.yml up -d
+#
+# 用于开发和测试环境，本地构建镜像而非从仓库拉取
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: cyber-pulse:test
+
+  worker:
+    image: cyber-pulse:test
+
+  scheduler:
+    image: cyber-pulse:test
