@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from ..config import settings
+from .. import __version__
 from .routers import content, sources, clients, health
 
 
@@ -61,7 +62,7 @@ setup_logging()
 app = FastAPI(
     title="cyber-pulse API",
     description="Security Intelligence Collection System",
-    version="0.1.0",
+    version=__version__,
     docs_url="/docs" if should_enable_docs() else None,
     redoc_url="/redoc" if should_enable_docs() else None,
     openapi_url="/openapi.json" if should_enable_docs() else None,

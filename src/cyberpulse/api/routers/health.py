@@ -8,6 +8,7 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ...database import get_db
+from ... import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ async def health_check(db: Session = Depends(get_db)) -> dict:
 
     return {
         "status": "healthy" if db_status == "healthy" else "degraded",
-        "version": "0.1.0",
+        "version": __version__,
         "components": {
             "database": db_status,
             "api": "healthy",
