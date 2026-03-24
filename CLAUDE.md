@@ -73,6 +73,9 @@ uv run alembic revision --autogenerate -m "description"  # 创建迁移
 
 # CLI
 uv run cyber-pulse --help               # CLI 帮助
+uv run cyber-pulse diagnose system      # 系统健康检查
+uv run cyber-pulse diagnose errors      # 错误分析
+uv run cyber-pulse log tail             # 实时查看日志
 ```
 
 ---
