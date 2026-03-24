@@ -55,7 +55,7 @@ curl http://localhost:8000/health
   "status": "healthy",
   "database": "connected",
   "redis": "connected",
-  "version": "1.2.0"
+  "version": "1.3.0"
 }
 ```
 
