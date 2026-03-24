@@ -126,7 +126,7 @@ def list_content(
                 })
             # Use print() instead of console.print() to avoid Rich's line wrapping
             # which breaks JSON parsing
-            print(json.dumps(output, indent=2))
+            print(json.dumps(output, indent=2, ensure_ascii=False))
         else:
             table = Table(title=f"Content ({len(contents)} results)")
             table.add_column("Content ID", style="cyan", no_wrap=True)
@@ -219,7 +219,7 @@ def get_content(
                     "source_count": content.source_count,
                     "status": content.status.value if content.status else None,
                 }
-                print(json.dumps(output, indent=2))
+                print(json.dumps(output, indent=2, ensure_ascii=False))
         else:
             # List content matching filters
             since_dt = parse_datetime(since)
@@ -252,7 +252,7 @@ def get_content(
                     }
                     for content in contents
                 ]
-                console.print(json.dumps(output_list, indent=2))
+                console.print(json.dumps(output_list, indent=2, ensure_ascii=False))
 
     except typer.Exit:
         raise
@@ -286,7 +286,7 @@ def content_stats(
         stats = service.get_content_statistics()
 
         if format == "json":
-            print(json.dumps(stats, indent=2))
+            print(json.dumps(stats, indent=2, ensure_ascii=False))
         else:
             table = Table(title="Content Statistics", show_header=False)
             table.add_column("Metric", style="cyan")
