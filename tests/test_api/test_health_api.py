@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from cyberpulse.api.main import app
 from cyberpulse.api.routers.health import get_db as health_get_db
+from cyberpulse import __version__
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ class TestHealthCheck:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "0.1.0"
+        assert data["version"] == __version__
         assert data["components"]["api"] == "healthy"
         assert data["components"]["database"] == "healthy"
 
@@ -68,7 +69,7 @@ class TestAppMetadata:
 
     def test_app_version(self):
         """Test that app has correct version."""
-        assert app.version == "0.1.0"
+        assert app.version == __version__
 
 
 class TestRouterRegistration:
