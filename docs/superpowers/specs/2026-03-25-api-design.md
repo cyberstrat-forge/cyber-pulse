@@ -115,6 +115,10 @@ def require_permission(permission: str):
 | `from` | string | `latest` | 起始位置：`latest` 或 `beginning` |
 | `limit` | int | 50 | 每页数量，最大 100 |
 
+**参数互斥规则**：
+- `cursor` 与 `from` 互斥，同时提供返回 400 错误
+- `cursor` 与时间范围参数（`since`/`until`）可组合使用
+
 #### 游标格式与校验
 
 **格式**：`item_{YYYYMMDDHHMMSS}_{uuid8}`
@@ -139,6 +143,35 @@ def require_permission(permission: str):
 | 增量拉取 | `cursor={item_id}` | 从指定位置继续 |
 | 时间范围拉取 | `since` / `since` + `until` | 按 published_at 筛选 |
 | 全量拉取 | `from=beginning` | 从最早开始 |
+
+#### 响应字段
+
+**Item 字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 情报唯一标识（item_id） |
+| `title` | string | 标题 |
+| `author` | string | 作者（可能为空） |
+| `published_at` | datetime | 原始发布时间 |
+| `body` | string | 正文（Markdown 格式） |
+| `url` | string | 原始文章链接 |
+| `completeness_score` | float | 内容完整性评分 (0-1) |
+| `tags` | string[] | 标签列表（可能为空） |
+| `fetched_at` | datetime | 采集时间 |
+| `source` | object | 情报源信息（嵌套对象） |
+
+**嵌套 source 对象字段**：
+
+| 字段 | 说明 | 对应 Source API 字段 |
+|------|------|---------------------|
+| `source_id` | 来源 ID | `source_id` |
+| `source_name` | 来源名称 | `name` |
+| `source_url` | RSS URL | `config.feed_url` |
+| `source_tier` | 来源等级 | `tier` |
+| `source_score` | 质量评分 | `score` |
+
+**命名约定**：嵌套对象使用 `source_` 前缀，避免与外层字段冲突。
 
 #### 响应示例
 
@@ -209,6 +242,71 @@ completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 -
 | `/{id}/schedule` | DELETE | 取消调度 |
 | `/import` | POST | 批量导入 |
 | `/export` | GET | 导出源 |
+
+#### 源列表
+
+```
+GET /api/v1/admin/sources?status=active&tier=T1&limit=50
+```
+
+**响应**：
+
+```json
+{
+  "data": [
+    {
+      "source_id": "src_a1b2c3d4",
+      "name": "Example Blog",
+      "tier": "T1",
+      "score": 75.0,
+      "status": "active",
+      "needs_full_fetch": true,
+      "consecutive_failures": 0
+    }
+  ],
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+```
+
+#### 源详情
+
+```
+GET /api/v1/admin/sources/{id}
+```
+
+**响应**：与单个添加响应格式相同（见下文）。
+
+#### 测试连接
+
+```
+POST /api/v1/admin/sources/{id}/test
+```
+
+**响应**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "test_result": "success",
+  "response_time_ms": 234,
+  "items_found": 15,
+  "last_modified": "2026-03-25T10:00:00Z",
+  "warnings": []
+}
+```
+
+**失败响应**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "test_result": "failed",
+  "error_type": "connection",
+  "error_message": "Connection timeout after 30s",
+  "suggestion": "检查网络连接或增加超时时间"
+}
+```
 
 #### 单个添加
 
@@ -468,6 +566,33 @@ GET /api/v1/admin/jobs/{id}
 | `/{id}/enable` | PUT | 启用客户端 |
 | `/{id}` | DELETE | 删除客户端 |
 
+#### 客户端列表
+
+```
+GET /api/v1/admin/clients?status=active&limit=50
+```
+
+**响应**：
+
+```json
+{
+  "data": [
+    {
+      "client_id": "cli_a1b2c3d4e5f6g7h8",
+      "name": "分析系统",
+      "description": "下游分析系统",
+      "permissions": ["read"],
+      "status": "active",
+      "last_used_at": "2026-03-25T10:00:00Z",
+      "expires_at": "2026-12-31T23:59:59Z",
+      "created_at": "2026-03-01T10:00:00Z"
+    }
+  ],
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+```
+
 #### 创建客户端
 
 ```
@@ -513,6 +638,19 @@ POST /api/v1/admin/clients
 ```
 GET /api/v1/admin/logs?level=error&source=src_xxx&since=2026-03-25T00:00:00Z&limit=50
 ```
+
+**错误类型枚举**：
+
+| error_type | 说明 |
+|------------|------|
+| `connection` | 网络连接错误 |
+| `timeout` | 请求超时 |
+| `http_403` | 访问被拒绝 |
+| `http_404` | 资源不存在 |
+| `http_429` | 请求频率限制 |
+| `http_5xx` | 服务器错误 |
+| `parse_error` | RSS 解析失败 |
+| `ssl_error` | SSL 证书错误 |
 
 **响应**：
 
