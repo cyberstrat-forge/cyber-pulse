@@ -19,12 +19,18 @@
 
 ---
 
-### Task 1: Write Failing Tests for Unicode Encoding
+### Task 1: Create Branch and Write Failing Tests
 
 **Files:**
 - Create: `tests/test_api/test_unicode_encoding.py`
 
-- [ ] **Step 1: Create test file with failing tests**
+- [ ] **Step 1: Create feature branch**
+
+```bash
+git checkout -b fix/api-unicode-encoding
+```
+
+- [ ] **Step 2: Create test file with failing tests**
 
 ```python
 """Test that API responses preserve Unicode characters."""
@@ -59,13 +65,13 @@ class TestUnicodeEncoding:
         assert "\\u" not in raw_text, "Error messages should not escape Unicode"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_api/test_unicode_encoding.py -v`
 
 Expected: FAIL - tests detect `\u` escape sequences in responses
 
-- [ ] **Step 3: Commit failing tests**
+- [ ] **Step 4: Commit failing tests**
 
 ```bash
 git add tests/test_api/test_unicode_encoding.py
@@ -79,26 +85,23 @@ git commit -m "test: add Unicode encoding tests (currently failing)"
 **Files:**
 - Modify: `src/cyberpulse/api/main.py`
 
-- [ ] **Step 1: Add import for JSONResponse and json module**
+- [ ] **Step 1: Add import statements**
 
-At line 1-8, modify imports to include:
+Modify `src/cyberpulse/api/main.py`:
 
+**After line 6** (after `from pathlib import Path`), add:
 ```python
-"""
-FastAPI application entry point.
-"""
 import json
-import logging
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
+```
 
-from fastapi import FastAPI
+**After line 8** (after `from fastapi import FastAPI`), add:
+```python
 from fastapi.responses import JSONResponse
 ```
 
-- [ ] **Step 2: Add UnicodeJSONResponse class after imports**
+- [ ] **Step 2: Add UnicodeJSONResponse class**
 
-Insert after line 12 (after `from .routers import content, sources, clients, health`):
+Insert the following class **after line 12** (after `from .routers import content, sources, clients, health`) and **before line 15** (before `def setup_logging()`):
 
 ```python
 
@@ -120,12 +123,17 @@ class UnicodeJSONResponse(JSONResponse):
         ).encode("utf-8")
 ```
 
-- [ ] **Step 3: Configure FastAPI to use UnicodeJSONResponse**
+- [ ] **Step 3: Add default_response_class to FastAPI app**
 
-Modify the FastAPI app instantiation to include `default_response_class`:
+Find the `app = FastAPI(...)` block (around line 62-69). Add `default_response_class=UnicodeJSONResponse,` as a new parameter:
 
+**Add this line** after `version=__version__,`:
 ```python
-# Conditionally disable Swagger/OpenAPI docs in production
+    default_response_class=UnicodeJSONResponse,
+```
+
+The complete block should look like:
+```python
 app = FastAPI(
     title="cyber-pulse API",
     description="Security Intelligence Collection System",
@@ -184,24 +192,44 @@ Expected: PASS - no type errors
 
 ---
 
-### Task 4: Update Issue and Close
+### Task 4: Create Pull Request
 
-- [ ] **Step 1: Push changes to remote**
+- [ ] **Step 1: Push branch to remote**
 
 ```bash
-git push origin main
+git push -u origin fix/api-unicode-encoding
 ```
 
-- [ ] **Step 2: Add comment to Issue #39**
+- [ ] **Step 2: Create Pull Request**
 
-Comment on issue:
+Create PR with title: `fix(api): ensure proper Chinese encoding in JSON output`
+
+PR body:
 ```
-Fixed in commit <sha>. The API now uses `UnicodeJSONResponse` with `ensure_ascii=False` to properly encode Chinese and other Unicode characters in all JSON responses.
+## Summary
+
+- Add `UnicodeJSONResponse` class with `ensure_ascii=False`
+- Configure as `default_response_class` for FastAPI app
+- Fixes Chinese characters displaying as Unicode escape sequences (`\uXXXX`)
+
+## Affected components
+
+- REST API JSON responses
+- OpenAPI documentation (`/docs`, `/redoc`, `/openapi.json`)
+- Error responses (401, 403, 404, 422)
+
+## Test plan
+
+- [x] Unit tests for Unicode encoding added
+- [x] All existing tests pass
+- [ ] Manual test: `curl localhost:8000/health` shows proper Unicode
+
+Fixes #39
 ```
 
-- [ ] **Step 3: Close Issue #39**
+- [ ] **Step 3: Merge PR after review**
 
-Close the issue as completed.
+After PR approval, merge to main.
 
 ---
 
@@ -212,4 +240,5 @@ Close the issue as completed.
 - [ ] No linting errors
 - [ ] No type errors
 - [ ] Manual test: `curl localhost:8000/health` shows proper Unicode
+- [ ] PR merged to main
 - [ ] Issue #39 closed
