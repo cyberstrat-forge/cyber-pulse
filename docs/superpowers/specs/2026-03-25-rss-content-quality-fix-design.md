@@ -1,9 +1,18 @@
 # 设计文档：RSS 内容质量问题全面修复
 
-**版本**: 1.0
+**版本**: 1.1
 **日期**: 2026-03-25
-**状态**: 已批准
+**状态**: 已批准（经过 Spec Review）
 **Issue**: #41, #46
+
+---
+
+## 变更历史
+
+| 版本 | 日期 | 变更内容 |
+|------|------|---------|
+| 1.1 | 2026-03-25 | 根据 Spec Review 更新：TitleParserService 实现、源治理逻辑、准入标准调整、任务集成修正 |
+| 1.0 | 2026-03-25 | 初始版本 |
 
 ---
 
@@ -94,9 +103,12 @@ cyber-pulse 是战略情报采集系统，通过 RSS 源采集高价值内容，
 ```
 
 **质量标准：**
-- 样本数 ≥ 5 条
+- 样本数 ≥ 3 条（最多采集 10 条）
 - 平均 content_completeness ≥ 0.4
 - 平均内容长度 ≥ 50 字符
+
+**force 选项：**
+支持 `force=True` 强制添加不符合标准的源
 
 ---
 
@@ -218,7 +230,7 @@ class SourceQualityValidator:
     """源质量验证器"""
 
     # 质量标准
-    MIN_SAMPLE_ITEMS = 5
+    MIN_SAMPLE_ITEMS = 3  # 放宽对低频源的支持
     MIN_AVG_COMPLETENESS = 0.4
     MIN_AVG_CONTENT_LENGTH = 50
 
@@ -232,6 +244,27 @@ class SourceQualityValidator:
         3. 判断是否符合标准
         """
         pass
+
+    async def validate_source_with_force(
+        self,
+        source_config: dict,
+        force: bool = False
+    ) -> SourceValidationResult:
+        """
+        验证源，支持强制添加
+
+        Args:
+            source_config: 源配置
+            force: 强制添加，跳过质量验证
+        """
+        if force:
+            return SourceValidationResult(
+                is_valid=True,
+                content_type='unknown',
+                sample_completeness=0.0,
+                avg_content_length=0,
+            )
+        return await self.validate_source(source_config)
 ```
 
 ### 4.3 TitleParserService
@@ -251,7 +284,22 @@ class ParsedTitle:
 class TitleParserService:
     """服务：解析复合标题"""
 
-    def parse_compound_title(self, title: str) -> ParsedTitle:
+    # 已知源的标题格式规则
+    SOURCE_PATTERNS = {
+        "anthropic_research": re.compile(
+            r'^(?P<category>[A-Z][a-z]+)'  # 分类（如 Alignment）
+            r'(?P<date>[A-Z][a-z]{2}\s+\d{1,2},?\s+\d{4})?'  # 可选日期
+            r'(?P<title>.+?)'  # 标题
+            r'(?P<summary>This paper provides.*)?$',  # 可选摘要开头
+            re.DOTALL
+        ),
+    }
+
+    def parse_compound_title(
+        self,
+        title: str,
+        source_name: Optional[str] = None
+    ) -> ParsedTitle:
         """
         解析复合标题
 
@@ -262,8 +310,43 @@ class TitleParserService:
             title="Alignment faking in large language models",
             ...
         )
+
+        流程：
+        1. 检查是否有源特定模式
+        2. 尝试匹配模式
+        3. 回退到默认处理（检测标题中的日期）
         """
-        pass
+        # 尝试源特定模式
+        if source_name and source_name.lower().replace(' ', '_') in self.SOURCE_PATTERNS:
+            pattern = self.SOURCE_PATTERNS[source_name.lower().replace(' ', '_')]
+            if match := pattern.match(title):
+                return ParsedTitle(
+                    category=match.group('category'),
+                    date=match.group('date'),
+                    title=match.group('title').strip(),
+                    summary=match.group('summary'),
+                )
+
+        # 回退：检测标题中的日期模式
+        date_pattern = re.compile(
+            r'(?P<date>[A-Z][a-z]{2}\s+\d{1,2},?\s+\d{4})'
+        )
+        if match := date_pattern.search(title):
+            clean_title = date_pattern.sub('', title).strip()
+            return ParsedTitle(
+                category=None,
+                date=match.group('date'),
+                title=clean_title,
+                summary=None,
+            )
+
+        # 无法解析，返回原始标题
+        return ParsedTitle(
+            category=None,
+            date=None,
+            title=title,
+            summary=None,
+        )
 ```
 
 ### 4.4 QualityGateService 增强
@@ -331,8 +414,61 @@ def fetch_full_content(item_id: str) -> None:
     3. 调用 FullContentFetchService 获取全文
     4. 如果成功，触发重新标准化
     5. 如果失败，标记 full_fetch_attempted=True, full_fetch_succeeded=False
+    6. 更新源治理统计，失败率过高时标记源需要审查
     """
-    pass
+    db = SessionLocal()
+    try:
+        item = db.query(Item).filter(Item.item_id == item_id).first()
+        if not item:
+            logger.error(f"Item not found: {item_id}")
+            return
+
+        source = item.source
+
+        # 检查是否已尝试过
+        if item.full_fetch_attempted:
+            logger.info(f"Full fetch already attempted for item: {item_id}")
+            return
+
+        # 获取全文
+        fetch_service = FullContentFetchService()
+        result = await fetch_service.fetch_full_content(item.url)
+
+        item.full_fetch_attempted = True
+
+        # 更新源治理统计
+        if source:
+            if result.success:
+                source.full_fetch_success_count += 1
+            else:
+                source.full_fetch_failure_count += 1
+
+            # 计算失败率，过高时标记需要审查
+            total = source.full_fetch_success_count + source.full_fetch_failure_count
+            if total >= 10 and source.full_fetch_failure_count / total > 0.5:
+                source.pending_review = True
+                source.review_reason = "全文获取失败率过高"
+
+        if result.success:
+            item.raw_content = result.content
+            item.full_fetch_succeeded = True
+            db.commit()
+
+            # 触发重新标准化
+            normalize_actor = broker.get_actor("normalize_item")
+            normalize_actor.send(item_id)
+        else:
+            item.full_fetch_succeeded = False
+            db.commit()
+            # 失败后保持原始内容，由原质量规则处理
+            logger.warning(f"Full fetch failed for item {item_id}: {result.error}")
+
+    except Exception as e:
+        logger.error(f"Full fetch failed for item {item_id}: {e}")
+        db.rollback()
+        raise
+    finally:
+        db.close()
 ```
 
 ### 5.2 quality_check_item 任务修改
@@ -341,22 +477,47 @@ def fetch_full_content(item_id: str) -> None:
 # src/cyberpulse/tasks/quality_tasks.py
 
 @dramatiq.actor(max_retries=3)
-def quality_check_item(..., source_needs_full_fetch: bool = False) -> None:
-    """质量检查任务（修改）"""
-    # ... 现有逻辑 ...
+def quality_check_item(
+    item_id: str,
+    normalized_title: str,
+    normalized_body: str,
+    canonical_hash: str,
+    language: Optional[str] = None,
+    word_count: int = 0,
+    extraction_method: str = "trafilatura",
+) -> None:
+    """质量检查任务（修改）
 
-    # 新增：检测内容质量问题
-    quality_warnings = quality_service._validate_content_quality(normalization_result)
+    关键变更：从数据库查询 Source 获取全文获取配置，而非通过参数传递
+    """
+    db = SessionLocal()
+    try:
+        item = db.query(Item).filter(Item.item_id == item_id).first()
+        if not item:
+            logger.error(f"Item not found: {item_id}")
+            return
 
-    # 新增：如果源需要全文获取且内容不完整，触发全文获取
-    threshold = source.full_fetch_threshold or 0.7
-    if (source_needs_full_fetch and
-        quality_result.metrics.get("content_completeness", 1.0) < threshold and
-        not item.full_fetch_attempted):
+        # 从数据库查询 Source 获取配置
+        source = item.source  # 通过关系获取
 
-        fetch_actor = broker.get_actor("fetch_full_content")
-        fetch_actor.send(item_id)
-        return
+        # 获取全文获取配置
+        needs_full_fetch = source.needs_full_fetch if source else False
+        threshold = source.full_fetch_threshold if source else 0.7
+
+        # ... 现有质量检查逻辑 ...
+
+        # 新增：检测内容质量问题
+        quality_warnings = quality_service._validate_content_quality(normalization_result)
+
+        # 新增：如果源需要全文获取且内容不完整，触发全文获取
+        if (needs_full_fetch and
+            quality_result.metrics.get("content_completeness", 1.0) < threshold and
+            not item.full_fetch_attempted):
+
+            logger.info(f"Triggering full content fetch for item: {item_id}")
+            fetch_actor = broker.get_actor("fetch_full_content")
+            fetch_actor.send(item_id)
+            return  # 等待全文获取完成
 ```
 
 ---
