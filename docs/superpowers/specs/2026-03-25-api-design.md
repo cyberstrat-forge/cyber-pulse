@@ -16,6 +16,32 @@
 
 ---
 
+## 配置管理
+
+### 配置分工
+
+| 类别 | 配置项 | 设置方式 | API 可管理 |
+|------|--------|---------|-----------|
+| **基础设施** | `database_url`, `redis_url`, `dramatiq_broker_url` | 环境变量 | ❌ |
+| **服务绑定** | `api_host`, `api_port` | 环境变量 | ❌ |
+| **安全** | `secret_key` | 环境变量 | ❌ |
+| **环境** | `environment` | 环境变量 | ❌ |
+| **业务默认值** | `default_fetch_interval` | API（`/sources/defaults`） | ✅ |
+
+### 说明
+
+**环境变量（部署时设置）**：
+- 通过 `.env` 文件或容器环境变量配置
+- 修改后需重启服务
+- 不提供 API 管理
+
+**API 运行时管理**：
+- 业务相关的默认配置
+- 存储在数据库 `settings` 表
+- 修改后立即生效，无需重启
+
+---
+
 ## API 架构总览
 
 ```
@@ -231,8 +257,8 @@ completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 -
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/` | GET | 源列表 |
-| `/{id}` | GET | 源详情 |
 | `/` | POST | 单个添加 |
+| `/{id}` | GET | 源详情 |
 | `/{id}` | PUT | 更新源 |
 | `/{id}` | DELETE | 删除源 |
 | `/{id}/test` | POST | 测试连接 |
@@ -240,6 +266,8 @@ completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 -
 | `/{id}/schedule` | DELETE | 取消调度 |
 | `/import` | POST | 批量导入 |
 | `/export` | GET | 导出源 |
+| `/defaults` | GET | 获取默认配置 |
+| `/defaults` | PATCH | 更新默认配置 |
 
 #### 源列表
 
@@ -438,6 +466,44 @@ DELETE /api/v1/admin/sources/{id}/schedule  # 取消调度
   "message": "Schedule removed"
 }
 ```
+
+#### 默认配置
+
+**用途**：管理新添加源的默认采集间隔。
+
+```
+GET /api/v1/admin/sources/defaults
+```
+
+**响应**：
+
+```json
+{
+  "default_fetch_interval": 3600,
+  "updated_at": "2026-03-25T10:00:00Z"
+}
+```
+
+```
+PATCH /api/v1/admin/sources/defaults
+{
+  "default_fetch_interval": 7200
+}
+```
+
+**响应**：
+
+```json
+{
+  "default_fetch_interval": 7200,
+  "updated_at": "2026-03-25T15:00:00Z"
+}
+```
+
+**说明**：
+- `default_fetch_interval`：新添加源未指定 interval 时使用的默认值（秒）
+- 最小值：300（5分钟）
+- 修改默认值不影响已调度的源
 
 ---
 
@@ -664,6 +730,22 @@ GET /api/v1/admin/jobs/{id}
 
 **索引**：
 - `type`, `status`, `source_id`, `created_at`
+
+### Settings 模型
+
+**数据库表**：`settings`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `key` | VARCHAR(64) | 主键 |
+| `value` | TEXT | 配置值 |
+| `updated_at` | TIMESTAMP | 更新时间 |
+
+**初始数据**：
+
+| key | value |
+|-----|-------|
+| `default_fetch_interval` | `3600` |
 
 ### Source 调度字段扩展
 
