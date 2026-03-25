@@ -29,6 +29,33 @@ app = typer.Typer(name="source", help="Manage intelligence sources")
 console = Console()
 
 
+def _looks_like_feed_url(url: str) -> bool:
+    """Check if URL looks like an RSS feed URL.
+
+    Args:
+        url: URL to check
+
+    Returns:
+        True if URL appears to be a feed URL
+    """
+    feed_patterns = ["/feed", "/rss", ".xml", ".rss", "/atom"]
+    return any(p in url.lower() for p in feed_patterns)
+
+
+async def _discover_rss_for_cli(site_url: str) -> Optional[str]:
+    """Discover RSS URL for a site (CLI helper).
+
+    Args:
+        site_url: Site URL to discover RSS from
+
+    Returns:
+        Discovered RSS URL or None
+    """
+    from ...services.rss_discovery import RSSDiscoveryService
+    discovery = RSSDiscoveryService()
+    return await discovery.discover(site_url)
+
+
 def _get_tier_color(tier: str) -> str:
     """Get color for tier display."""
     colors = {
@@ -217,7 +244,19 @@ def add_source(
         # Prepare config based on connector type
         config: dict = {}
         if connector == "rss":
-            config = {"feed_url": url}
+            # Check if URL looks like a feed URL or site URL
+            if _looks_like_feed_url(url):
+                config = {"feed_url": url}
+            else:
+                # Try to discover RSS from site URL
+                console.print(f"[cyan]Discovering RSS feed from {url}...[/cyan]")
+                feed_url = asyncio.run(_discover_rss_for_cli(url))
+                if feed_url:
+                    config = {"feed_url": feed_url}
+                    console.print(f"[green]Found RSS: {feed_url}[/green]")
+                else:
+                    console.print(f"[yellow]Could not discover RSS, using URL as feed_url[/yellow]")
+                    config = {"feed_url": url}
         elif connector == "api":
             config = {"url": url}
         elif connector == "web":
