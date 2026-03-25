@@ -19,19 +19,19 @@
 ## API 架构总览
 
 ```
+/health                          # 健康检查（公开，无需认证）
+
 /api/v1/
 │
-├── /items                    # 业务 API（read 权限）
-│   └── GET /                 # 拉取情报
+├── /items                       # 业务 API（read 权限）
+│   └── GET /                    # 拉取情报
 │
-├── /admin                    # 管理 API（admin 权限）
-│   ├── /sources              # 情报源管理
-│   ├── /jobs                 # 任务管理
-│   ├── /clients              # 客户端管理
-│   ├── /logs                 # 日志管理
-│   └── /diagnose             # 诊断工具
-│
-└── /health                   # 健康检查（公开）
+└── /admin                       # 管理 API（admin 权限）
+    ├── /sources                 # 情报源管理
+    ├── /jobs                    # 任务管理
+    ├── /clients                 # 客户端管理
+    ├── /logs                    # 日志管理
+    └── /diagnose                # 诊断工具
 ```
 
 ---
@@ -48,6 +48,50 @@
 ```
 Authorization: Bearer cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+### 认证实现
+
+**验证方式**：FastAPI Dependency 注入
+
+```python
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+security = HTTPBearer()
+
+async def get_current_client(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> Client:
+    api_key = credentials.credentials
+    client = await validate_api_key(api_key)
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired API key"
+        )
+    return client
+```
+
+**权限检查**：路由级别装饰器
+
+```python
+def require_permission(permission: str):
+    async def checker(client: Client = Depends(get_current_client)):
+        if permission not in client.permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission '{permission}' required"
+            )
+        return client
+    return Depends(checker)
+```
+
+**认证错误响应**：
+
+| 状态码 | 场景 | 响应 |
+|--------|------|------|
+| 401 | API Key 无效/过期 | `{"detail": "Invalid or expired API key"}` |
+| 403 | 权限不足 | `{"detail": "Permission 'admin' required"}` |
 
 ---
 
@@ -68,8 +112,24 @@ Authorization: Bearer cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 | `cursor` | string | - | 增量游标（item_id） |
 | `since` | datetime | - | 时间范围起始（published_at >= since） |
 | `until` | datetime | - | 时间范围结束（published_at < until） |
-| `from` | string | - | 起始位置：`latest`（默认）或 `beginning` |
+| `from` | string | `latest` | 起始位置：`latest` 或 `beginning` |
 | `limit` | int | 50 | 每页数量，最大 100 |
+
+#### 游标格式与校验
+
+**格式**：`item_{YYYYMMDDHHMMSS}_{uuid8}`
+
+**正则**：`^item_\d{14}_[a-f0-9]{8}$`
+
+**校验逻辑**：
+- 有效游标：正常查询
+- 无效游标：返回 400 错误
+
+```json
+{
+  "detail": "Invalid cursor format: invalid_cursor"
+}
+```
 
 #### 拉取模式
 
@@ -110,6 +170,22 @@ Authorization: Bearer cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   "server_timestamp": "2026-03-25T15:00:00Z"
 }
 ```
+
+#### completeness_score 计算方式
+
+**查询时计算**，不存储到数据库。基于 Item 已有的三个质量指标：
+
+```
+completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
+```
+
+| 子指标 | 数据库字段 | 计算方式 | 权重 |
+|--------|------------|---------|------|
+| `meta_completeness` | `items.meta_completeness` | author、tags、published_at 是否存在 | 0.4 |
+| `content_completeness` | `items.content_completeness` | 正文长度（≥500=1.0, ≥200=0.7, ≥50=0.4, <50=0.2） | 0.4 |
+| `noise_ratio` | `items.noise_ratio` | HTML 标签和广告标记占比（取反） | 0.2 |
+
+详细计算逻辑见 [RSS Content Quality Fix](./2026-03-25-rss-content-quality-fix-design.md)。
 
 ---
 
@@ -166,13 +242,19 @@ POST /api/v1/admin/sources
   "name": "Example Blog",
   "config": { "feed_url": "https://new-domain.com/feed.xml" },
   "tier": "T1",
+  "score": 75.0,
+  "status": "active",
   "needs_full_fetch": true,
   "full_fetch_threshold": 0.7,
   "content_type": "summary",
+  "avg_content_length": 150,
+  "consecutive_failures": 0,
+  "last_error_at": null,
   "warnings": [
     "URL permanently redirected: https://old-domain.com/feed.xml → https://new-domain.com/feed.xml"
   ],
-  "created_at": "2026-03-25T10:00:00Z"
+  "created_at": "2026-03-25T10:00:00Z",
+  "updated_at": "2026-03-25T10:00:00Z"
 }
 ```
 
@@ -205,10 +287,34 @@ skip_invalid: true
 
 ```
 POST /api/v1/admin/sources/{id}/schedule
-{
-  "interval": 3600  # 间隔秒数，或使用 cron 表达式
-}
+```
 
+**请求体**（二选一）：
+
+```json
+// 选项 1：间隔调度（秒）
+{ "interval": 3600 }
+
+// 选项 2：Cron 表达式
+{ "cron": "0 */6 * * *" }
+```
+
+**校验规则**：
+- `interval`: 正整数，最小 300（5分钟）
+- `cron`: 标准 5 字段 cron 表达式
+- 同时提供时，返回 400 错误
+
+**响应**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "schedule": { "interval": 3600 },
+  "message": "Schedule updated"
+}
+```
+
+```
 DELETE /api/v1/admin/sources/{id}/schedule  # 取消调度
 ```
 
@@ -523,6 +629,8 @@ GET /api/v1/admin/diagnose/sources?pending=true&tier=T1
 
 **端点**：`GET /health`
 
+**说明**：此端点位于 `/health`（不在 `/api/v1/` 下），便于负载均衡器和监控系统直接访问，无需认证。
+
 **认证**：无需认证
 
 **响应**：
@@ -546,7 +654,17 @@ GET /api/v1/admin/diagnose/sources?pending=true&tier=T1
 // 列表
 {
   "data": [...],
-  "count": 50
+  "count": 50,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+
+// 分页列表（带游标）
+{
+  "data": [...],
+  "next_cursor": "item_20260325140000_xyz789",
+  "has_more": true,
+  "count": 50,
+  "server_timestamp": "2026-03-25T15:00:00Z"
 }
 
 // 单条
