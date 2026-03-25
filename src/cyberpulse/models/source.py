@@ -46,3 +46,16 @@ class Source(Base, TimestampMixin):
     # Failure tracking
     consecutive_failures = Column(Integer, nullable=False, default=0)
     last_error_at = Column(DateTime, nullable=True)
+
+    # Full content fetch configuration
+    needs_full_fetch = Column(Boolean, nullable=False, default=False)
+    full_fetch_threshold = Column(Float, nullable=True, default=0.7)
+
+    # Source quality markers
+    content_type = Column(String(20), nullable=True)  # 'full' | 'summary' | 'mixed'
+    avg_content_length = Column(Integer, nullable=True)
+    quality_score = Column(Float, nullable=True, default=50.0)
+
+    # Full fetch statistics
+    full_fetch_success_count = Column(Integer, nullable=False, default=0)
+    full_fetch_failure_count = Column(Integer, nullable=False, default=0)

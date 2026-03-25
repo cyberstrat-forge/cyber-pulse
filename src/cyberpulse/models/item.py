@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Float, ForeignKey, Index, Enum as SAEnum
+from sqlalchemy import Column, String, Text, DateTime, Float, ForeignKey, Index, Enum as SAEnum, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from enum import Enum
 from ..database import Base
@@ -34,6 +34,10 @@ class Item(Base, TimestampMixin):
     meta_completeness = Column(Float, nullable=True)
     content_completeness = Column(Float, nullable=True)
     noise_ratio = Column(Float, nullable=True)
+
+    # Full content fetch status
+    full_fetch_attempted = Column(Boolean, nullable=False, default=False)
+    full_fetch_succeeded = Column(Boolean, nullable=True)
 
     __table_args__ = (
         Index("ix_items_source_published", "source_id", "published_at"),
