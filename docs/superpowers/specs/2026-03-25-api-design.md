@@ -296,17 +296,30 @@ GET /api/v1/admin/sources?status=active&tier=T1
       "tier": "T1",
       "score": 75.0,
       "status": "active",
-      "needs_full_fetch": true,
-      "consecutive_failures": 0,
       "schedule_interval": 3600,
       "next_ingest_at": "2026-03-25T11:00:00Z",
-      "last_ingested_at": "2026-03-25T10:00:00Z"
+      "last_ingested_at": "2026-03-25T10:00:00Z",
+      "last_ingest_result": "success",
+      "total_items": 1250,
+      "items_last_7d": 42,
+      "consecutive_failures": 0,
+      "last_error_message": null
     }
   ],
   "count": 1,
   "server_timestamp": "2026-03-25T15:00:00Z"
 }
 ```
+
+**字段说明**：
+
+| 字段 | 用途 |
+|------|------|
+| `last_ingest_result` | 快速判断最近采集状态 |
+| `total_items` | 评估源的历史价值 |
+| `items_last_7d` | 判断源是否活跃 |
+| `consecutive_failures` | 发现持续失败的源 |
+| `last_error_message` | 错误摘要，快速定位问题 |
 
 #### 源详情
 
@@ -387,15 +400,58 @@ POST /api/v1/admin/sources
   "avg_content_length": 150,
   "consecutive_failures": 0,
   "last_error_at": null,
+  "last_error_message": null,
+  "last_job_id": null,
   "schedule_interval": null,
   "next_ingest_at": null,
   "last_ingested_at": null,
+  "last_ingest_result": null,
+  "total_items": 0,
+  "items_last_7d": 0,
   "warnings": [
     "URL permanently redirected: https://old-domain.com/feed.xml → https://new-domain.com/feed.xml"
   ],
   "created_at": "2026-03-25T10:00:00Z",
   "updated_at": "2026-03-25T10:00:00Z"
 }
+```
+
+**有错误时的响应示例**：
+
+```json
+{
+  "source_id": "src_b2c3d4e5",
+  "name": "Problematic Feed",
+  "config": { "feed_url": "https://problematic.com/feed.xml" },
+  "tier": "T2",
+  "score": 45.0,
+  "status": "active",
+  "needs_full_fetch": false,
+  "full_fetch_threshold": 0.7,
+  "content_type": "full",
+  "avg_content_length": 800,
+  "consecutive_failures": 3,
+  "last_error_at": "2026-03-25T09:30:00Z",
+  "last_error_message": "Connection timeout after 30s",
+  "last_job_id": "job_xyz789",
+  "schedule_interval": 3600,
+  "next_ingest_at": "2026-03-25T11:00:00Z",
+  "last_ingested_at": "2026-03-25T08:00:00Z",
+  "last_ingest_result": "failed",
+  "total_items": 320,
+  "items_last_7d": 0,
+  "warnings": [],
+  "created_at": "2026-03-01T10:00:00Z",
+  "updated_at": "2026-03-25T09:30:00Z"
+}
+```
+
+**错误排查工作流**：
+
+```
+管理员查看源列表 → 发现 consecutive_failures > 0 或 last_error_message 不为空
+→ 记录 last_job_id → 调用 GET /admin/jobs/{job_id} 获取完整错误详情
+→ 根据错误类型决定修复方案
 ```
 
 #### 批量导入
@@ -778,6 +834,16 @@ GET /api/v1/admin/jobs/{id}
 |------|------|------|
 | `consecutive_failures` | INTEGER | 连续失败次数 |
 | `last_error_at` | TIMESTAMP | 最后错误时间 |
+| `last_error_message` | VARCHAR(255) | 最后错误摘要（如 "Connection timeout after 30s"） |
+| `last_job_id` | VARCHAR(64) | 最后执行的 Job ID，用于深入排查 |
+
+**采集统计字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `total_items` | INTEGER | 累计采集情报数 |
+| `items_last_7d` | INTEGER | 近 7 天采集数 |
+| `last_ingest_result` | VARCHAR(20) | 最近采集结果：`success`、`partial`、`failed` |
 
 **全文获取字段**（来自 RSS Content Quality Fix）：
 
