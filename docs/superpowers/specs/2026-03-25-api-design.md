@@ -894,19 +894,29 @@ DELETE /api/v1/admin/clients/{id}
 
 **基础路径**：`/api/v1/admin/logs`
 
-#### 端点列表
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/` | GET | 查询日志 |
-| `/errors` | GET | 错误日志 |
-| `/stats` | GET | 日志统计 |
-| `/export` | GET | 导出日志 |
+**用途**：故障排查，查询错误日志定位问题。
 
 #### 查询日志
 
 ```
-GET /api/v1/admin/logs?level=error&source=src_xxx&since=2026-03-25T00:00:00Z&limit=50
+GET /api/v1/admin/logs
+```
+
+**查询参数**：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `level` | `error` | 日志级别：`error`、`warning`、`info` |
+| `source_id` | - | 按源筛选 |
+| `since` | - | 时间范围起始 |
+| `limit` | 50 | 每页数量 |
+
+**示例**：
+
+```
+GET /api/v1/admin/logs                                    # 最近错误日志（默认）
+GET /api/v1/admin/logs?source_id=src_xxx&since=24h       # 指定源的错误日志
+GET /api/v1/admin/logs?level=warning                     # 警告日志
 ```
 
 **错误类型枚举**：
@@ -939,35 +949,8 @@ GET /api/v1/admin/logs?level=error&source=src_xxx&since=2026-03-25T00:00:00Z&lim
       "suggestion": "检查网站反爬策略"
     }
   ],
-  "count": 1
-}
-```
-
-#### 日志统计
-
-```
-GET /api/v1/admin/logs/stats?days=7
-```
-
-**响应**：
-
-```json
-{
-  "total": 15420,
-  "by_level": {
-    "info": 14500,
-    "warning": 620,
-    "error": 280,
-    "critical": 20
-  },
-  "by_module": {
-    "connector.rss": 150,
-    "tasks.ingestion": 80
-  },
-  "top_errors": [
-    { "error_type": "connection", "count": 120, "message": "Connection timeout" },
-    { "error_type": "http_403", "count": 80, "message": "Forbidden" }
-  ]
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
 }
 ```
 
@@ -977,7 +960,7 @@ GET /api/v1/admin/logs/stats?days=7
 
 **基础路径**：`/api/v1/admin/diagnose`
 
-**用途**：系统状态总览，供管理员快速了解系统运行状况。
+**用途**：系统监控入口，快速了解系统运行状况。
 
 #### 系统诊断
 
@@ -1010,6 +993,18 @@ GET /api/v1/admin/diagnose
     "items": {
       "total": 5420,
       "last_24h": 156
+    },
+    "errors": {
+      "total_24h": 280,
+      "by_type": {
+        "connection": 120,
+        "http_403": 80,
+        "timeout": 50,
+        "parse_error": 30
+      },
+      "top_sources": [
+        { "source_id": "src_xxx", "source_name": "Example Blog", "error_count": 15 }
+      ]
     }
   },
   "server_timestamp": "2026-03-25T15:00:00Z"
@@ -1017,9 +1012,14 @@ GET /api/v1/admin/diagnose
 ```
 
 **status 取值**：
-- `healthy` - 所有组件正常
-- `degraded` - 部分组件异常但系统可用
+- `healthy` - 所有组件正常，近期无严重错误
+- `degraded` - 部分组件异常或错误率偏高
 - `unhealthy` - 关键组件异常
+
+**使用场景**：
+- 日常巡检入口
+- 发现 `pending_review > 0` → 进入源健康检查流程
+- 发现 `failed_24h` 偏高 → 进入故障排查流程
 
 ---
 
