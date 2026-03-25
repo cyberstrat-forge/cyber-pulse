@@ -272,7 +272,7 @@ completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 -
 #### 源列表
 
 ```
-GET /api/v1/admin/sources?status=active&tier=T1&limit=50
+GET /api/v1/admin/sources?status=active&tier=T1
 ```
 
 **查询参数**：
@@ -282,7 +282,8 @@ GET /api/v1/admin/sources?status=active&tier=T1&limit=50
 | `status` | 状态：`active`、`frozen`、`pending_review` |
 | `tier` | 等级：`T0`、`T1`、`T2`、`T3` |
 | `scheduled` | 是否已调度：`true`、`false` |
-| `limit` | 每页数量，默认 50 |
+
+**说明**：返回全部匹配结果，不分页。单机版源数量有限（通常 < 200），无需分页。
 
 **响应**：
 
@@ -731,6 +732,16 @@ GET /api/v1/admin/jobs/{id}
 **索引**：
 - `type`, `status`, `source_id`, `created_at`
 
+**清理策略**：
+
+| 保留规则 | 说明 |
+|---------|------|
+| 30 天内 | 全部保留 |
+| 30 天外 `completed` | 自动清理 |
+| 30 天外 `failed` | 保留（便于复盘） |
+
+**实现**：Scheduler 定时任务每天凌晨执行清理。
+
 ### Settings 模型
 
 **数据库表**：`settings`
@@ -740,6 +751,14 @@ GET /api/v1/admin/jobs/{id}
 | `key` | VARCHAR(64) | 主键 |
 | `value` | TEXT | 配置值 |
 | `updated_at` | TIMESTAMP | 更新时间 |
+
+**初始化**：数据库迁移脚本写入默认值：
+
+```sql
+INSERT INTO settings (key, value, updated_at)
+VALUES ('default_fetch_interval', '3600', NOW())
+ON CONFLICT (key) DO NOTHING;
+```
 
 **初始数据**：
 
