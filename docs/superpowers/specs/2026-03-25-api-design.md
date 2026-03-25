@@ -710,6 +710,88 @@ GET /api/v1/admin/jobs/{id}
 
 ---
 
+## 数据模型
+
+### 数据模型变更摘要
+
+| 变更 | 说明 |
+|------|------|
+| 移除 contents 表 | Content 去重层简化，Item 即为最终情报实体 |
+| 移除 items.content_id | Item 不再关联 Content |
+| 新增 items.normalized_title | 标准化标题 |
+| 新增 items.normalized_body | 标准化正文（Markdown 格式） |
+| API 路径变更 | `/api/v1/contents` → `/api/v1/items` |
+
+### Item 模型
+
+**数据库表**：`items`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `item_id` | VARCHAR(64) | 主键，格式：`item_{YYYYMMDDHHMMSS}_{uuid8}` |
+| `source_id` | VARCHAR(64) | 关联源，外键 |
+| `external_id` | VARCHAR(255) | 外部标识（RSS guid） |
+| `url` | VARCHAR(1024) | 原始文章链接 |
+| `title` | VARCHAR(1024) | 原始标题 |
+| `raw_content` | TEXT | 原始内容 |
+| `normalized_title` | VARCHAR(1024) | 标准化标题（新增） |
+| `normalized_body` | TEXT | 标准化正文（新增） |
+| `published_at` | TIMESTAMP | 发布时间 |
+| `fetched_at` | TIMESTAMP | 采集时间 |
+| `content_hash` | VARCHAR(64) | 内容哈希 |
+| `status` | VARCHAR(20) | 状态：NEW、NORMALIZED、MAPPED、REJECTED |
+| `raw_metadata` | JSONB | 元数据（author、tags 等） |
+| `meta_completeness` | FLOAT | 元数据完整度 |
+| `content_completeness` | FLOAT | 内容完整度 |
+| `noise_ratio` | FLOAT | 噪声比 |
+
+**索引**：
+- `source_id`, `published_at`, `fetched_at`, `url`
+
+**字段映射（数据库 → API）**：
+
+| API 字段 | 数据库字段 | 说明 |
+|----------|------------|------|
+| `id` | `item_id` | 直接映射 |
+| `title` | `normalized_title` | 标准化标题 |
+| `author` | `raw_metadata->>'author'` | JSONB 提取 |
+| `published_at` | `published_at` | 直接映射 |
+| `body` | `normalized_body` | 标准化正文 |
+| `url` | `url` | 直接映射 |
+| `completeness_score` | 计算字段 | 查询时计算 |
+| `tags` | `raw_metadata->>'tags'` | JSONB 提取 |
+| `fetched_at` | `fetched_at` | 直接映射 |
+
+### Source 模型扩展字段
+
+**调度字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `schedule_interval` | INTEGER | 采集间隔秒数，null 表示未调度 |
+| `next_ingest_at` | TIMESTAMP | 下次采集时间 |
+| `last_ingested_at` | TIMESTAMP | 上次采集时间 |
+
+**错误追踪字段**（来自 RSS Ingestion Error Fix）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `consecutive_failures` | INTEGER | 连续失败次数 |
+| `last_error_at` | TIMESTAMP | 最后错误时间 |
+
+**全文获取字段**（来自 RSS Content Quality Fix）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `needs_full_fetch` | BOOLEAN | 是否需要全文获取 |
+| `full_fetch_threshold` | FLOAT | 触发全文获取的完整度阈值 |
+| `content_type` | VARCHAR(20) | 内容类型：full、summary、mixed |
+| `avg_content_length` | INTEGER | 平均内容长度 |
+| `full_fetch_success_count` | INTEGER | 全文获取成功次数 |
+| `full_fetch_failure_count` | INTEGER | 全文获取失败次数 |
+
+---
+
 ### Job 模型
 
 **数据库表**：`jobs`
@@ -765,16 +847,6 @@ ON CONFLICT (key) DO NOTHING;
 | key | value |
 |-----|-------|
 | `default_fetch_interval` | `3600` |
-
-### Source 调度字段扩展
-
-**新增字段**（存储在 Source 模型）：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `schedule_interval` | INTEGER | 采集间隔秒数，null 表示未调度 |
-| `next_ingest_at` | TIMESTAMP | 下次采集时间 |
-| `last_ingested_at` | TIMESTAMP | 上次采集时间 |
 
 ---
 

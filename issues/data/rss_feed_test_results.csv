@@ -1,0 +1,40 @@
+source_id,name,feed_url,http_status,status
+src_70d4d89c,VentureBeat,http://venturebeat.com/feed/,200,OK
+src_f60158be,Anthropic Press Releases,https://feedproxy.feedly.com/5b36e586-cfce-45df-9d64-1cf9fed78e5b,403,FAIL
+src_40803e63,Deeplearning.ai,https://rsshub.app/deeplearning/thebatch,403,FAIL
+src_a60686fc,Microsoft Research,http://research.microsoft.com/rss/news.xml,200,OK
+src_0f888db9,Gemini,https://blog.google/products/gemini/rss/,200,OK
+src_4930c644,Google AI Blog,http://googleresearch.blogspot.com/atom.xml,200,OK
+src_c2a82e27,OpenAI,https://blog.openai.com/rss/,000,FAIL
+src_564beaf0,karpathy,https://karpathy.bearblog.dev/feed/,403,FAIL
+src_2732c62e,LangChain Blog,https://blog.langchain.dev/rss/,200,OK
+src_5c728211,MITRE ATT&CK,https://medium.com/feed/mitre-attack,200,OK
+src_e7cac256,Cloud Security Alliance,https://cloudsecurityalliance.org/feed/,200,OK
+src_55f8e46a,SecurityWeek,http://feeds.feedburner.com/Securityweek,200,OK
+src_9828f5db,Threatpost,http://threatpost.com/feed,200,OK
+src_c121d1e3,Dark Reading,http://www.darkreading.com/rss/all.xml,403,FAIL
+src_f31734b2,Cisco Security Blog,http://blogs.cisco.com/rss/security/,200,OK
+src_2303ee57,SentinelOne,https://www.sentinelone.com/feed/,200,OK
+src_60aeaad7,AWS Security Blog,http://blogs.aws.amazon.com/security/blog/feed/recentPosts.rss,200,OK
+src_a75c7b6d,CrowdStrike Blog,https://www.crowdstrike.com/blog/feed,200,OK
+src_9b52a098,Microsoft Security Blog,http://blogs.technet.com/mmpc/rss.xml,404,FAIL
+src_ee79e3e7,Sequoia Capital,https://www.sequoiacap.com/feed/,200,OK
+src_4026f708,a16z,https://www.youtube.com/feeds/videos.xml?channel_id=UC9cn0TuPq4dnbTY-CBsm8XA,200,OK
+src_0aa3b927,Auth0 Blog,http://feeds.feedburner.com/auth0,200,OK
+src_bedb9657,Zscaler Blog,http://research.zscaler.com/feeds/posts/default,200,OK
+src_aa08af52,Sysdig Blog,http://draios.com/feed/,301,REDIRECT
+src_8db7dbfe,Palo Alto Networks Blog,http://researchcenter.paloaltonetworks.com/feed/,200,OK
+src_af577a7e,Google Online Security Blog,http://googleonlinesecurity.blogspot.com/atom.xml,200,OK
+src_4ebdfb16,Unit 42,http://feeds.feedburner.com/Unit42,200,OK
+src_4f1bfb5b,Project Zero,http://googleprojectzero.blogspot.com/feeds/posts/default,200,OK
+src_39e6807c,腾讯玄武实验室,http://xlab.tencent.com/cn/feed/,200,OK
+src_6cde20f1,腾讯科恩实验室官方博客,http://keenlab.tencent.com/zh/atom.xml,200,OK
+src_1f1a7d07,Anton on Security - Medium,https://medium.com/feed/anton-on-security,200,OK
+src_f11b98dd,Fire Eye Threat Research,http://www.fireeye.com/blog/feed,530,FAIL
+src_18a443e4,krebsonsecurity.com,https://krebsonsecurity.com/feed/,200,OK
+src_75bffa12,paulgraham.com,http://www.aaronsw.com/2002/feeds/pgessays.rss,200,OK
+src_0716dc5e,derekthompson.org,https://www.theatlantic.com/feed/author/derek-thompson/,200,OK
+src_a057ba6d,CSO Online,http://www.csoonline.com/index.rss,404,FAIL
+src_43a7523e,tedunangst.com,https://www.tedunangst.com/flak/rss,000,FAIL
+src_69b35780,rachelbythebay.com,https://rachelbythebay.com/w/atom.xml,000,FAIL
+src_e6e00de0,herman.bearblog.dev,https://herman.bearblog.dev/feed/,403,FAIL
