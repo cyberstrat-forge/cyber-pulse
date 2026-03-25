@@ -1,7 +1,7 @@
 # Design: API 整体设计
 
 **Date**: 2026-03-25
-**Status**: Draft
+**Status**: Approved
 
 ---
 
