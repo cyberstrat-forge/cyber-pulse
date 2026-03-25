@@ -1,6 +1,6 @@
 # 设计文档：RSS 内容质量问题全面修复
 
-**版本**: 1.1
+**版本**: 1.2
 **日期**: 2026-03-25
 **状态**: 已批准（经过 Spec Review）
 **Issue**: #41, #46
@@ -11,6 +11,7 @@
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| 1.2 | 2026-03-25 | 新增源添加体验优化：自动检测、智能配置、预检测反馈、交互式流程、URL 去重、导入导出 |
 | 1.1 | 2026-03-25 | 根据 Spec Review 更新：TitleParserService 实现、源治理逻辑、准入标准调整、任务集成修正 |
 | 1.0 | 2026-03-25 | 初始版本 |
 
@@ -522,9 +523,238 @@ def quality_check_item(
 
 ---
 
-## 6. 测试策略
+## 7. 源添加体验优化
 
-### 6.1 已知问题源测试用例
+### 7.1 功能概述
+
+简化用户添加 RSS 源的输入体验，提升添加任务的稳健性。
+
+**核心目标：**
+1. 简化用户输入 - 用户只需提供 URL，系统自动检测其他信息
+2. 智能默认配置 - 根据源质量自动设置 needs_full_fetch、tier 等
+3. 预检测反馈 - 添加前展示源检测结果和建议
+4. 交互式流程 - 向导式添加，支持简化模式和完整模式
+5. 去重检测 - 防止重复添加相同 RSS URL
+6. 导入导出 - 支持 OPML 导入和 YAML/JSON 导出
+
+### 7.2 自动检测源信息
+
+```python
+# src/cyberpulse/services/source_detector_service.py
+
+@dataclass
+class SourceDetectionResult:
+    """源检测结果"""
+    name: str                           # 从 RSS channel.title 提取
+    description: Optional[str]          # 从 RSS channel.description 提取
+    language: Optional[str]             # 从 RSS 检测
+    link: Optional[str]                 # 从 RSS channel.link 提取
+    content_type: str                   # 'full' | 'summary' | 'mixed'
+    needs_full_fetch: bool              # 根据样本质量判断
+    suggested_tier: SourceTier          # 建议等级
+    sample_completeness: float          # 样本完整度
+    validation_result: SourceValidationResult
+
+
+class SourceDetectorService:
+    """服务：自动检测源信息"""
+
+    async def detect_source(self, feed_url: str) -> SourceDetectionResult:
+        """
+        从 RSS URL 自动检测源信息
+
+        流程：
+        1. 访问 RSS feed
+        2. 解析 channel 信息（title、description、language、link）
+        3. 采集样本内容
+        4. 分析内容质量
+        5. 生成建议配置
+        """
+        pass
+```
+
+### 7.3 URL 去重检测
+
+**当前问题：** 只按名称去重，未检查 feed_url 是否已存在
+
+**修复方案：**
+
+```python
+# src/cyberpulse/services/source_service.py
+
+def add_source(
+    self,
+    name: str,
+    connector_type: str,
+    config: Optional[Dict[str, Any]] = None,
+    # ...
+) -> Tuple[Optional[Source], str]:
+    """添加源（增强去重检测）"""
+
+    # 1. 检查名称重复
+    existing_by_name = self.db.query(Source).filter(Source.name == name).first()
+    if existing_by_name:
+        return None, f"源名称 '{name}' 已存在"
+
+    # 2. 检查 URL 重复（新增）
+    feed_url = config.get('feed_url') if config else None
+    if feed_url:
+        existing_by_url = self.db.query(Source).filter(
+            Source.config['feed_url'].astext == feed_url
+        ).first()
+        if existing_by_url:
+            return None, f"RSS URL '{feed_url}' 已存在于源 '{existing_by_url.name}'"
+
+    # 3. 继续创建源
+    # ...
+```
+
+### 7.4 交互式添加流程
+
+```python
+# src/cyberpulse/cli/source.py
+
+@app.command()
+def add(
+    url: Optional[str] = typer.Option(None, "--url", "-u", help="RSS URL"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="源名称"),
+    tier: Optional[str] = typer.Option(None, "--tier", "-t", help="源等级"),
+    full_fetch: Optional[bool] = typer.Option(None, "--full-fetch", help="启用全文获取"),
+    force: bool = typer.Option(False, "--force", "-f", help="强制添加"),
+    interactive: bool = typer.Option(True, "--interactive/--no-interactive", help="交互模式"),
+):
+    """
+    添加 RSS 源
+
+    简化模式: cyber-pulse source add --url https://...
+    完整模式: cyber-pulse source add --url https://... --name "xxx" --tier T0
+    """
+    if interactive and not url:
+        # 交互式向导
+        return _interactive_add()
+
+    if not url:
+        typer.echo("错误: 请提供 RSS URL")
+        raise typer.Exit(1)
+
+    # 自动检测源信息
+    detector = SourceDetectorService()
+    detection = asyncio.run(detector.detect_source(url))
+
+    if interactive:
+        # 展示检测结果，允许用户确认或修改
+        return _confirm_or_edit(detection, name, tier, full_fetch, force)
+    else:
+        # 非交互模式，使用检测结果的默认值
+        final_name = name or detection.name
+        final_tier = tier or detection.suggested_tier.value
+        final_full_fetch = full_fetch if full_fetch is not None else detection.needs_full_fetch
+
+        return _create_source(final_name, url, final_tier, final_full_fetch, force)
+```
+
+### 7.5 交互式添加界面
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 添加 RSS 源                                                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ? 输入 RSS URL: https://raw.githubusercontent.com/.../feed.xml │
+│                                                                 │
+│  正在检测源...                                                  │
+│                                                                 │
+│  ✓ 源可访问                                                     │
+│  ✓ 名称: Anthropic Research                                     │
+│  ✓ 语言: en                                                     │
+│  ⚠ 内容完整度: 0.4 (建议启用全文获取)                           │
+│                                                                 │
+│  检测结果:                                                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 名称: Anthropic Research                                 │   │
+│  │ 描述: Latest research from Anthropic                     │   │
+│  │ 语言: English                                            │   │
+│  │ 内容类型: summary (需要全文获取)                          │   │
+│  │ 建议等级: T1                                              │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ? 确认添加? [Y/n/edit]:                                        │
+│                                                                 │
+│  [Y] 确认添加    [n] 取消    [edit] 编辑配置                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 7.6 源导入导出
+
+```python
+# src/cyberpulse/services/source_import_export_service.py
+
+class SourceImportExportService:
+    """服务：源导入导出"""
+
+    async def import_from_opml(
+        self,
+        opml_path: str,
+        skip_invalid: bool = True,
+        force: bool = False,
+    ) -> ImportResult:
+        """
+        从 OPML 导入源
+
+        Args:
+            opml_path: OPML 文件路径
+            skip_invalid: 跳过无效源（不中断导入）
+            force: 强制添加不符合质量标准的源
+        """
+        pass
+
+    async def import_from_yaml(
+        self,
+        yaml_path: str,
+        skip_invalid: bool = True,
+        force: bool = False,
+    ) -> ImportResult:
+        """从 YAML 导入源"""
+        pass
+
+    def export_to_yaml(
+        self,
+        output_path: str,
+        include_stats: bool = False,
+    ) -> None:
+        """
+        导出源到 YAML
+
+        Args:
+            output_path: 输出文件路径
+            include_stats: 是否包含统计信息（total_items, total_contents 等）
+        """
+        pass
+
+    def export_to_json(
+        self,
+        output_path: str,
+        include_stats: bool = False,
+    ) -> None:
+        """导出源到 JSON"""
+        pass
+```
+
+### 7.7 文件变更清单（新增）
+
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `src/cyberpulse/services/source_detector_service.py` | 新增 | 源信息自动检测服务 |
+| `src/cyberpulse/services/source_import_export_service.py` | 新增 | 源导入导出服务 |
+| `src/cyberpulse/services/source_service.py` | 修改 | 增强 URL 去重检测 |
+| `src/cyberpulse/cli/source.py` | 修改 | 交互式添加流程 |
+
+---
+
+## 8. 测试策略
+
+### 8.1 已知问题源测试用例
 
 | 测试场景 | 测试源 | 测试目的 |
 |---------|-------|---------|
@@ -535,7 +765,7 @@ def quality_check_item(
 | 复合标题 | Anthropic Research | 验证标题解析服务 |
 | 中文内容 | 字节跳动安全中心 | 验证中文处理 |
 
-### 6.2 测试用例实现
+### 8.2 测试用例实现
 
 ```python
 # tests/fixtures/rss_samples.py
@@ -580,7 +810,7 @@ class TestSourceQualityValidatorWithRealSources:
             assert result.is_valid == False
 ```
 
-### 6.3 测试类型
+### 8.3 测试类型
 
 | 测试类型 | 覆盖范围 |
 |---------|---------|
@@ -590,9 +820,9 @@ class TestSourceQualityValidatorWithRealSources:
 
 ---
 
-## 7. 实施计划
+## 9. 实施计划
 
-### 7.1 文件变更清单
+### 9.1 文件变更清单
 
 | 文件 | 变更类型 | 说明 |
 |------|---------|------|
@@ -600,18 +830,23 @@ class TestSourceQualityValidatorWithRealSources:
 | `src/cyberpulse/models/item.py` | 修改 | 新增全文获取状态字段 |
 | `src/cyberpulse/services/full_content_fetch_service.py` | 新增 | 全文获取服务 |
 | `src/cyberpulse/services/source_quality_validator.py` | 新增 | 源质量验证器 |
+| `src/cyberpulse/services/source_detector_service.py` | 新增 | 源信息自动检测服务 |
+| `src/cyberpulse/services/source_import_export_service.py` | 新增 | 源导入导出服务 |
 | `src/cyberpulse/services/title_parser_service.py` | 新增 | 复合标题解析服务 |
 | `src/cyberpulse/services/quality_gate_service.py` | 修改 | 增强内容质量检测 |
+| `src/cyberpulse/services/source_service.py` | 修改 | 增强 URL 去重检测 |
 | `src/cyberpulse/services/rss_connector.py` | 修改 | 优化内容提取逻辑 |
 | `src/cyberpulse/tasks/full_content_tasks.py` | 新增 | 全文获取 Dramatiq 任务 |
 | `src/cyberpulse/tasks/quality_tasks.py` | 修改 | 集成全文获取触发 |
+| `src/cyberpulse/cli/source.py` | 修改 | 交互式添加流程 |
 | `alembic/versions/xxx_add_full_fetch_fields.py` | 新增 | 数据库迁移 |
 | `tests/test_services/test_full_content_fetch.py` | 新增 | 单元测试 |
 | `tests/test_services/test_source_quality_validator.py` | 新增 | 单元测试 |
+| `tests/test_services/test_source_detector.py` | 新增 | 单元测试 |
 | `tests/test_integration/test_full_content_flow.py` | 新增 | 集成测试 |
 | `tests/fixtures/rss_samples.py` | 新增 | 测试样本数据 |
 
-### 7.2 实施顺序
+### 9.2 实施顺序
 
 ```
 Phase 1: 数据模型 (Day 1)
@@ -622,7 +857,9 @@ Phase 1: 数据模型 (Day 1)
 Phase 2: 服务层 (Day 2-3)
 ├── FullContentFetchService
 ├── SourceQualityValidator
+├── SourceDetectorService
 ├── TitleParserService
+├── SourceImportExportService
 └── QualityGateService 增强
 
 Phase 3: 任务层 (Day 4)
@@ -630,7 +867,12 @@ Phase 3: 任务层 (Day 4)
 ├── quality_check_item 修改
 └── 任务流程集成
 
-Phase 4: 测试 (Day 5)
+Phase 4: CLI 增强 (Day 5)
+├── 交互式添加流程
+├── URL 去重检测
+└── 导入导出功能
+
+Phase 5: 测试 (Day 6)
 ├── 单元测试
 ├── 集成测试
 └── 端到端验证
@@ -638,7 +880,7 @@ Phase 4: 测试 (Day 5)
 
 ---
 
-## 8. 相关文档
+## 10. 相关文档
 
 - Issue #41: RSS 采集内容不完整且标题正文混淆
 - Issue #46: 部分 RSS 源只提供标题链接，无正文内容
