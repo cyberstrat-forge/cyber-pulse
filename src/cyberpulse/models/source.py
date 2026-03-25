@@ -42,3 +42,7 @@ class Source(Base, TimestampMixin):
     last_scored_at = Column(DateTime, nullable=True)
     total_items = Column(Integer, nullable=False, default=0)
     total_contents = Column(Integer, nullable=False, default=0)
+
+    # Failure tracking
+    consecutive_failures = Column(Integer, nullable=False, default=0)
+    last_error_at = Column(DateTime, nullable=True)
