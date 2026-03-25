@@ -1168,7 +1168,6 @@ GET /api/v1/admin/diagnose
 ## 关联设计
 
 - [API Unicode Encoding Fix](./2026-03-25-api-unicode-encoding-design.md)
-- [API Fields Fix Design](./2026-03-25-api-fields-fix-design.md)
 - [RSS Ingestion Error Fix](./2026-03-25-rss-ingestion-error-fix-design.md)
 - [RSS Content Quality Fix](./2026-03-25-rss-content-quality-fix-design.md)
 
