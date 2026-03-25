@@ -1,6 +1,6 @@
 # Design: API 字段与参数规范修复
 
-**Issues**: #44, #47
+**Issues**: #44, #47（部分）
 **Date**: 2026-03-25
 **Status**: Draft
 
@@ -20,11 +20,13 @@
 
 ### Issue #47: API 参数/分页问题
 
-| 问题 | 详情 |
-|------|------|
-| **limit 未限制** | 文档说最大 100，代码允许 1000 |
-| **游标未校验** | 无效游标返回第一页，不报错 |
-| **分页格式不一致** | Content API 用游标，Source API 用 offset |
+| 问题 | 详情 | 本设计覆盖 |
+|------|------|-----------|
+| **limit 未限制** | 文档说最大 100，代码允许 1000 | ✅ |
+| **游标未校验** | 无效游标返回第一页，不报错 | ✅ |
+| **分页格式不一致** | Content API 用游标，Source API 用 offset | ❌ 另行处理 |
+
+**说明**：Source API 分页问题不在本设计范围内，将另行讨论处理。
 
 ---
 
@@ -97,15 +99,29 @@ Item 包含完整的来源信息和内容，无需关联查询。
 
 **端点**：`GET /api/v1/items`
 
+#### 字段映射：数据库 → API
+
+| API 字段 | 数据库字段 | 来源 | 说明 |
+|----------|------------|------|------|
+| `id` | `items.item_id` | 直接映射 | 情报唯一标识 |
+| `title` | `items.normalized_title` | 新增字段 | 标准化标题 |
+| `author` | `items.raw_metadata->>'author'` | JSONB 提取 | 作者 |
+| `published_at` | `items.published_at` | 直接映射 | 原始发布时间 |
+| `body` | `items.normalized_body` | 新增字段 | 标准化正文 |
+| `url` | `items.url` | 直接映射 | 原始文章链接 |
+| `completeness_score` | 计算字段 | 查询时计算 | 完整性评分 |
+| `tags` | `items.raw_metadata->>'tags'` | JSONB 提取 | 标签数组 |
+| `fetched_at` | `items.fetched_at` | 直接映射 | 采集时间 |
+
 #### 情报源字段（嵌套对象）
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `source_id` | string | 来源 ID |
-| `source_name` | string | 来源名称 |
-| `source_url` | string | 来源 RSS/网站 URL |
-| `source_tier` | string | 来源等级 (T0-T3) |
-| `source_score` | float | 来源质量评分 (0-100) |
+| API 字段 | 数据库字段 | 来源 | 说明 |
+|----------|------------|------|------|
+| `source_id` | `sources.source_id` | 直接映射 | 来源 ID |
+| `source_name` | `sources.name` | 直接映射 | 来源名称 |
+| `source_url` | `sources.config->>'feed_url'` | JSONB 提取 | RSS URL |
+| `source_tier` | `sources.tier` | 直接映射 | 来源等级 (T0-T3) |
+| `source_score` | `sources.score` | 直接映射 | 质量评分 (0-100) |
 
 #### 情报内容字段
 
@@ -180,19 +196,23 @@ Item 包含完整的来源信息和内容，无需关联查询。
 
 ## 完整性评分计算
 
+### 计算时机
+
+**查询时计算**，不存储到数据库。
+
 ### 公式
 
 ```
 completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
 ```
 
-### 子指标
+### 子指标（已存储）
 
-| 指标 | 计算方式 | 权重 |
-|------|---------|------|
-| `meta_completeness` | 作者、标签、发布时间是否存在 | 0.4 |
-| `content_completeness` | 正文长度（>=500字符=1.0） | 0.4 |
-| `noise_ratio` | HTML标签、广告标记占比 | 0.2（取反） |
+| 指标 | 数据库字段 | 计算方式 | 权重 |
+|------|------------|---------|------|
+| `meta_completeness` | `items.meta_completeness` | 作者、标签、发布时间是否存在 | 0.4 |
+| `content_completeness` | `items.content_completeness` | 正文长度（>=500字符=1.0） | 0.4 |
+| `noise_ratio` | `items.noise_ratio` | HTML标签、广告标记占比 | 0.2（取反） |
 
 ---
 
@@ -206,10 +226,16 @@ completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 -
 GET /api/v1/contents → 301 Redirect → GET /api/v1/items
 ```
 
+**重定向行为**：
+- 保留所有查询参数（cursor, limit, since, source_id）
+- 返回 301 状态码
+- 响应体为空或包含简短提示
+
 响应头包含：
 ```
 Deprecation: true
 Link: </api/v1/items>; rel="successor"
+Location: /api/v1/items?cursor=xxx&limit=50
 ```
 
 ### 迁移周期
@@ -224,21 +250,73 @@ Link: </api/v1/items>; rel="successor"
 
 ## 数据库变更
 
-### 移除 Content 表
+### 新增字段到 items 表
 
-**迁移脚本**：
-1. 删除 `contents` 表
-2. 删除 `items.content_id` 外键
-3. 保留 `items` 表所有字段
+以下字段当前在 `contents` 表，需要迁移到 `items` 表：
 
-### Item 表新增字段
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `normalized_title` | VARCHAR(1024) | 标准化标题 |
+| `normalized_body` | TEXT | 标准化正文（Markdown） |
 
-确保以下字段存在：
-- `normalized_title`（标准化标题）
-- `normalized_body`（标准化正文，Markdown）
-- `meta_completeness`
-- `content_completeness`
-- `noise_ratio`
+**已有字段**（无需修改）：
+- `meta_completeness` ✅
+- `content_completeness` ✅
+- `noise_ratio` ✅
+- `raw_metadata` ✅（包含 author, tags）
+
+### 迁移脚本
+
+```sql
+-- 1. 添加新字段
+ALTER TABLE items ADD COLUMN normalized_title VARCHAR(1024);
+ALTER TABLE items ADD COLUMN normalized_body TEXT;
+
+-- 2. 从 contents 迁移数据（基于 content_id 关联）
+UPDATE items i
+SET normalized_title = c.normalized_title,
+    normalized_body = c.normalized_body
+FROM contents c
+WHERE i.content_id = c.content_id;
+
+-- 3. 删除外键约束
+ALTER TABLE items DROP CONSTRAINT IF EXISTS items_content_id_fkey;
+
+-- 4. 删除 content_id 列
+ALTER TABLE items DROP COLUMN IF EXISTS content_id;
+
+-- 5. 删除 contents 表
+DROP TABLE IF EXISTS contents;
+```
+
+### 回滚脚本
+
+```sql
+-- 1. 重建 contents 表
+CREATE TABLE contents (
+    content_id VARCHAR(64) PRIMARY KEY,
+    canonical_hash VARCHAR(64) NOT NULL UNIQUE,
+    normalized_title VARCHAR(1024) NOT NULL,
+    normalized_body TEXT NOT NULL,
+    first_seen_at TIMESTAMP NOT NULL,
+    last_seen_at TIMESTAMP NOT NULL,
+    source_count INTEGER NOT NULL DEFAULT 1,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. 添加 content_id 列
+ALTER TABLE items ADD COLUMN content_id VARCHAR(64);
+
+-- 3. 添加外键约束
+ALTER TABLE items ADD CONSTRAINT items_content_id_fkey
+    FOREIGN KEY (content_id) REFERENCES contents(content_id);
+
+-- 4. 删除新增字段
+ALTER TABLE items DROP COLUMN IF EXISTS normalized_title;
+ALTER TABLE items DROP COLUMN IF EXISTS normalized_body;
+```
 
 ---
 
@@ -259,15 +337,71 @@ Link: </api/v1/items>; rel="successor"
 
 ---
 
+## 测试策略
+
+### 单元测试
+
+| 测试项 | 测试内容 |
+|--------|---------|
+| 字段映射 | API 返回字段与数据库字段正确映射 |
+| 游标校验 | 有效游标正常查询，无效游标返回 400 |
+| limit 限制 | 超过 100 的 limit 被截断为 100 |
+| completeness_score | 计算公式正确 |
+
+### 集成测试
+
+| 测试项 | 测试内容 |
+|--------|---------|
+| API 端到端 | 完整请求-响应流程 |
+| 分页遍历 | 多页数据完整拉取 |
+| 向后兼容 | 旧端点重定向正确 |
+| 参数转发 | 重定向保留查询参数 |
+
+### 手动验证
+
+```bash
+# 1. 创建 API 客户端
+docker compose -f deploy/docker-compose.yml exec api cyber-pulse client create "test"
+
+# 2. 测试新端点
+curl -H "Authorization: Bearer <api_key>" \
+     "http://localhost:8000/api/v1/items?limit=10" | jq .
+
+# 3. 测试游标校验
+curl -H "Authorization: Bearer <api_key>" \
+     "http://localhost:8000/api/v1/items?cursor=invalid"
+# 期望: 400 Bad Request
+
+# 4. 测试 limit 限制
+curl -H "Authorization: Bearer <api_key>" \
+     "http://localhost:8000/api/v1/items?limit=200" | jq '.data | length'
+# 期望: 100
+
+# 5. 测试重定向
+curl -v -H "Authorization: Bearer <api_key>" \
+     "http://localhost:8000/api/v1/contents?limit=10"
+# 期望: 301 Redirect with Deprecation header
+```
+
+---
+
 ## 实施范围
 
-本次设计仅涵盖 **情报内容 API**，不包括：
-- Source API（稍后讨论）
-- 其他 API 端点
+### 本设计覆盖
+
+- ✅ Item API 字段规范（Issue #44）
+- ✅ limit 参数限制（Issue #47）
+- ✅ 游标格式校验（Issue #47）
+- ✅ 数据模型简化（移除 Content 层）
+
+### 不在本设计范围
+
+- ❌ Source API 分页问题（Issue #47 部分）— 另行讨论
+- ❌ 其他 API 端点
 
 ---
 
 ## 关联 Issue
 
 - #44: API 返回字段与文档描述不一致
-- #47: API 参数/分页问题
+- #47: API 参数/分页问题（部分）
