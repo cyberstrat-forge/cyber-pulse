@@ -1,6 +1,6 @@
 # 设计文档：RSS 内容质量问题全面修复
 
-**版本**: 1.2
+**版本**: 1.3
 **日期**: 2026-03-25
 **状态**: 已批准（经过 Spec Review）
 **Issue**: #41, #46
@@ -11,6 +11,7 @@
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| 1.3 | 2026-03-25 | 导入导出格式调整为 OPML 优先，符合业界标准 |
 | 1.2 | 2026-03-25 | 新增源添加体验优化：自动检测、智能配置、预检测反馈、交互式流程、URL 去重、导入导出 |
 | 1.1 | 2026-03-25 | 根据 Spec Review 更新：TitleParserService 实现、源治理逻辑、准入标准调整、任务集成修正 |
 | 1.0 | 2026-03-25 | 初始版本 |
@@ -687,11 +688,15 @@ def add(
 
 ### 7.6 源导入导出
 
+**设计原则：** 遵循业界标准，优先支持 OPML 格式，方便用户从 RSS 阅读器迁移。
+
 ```python
 # src/cyberpulse/services/source_import_export_service.py
 
 class SourceImportExportService:
     """服务：源导入导出"""
+
+    # ============ 导入功能 ============
 
     async def import_from_opml(
         self,
@@ -700,12 +705,30 @@ class SourceImportExportService:
         force: bool = False,
     ) -> ImportResult:
         """
-        从 OPML 导入源
+        从 OPML 导入源（主要格式）
+
+        业界标准格式，支持从 Feedly、Inoreader、NetNewsWire 等 RSS 阅读器迁移。
+
+        OPML 示例:
+        <?xml version="1.0" encoding="UTF-8"?>
+        <opml version="2.0">
+          <body>
+            <outline text="AI Research" title="AI Research">
+              <outline type="rss" text="Anthropic Research"
+                       xmlUrl="https://..." htmlUrl="https://..."/>
+              <outline type="rss" text="OpenAI Blog"
+                       xmlUrl="https://..." htmlUrl="https://..."/>
+            </outline>
+          </body>
+        </opml>
 
         Args:
             opml_path: OPML 文件路径
             skip_invalid: 跳过无效源（不中断导入）
             force: 强制添加不符合质量标准的源
+
+        Returns:
+            ImportResult: 导入结果统计
         """
         pass
 
@@ -715,7 +738,35 @@ class SourceImportExportService:
         skip_invalid: bool = True,
         force: bool = False,
     ) -> ImportResult:
-        """从 YAML 导入源"""
+        """
+        从 YAML 导入源（备选格式）
+
+        适合开发者进行版本控制和批量编辑。
+        """
+        pass
+
+    # ============ 导出功能 ============
+
+    def export_to_opml(
+        self,
+        output_path: str,
+        include_stats: bool = False,
+    ) -> None:
+        """
+        导出源到 OPML（主要格式）
+
+        业界标准格式，方便用户备份或迁移到其他 RSS 阅读器。
+
+        生成的 OPML 包含:
+        - 分层分类（基于源 tier 或自定义分类）
+        - RSS URL (xmlUrl)
+        - 网站 URL (htmlUrl)
+        - 源名称 (text/title)
+
+        Args:
+            output_path: 输出文件路径
+            include_stats: 是否在注释中包含统计信息
+        """
         pass
 
     def export_to_yaml(
@@ -724,21 +775,34 @@ class SourceImportExportService:
         include_stats: bool = False,
     ) -> None:
         """
-        导出源到 YAML
+        导出源到 YAML（备选格式）
 
-        Args:
-            output_path: 输出文件路径
-            include_stats: 是否包含统计信息（total_items, total_contents 等）
+        适合开发者进行版本控制和批量编辑。
+        包含完整的源配置和质量统计。
         """
         pass
+```
 
-    def export_to_json(
-        self,
-        output_path: str,
-        include_stats: bool = False,
-    ) -> None:
-        """导出源到 JSON"""
-        pass
+### 7.7 CLI 命令设计
+
+```bash
+# 导入 OPML（从 RSS 阅读器迁移）
+cyber-pulse source import subscriptions.opml
+
+# 导入时跳过低质量源
+cyber-pulse source import subscriptions.opml --skip-invalid
+
+# 强制导入所有源
+cyber-pulse source import subscriptions.opml --force
+
+# 导出为 OPML（备份或迁移到其他工具）
+cyber-pulse source export sources.opml
+
+# 导出为 YAML（版本控制）
+cyber-pulse source export sources.yaml --format yaml
+
+# 导出时包含统计信息
+cyber-pulse source export sources.opml --include-stats
 ```
 
 ### 7.7 文件变更清单（新增）
