@@ -265,6 +265,39 @@ class RSSDiscoveryService:
             logger.debug(f"Failed to discover RSS from HTML: {e}")
             return None
 
+    async def _validate_rss_url(self, url: str) -> bool:
+        """验证 URL 是否为有效的 RSS/Atom feed
+
+        Args:
+            url: 待验证的 URL
+
+        Returns:
+            True 如果是有效的 RSS/Atom feed
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.TIMEOUT, follow_redirects=True) as client:
+                response = await client.get(
+                    url,
+                    headers={"User-Agent": self.DEFAULT_USER_AGENT},
+                )
+                response.raise_for_status()
+
+                # 检查 Content-Type
+                content_type = response.headers.get("content-type", "").lower()
+                if "xml" in content_type or "rss" in content_type or "atom" in content_type:
+                    return True
+
+                # 检查内容是否以 XML 声明或 RSS/Atom 标签开头
+                content_start = response.content[:500].decode("utf-8", errors="ignore").strip()
+                if content_start.startswith("<?xml") or "<rss" in content_start.lower() or "<feed" in content_start.lower():
+                    return True
+
+                return False
+
+        except Exception as e:
+            logger.debug(f"RSS validation failed for {url}: {e}")
+            return False
+
     async def _discover_from_common_paths(self, site_url: str) -> Optional[str]:
         """尝试常见 RSS 路径"""
         parsed = urlparse(site_url)
@@ -274,13 +307,14 @@ class RSSDiscoveryService:
             for path in self.COMMON_RSS_PATHS:
                 test_url = base_url + path
                 try:
-                    response = await client.head(
+                    # 使用 GET 而非 HEAD，以便验证内容
+                    response = await client.get(
                         test_url,
                         headers={"User-Agent": self.DEFAULT_USER_AGENT},
                     )
                     if response.status_code == 200:
-                        content_type = response.headers.get("content-type", "")
-                        if "xml" in content_type or "rss" in content_type:
+                        # 验证是否为有效的 RSS
+                        if await self._validate_rss_url(test_url):
                             return test_url
                 except Exception:
                     continue

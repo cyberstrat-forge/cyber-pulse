@@ -877,6 +877,64 @@ class TestIngestionFailureTracking:
 
         db_session.refresh(source)
         assert source.config["feed_url"] == "https://new.example.com/feed/"
+
+    def test_temporary_redirect_does_not_update_url(self, db_session):
+        """Test that 302/307 redirects are followed but URL is not updated."""
+        from cyberpulse.tasks.ingestion_tasks import ingest_source
+        from cyberpulse.services.rss_connector import FetchResult
+
+        source = Source(
+            source_id="src_temp_redirect01",
+            name="Temp Redirect Source",
+            connector_type="rss",
+            config={"feed_url": "https://old.example.com/feed/"},
+            status=SourceStatus.ACTIVE,
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        # 302 temporary redirect
+        redirect_info = {
+            "original_url": "https://old.example.com/feed/",
+            "final_url": "https://new.example.com/feed/",
+            "status_code": 302,
+        }
+
+        with patch('cyberpulse.tasks.ingestion_tasks._fetch_items') as mock_fetch:
+            mock_fetch.return_value = FetchResult(items=[], redirect_info=redirect_info)
+
+            ingest_source("src_temp_redirect01")
+
+        db_session.refresh(source)
+        # URL should NOT be updated for temporary redirect
+        assert source.config["feed_url"] == "https://old.example.com/feed/"
+
+    def test_consecutive_failures_boundary(self, db_session):
+        """Test consecutive_failures at boundary values (4 and 5)."""
+        from cyberpulse.tasks.ingestion_tasks import ingest_source, MAX_CONSECUTIVE_FAILURES
+
+        # Test at MAX - 1 (should not freeze)
+        source = Source(
+            source_id="src_boundary01",
+            name="Boundary Source",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed/"},
+            status=SourceStatus.ACTIVE,
+            consecutive_failures=MAX_CONSECUTIVE_FAILURES - 2,  # 3
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        with patch('cyberpulse.tasks.ingestion_tasks._fetch_items') as mock_fetch:
+            mock_fetch.side_effect = ConnectorError("HTTP 500")
+
+            with pytest.raises(ConnectorError):
+                ingest_source("src_boundary01")
+
+        db_session.refresh(source)
+        # After 1 failure, should be at 4 (MAX - 1), not frozen
+        assert source.consecutive_failures == MAX_CONSECUTIVE_FAILURES - 1
+        assert source.status == SourceStatus.ACTIVE
 ```
 
 - [ ] **Step 2: 运行测试确认失败**

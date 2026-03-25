@@ -931,7 +931,14 @@ GET /api/v1/admin/jobs/{id}
 
 ### Source 模型扩展字段
 
-**调度字段**：
+**源治理字段**（已存在于模型）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `pending_review` | BOOLEAN | 是否需要人工审查 |
+| `review_reason` | TEXT | 审查原因说明 |
+
+**调度字段**（新增）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -939,7 +946,7 @@ GET /api/v1/admin/jobs/{id}
 | `next_ingest_at` | TIMESTAMP | 下次采集时间 |
 | `last_ingested_at` | TIMESTAMP | 上次采集时间 |
 
-**错误追踪字段**（来自 RSS Ingestion Error Fix）：
+**错误追踪字段**（来自 RSS Ingestion Error Fix，新增）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -948,15 +955,15 @@ GET /api/v1/admin/jobs/{id}
 | `last_error_message` | VARCHAR(255) | 最后错误摘要（如 "Connection timeout after 30s"） |
 | `last_job_id` | VARCHAR(64) | 最后执行的 Job ID，用于深入排查 |
 
-**采集统计字段**：
+**采集统计字段**（部分已有，部分新增）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `total_items` | INTEGER | 累计采集情报数 |
-| `items_last_7d` | INTEGER | 近 7 天采集数 |
-| `last_ingest_result` | VARCHAR(20) | 最近采集结果：`success`、`partial`、`failed` |
+| `total_items` | INTEGER | 累计采集情报数（已有） |
+| `items_last_7d` | INTEGER | 近 7 天采集数（新增） |
+| `last_ingest_result` | VARCHAR(20) | 最近采集结果：`success`、`partial`、`failed`（新增） |
 
-**全文获取字段**（来自 RSS Content Quality Fix）：
+**全文获取字段**（来自 RSS Content Quality Fix，新增）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -1339,6 +1346,166 @@ GET /api/v1/admin/diagnose
 | 404 | 资源不存在 |
 | 422 | 请求格式错误 |
 | 500 | 服务器内部错误 |
+
+---
+
+## 调度机制设计
+
+### Scheduler 工作流程
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Scheduler 进程（独立）                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  每 60 秒执行一次：                                              │
+│  1. 查询 Source 表中 next_ingest_at <= NOW() 的源                │
+│  2. 对每个到期源：                                               │
+│     a. 创建 Job 记录（type=ingest, status=pending）             │
+│     b. 调用 Dramatiq ingest_source.send(source_id)             │
+│     c. 更新 next_ingest_at = NOW() + schedule_interval          │
+│  3. 记录调度日志                                                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 调度状态管理
+
+**设置调度**：
+```python
+# POST /api/v1/admin/sources/{id}/schedule
+source.schedule_interval = interval
+source.next_ingest_at = datetime.now(timezone.utc) + timedelta(seconds=interval)
+```
+
+**取消调度**：
+```python
+# DELETE /api/v1/admin/sources/{id}/schedule
+source.schedule_interval = None
+source.next_ingest_at = None
+```
+
+**采集完成后更新**：
+```python
+# 在 ingest_source 任务完成后
+source.last_ingested_at = datetime.now(timezone.utc)
+if source.schedule_interval:
+    source.next_ingest_at = datetime.now(timezone.utc) + timedelta(seconds=source.schedule_interval)
+```
+
+### Scheduler 实现要点
+
+1. **进程管理**：Scheduler 作为独立进程运行，与 API/Worker 分离
+2. **锁机制**：使用 Redis 分布式锁防止多实例重复调度
+3. **错误处理**：调度失败记录日志，不阻塞其他源的调度
+4. **动态加载**：支持运行时修改 schedule_interval，下次调度生效
+
+---
+
+## Log API 日志解析实现
+
+### 日志文件位置
+
+默认路径：`/var/log/cyber-pulse/app.log`
+
+可通过环境变量 `LOG_FILE_PATH` 配置。
+
+### 日志格式
+
+使用 JSON 格式，便于解析：
+
+```json
+{"timestamp": "2026-03-25T10:00:00Z", "level": "ERROR", "module": "connector.rss", "source_id": "src_xxx", "message": "HTTP 403 Forbidden", "error_type": "http_403", "retry_count": 3}
+```
+
+### 解析逻辑
+
+```python
+class LogParser:
+    """日志解析器"""
+
+    ERROR_TYPE_PATTERNS = {
+        "connection": [r"ConnectError", r"Connection refused", r"Name resolution failed"],
+        "timeout": [r"Timeout", r"timed out"],
+        "http_403": [r"HTTP 403", r"Forbidden"],
+        "http_404": [r"HTTP 404", r"Not Found"],
+        "http_429": [r"HTTP 429", r"Too Many Requests"],
+        "http_5xx": [r"HTTP 5\d{2}"],
+        "parse_error": [r"ParseError", r"Invalid RSS", r"Malformed"],
+        "ssl_error": [r"SSL", r"certificate"],
+    }
+
+    def parse_line(self, line: str) -> Optional[LogEntry]:
+        """解析单行日志"""
+        try:
+            data = json.loads(line)
+            # 自动分类错误类型
+            if "error_type" not in data and data.get("level") == "ERROR":
+                data["error_type"] = self._classify_error(data.get("message", ""))
+            return LogEntry(**data)
+        except json.JSONDecodeError:
+            return None
+
+    def _classify_error(self, message: str) -> str:
+        """根据消息内容分类错误类型"""
+        message_lower = message.lower()
+        for error_type, patterns in self.ERROR_TYPE_PATTERNS.items():
+            for pattern in patterns:
+                if re.search(pattern, message, re.I):
+                    return error_type
+        return "unknown"
+```
+
+### 错误建议映射
+
+```python
+ERROR_SUGGESTIONS = {
+    "connection": "检查网络连接或源服务器状态",
+    "timeout": "增加请求超时时间或检查网络延迟",
+    "http_403": "检查网站反爬策略，可能需要添加 User-Agent 或 IP 白名单",
+    "http_404": "RSS 地址已失效，尝试自动发现新地址",
+    "http_429": "降低采集频率，添加请求间隔",
+    "http_5xx": "源服务器异常，稍后重试",
+    "parse_error": "RSS 格式异常，检查源内容",
+    "ssl_error": "检查 SSL 证书配置",
+}
+```
+
+---
+
+## completeness_score 计算逻辑
+
+### 计算公式
+
+```
+completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
+```
+
+### 子指标定义
+
+| 子指标 | 数据库字段 | 计算方式 |
+|--------|------------|---------|
+| `meta_completeness` | `items.meta_completeness` | author、tags、published_at 是否存在 |
+| `content_completeness` | `items.content_completeness` | 正文长度（≥500=1.0, ≥200=0.7, ≥50=0.4, <50=0.2） |
+| `noise_ratio` | `items.noise_ratio` | HTML 标签和广告标记占比 |
+
+### API 实现示例
+
+```python
+def calculate_completeness_score(item: Item) -> float:
+    """计算内容完整性评分"""
+    meta = item.meta_completeness or 0.0
+    content = item.content_completeness or 0.0
+    noise = item.noise_ratio or 0.0
+
+    return round(meta * 0.4 + content * 0.4 + (1 - noise) * 0.2, 2)
+```
+
+### 默认值处理
+
+- 如果 `meta_completeness` 为 NULL，使用 0.0
+- 如果 `content_completeness` 为 NULL，使用 0.0
+- 如果 `noise_ratio` 为 NULL，使用 0.0
 
 ---
 

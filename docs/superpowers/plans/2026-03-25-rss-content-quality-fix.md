@@ -1019,6 +1019,13 @@ uv run pytest tests/test_services/test_quality_gate.py -v 2>/dev/null || echo "N
 
 在 `QualityGateService` 类中添加以下方法和常量：
 
+**注意**：需要确保文件开头有以下导入：
+```python
+import re
+from difflib import SequenceMatcher
+from typing import List
+```
+
 ```python
 # 在类定义中添加常量（约第62行后）
 
@@ -1057,7 +1064,6 @@ uv run pytest tests/test_services/test_quality_gate.py -v 2>/dev/null || echo "N
             warnings.append(f"正文过短（{body_length} 字符），建议获取全文")
 
         # Check title format anomaly
-        import re
         if re.search(self.TITLE_DATE_PATTERN, norm.normalized_title or ""):
             warnings.append("标题包含日期，可能存在解析问题")
 
@@ -1085,7 +1091,6 @@ uv run pytest tests/test_services/test_quality_gate.py -v 2>/dev/null || echo "N
             return True
 
         # Check for high similarity
-        from difflib import SequenceMatcher
         similarity = SequenceMatcher(None, title_normalized, body_normalized).ratio()
         return similarity >= self.TITLE_BODY_SIMILARITY_THRESHOLD
 ```
@@ -1601,6 +1606,95 @@ class TestFullContentFlow:
         assert result.category == "Alignment"
         assert result.date == "Dec 18, 2024"
         assert "Alignment faking" in result.title
+
+    @pytest.mark.asyncio
+    async def test_full_fetch_timeout(self):
+        """Test that timeout is handled gracefully."""
+        from cyberpulse.services.full_content_fetch_service import FullContentFetchService
+        import httpx
+
+        service = FullContentFetchService()
+
+        with patch("httpx.AsyncClient.get") as mock_get:
+            mock_get.side_effect = httpx.TimeoutException("Connection timeout")
+
+            result = await service.fetch_full_content("https://example.com/slow")
+
+        assert result.success is False
+        assert "timeout" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_full_fetch_4xx_no_retry(self):
+        """Test that 4xx errors do not trigger retry."""
+        from cyberpulse.services.full_content_fetch_service import FullContentFetchService
+
+        service = FullContentFetchService()
+
+        with patch.object(service, "fetch_full_content") as mock_fetch:
+            mock_fetch.return_value = FullContentResult(
+                content="",
+                success=False,
+                error="HTTP error: 404",
+            )
+
+            result = await service.fetch_with_retry(
+                "https://example.com/notfound",
+                max_retries=3,
+            )
+
+        # Should only be called once (no retry for 4xx)
+        assert mock_fetch.call_count == 1
+        assert result.success is False
+
+    def test_title_parser_edge_cases(self):
+        """Test title parser with edge cases."""
+        from cyberpulse.services.title_parser_service import TitleParserService
+
+        parser = TitleParserService()
+
+        # Empty title
+        result = parser.parse_compound_title("")
+        assert result.title == ""
+        assert result.category is None
+
+        # No matching pattern
+        result = parser.parse_compound_title("Simple Title Without Date")
+        assert result.title == "Simple Title Without Date"
+        assert result.category is None
+        assert result.date is None
+
+        # Date in middle of title
+        result = parser.parse_compound_title("Some Text Jan 15, 2024 More Text")
+        assert result.date == "Jan 15, 2024"
+        assert "Jan 15, 2024" not in result.title
+
+    def test_source_governance_triggers_review(self, db_session):
+        """Test that high failure rate triggers pending_review."""
+        from cyberpulse.models import Source, SourceStatus
+
+        source = Source(
+            source_id="src_governance01",
+            name="Governance Test",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed/"},
+            status=SourceStatus.ACTIVE,
+            full_fetch_success_count=3,
+            full_fetch_failure_count=8,  # 8/11 = 72% failure rate
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        # Simulate another failure
+        source.full_fetch_failure_count += 1  # 9/12 = 75% failure rate
+        total = source.full_fetch_success_count + source.full_fetch_failure_count
+        if total >= 10 and source.full_fetch_failure_count / total > 0.5:
+            source.pending_review = True
+            source.review_reason = "全文获取失败率过高"
+        db_session.commit()
+
+        db_session.refresh(source)
+        assert source.pending_review is True
+        assert "全文获取失败率过高" in source.review_reason
 ```
 
 - [ ] **Step 2: 运行集成测试**

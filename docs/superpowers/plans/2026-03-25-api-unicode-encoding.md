@@ -59,7 +59,7 @@ class TestUnicodeEncoding:
 
     def test_error_response_encoding(self, client):
         """Error responses should preserve Unicode in error messages."""
-        response = client.get("/api/v1/contents/cnt_notfound")
+        response = client.get("/api/v1/items/item_notfound")
         assert response.status_code == 404
         raw_text = response.text
         assert "\\u" not in raw_text, "Error messages should not escape Unicode"
