@@ -271,7 +271,7 @@ def error_logs(
 
     # JSON output
     if format == "json":
-        print(json.dumps(errors, indent=2))
+        print(json.dumps(errors, indent=2, ensure_ascii=False))
         raise typer.Exit(0)
 
     console.print(Panel(f"Found {len(errors)} error entries", style="red bold"))
@@ -347,7 +347,7 @@ def search_logs(
 
     # JSON output
     if format == "json":
-        print(json.dumps(matches, indent=2))
+        print(json.dumps(matches, indent=2, ensure_ascii=False))
         raise typer.Exit(0)
 
     console.print(Panel(f"Found {len(matches)} matches for '{text}'", style="blue bold"))

@@ -122,7 +122,7 @@ def list_sources(
                 }
                 for s in sources
             ]
-            console.print(json.dumps({"sources": sources_data}, indent=2))
+            console.print(json.dumps({"sources": sources_data}, indent=2, ensure_ascii=False))
 
         else:
             # Table format (default)

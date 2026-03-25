@@ -90,7 +90,7 @@ def list_jobs(
             for job in jobs:
                 if job.get("next_run_time"):
                     job["next_run_time"] = job["next_run_time"].isoformat()
-            print(json.dumps(jobs, indent=2))
+            print(json.dumps(jobs, indent=2, ensure_ascii=False))
             return
 
         # Create table for display
@@ -257,7 +257,7 @@ def job_status(
             # Convert datetime objects to ISO format
             if job.get("next_run_time"):
                 job["next_run_time"] = job["next_run_time"].isoformat()
-            console.print(json.dumps(job, indent=2))
+            console.print(json.dumps(job, indent=2, ensure_ascii=False))
             return
 
         # Display job details in a formatted way
