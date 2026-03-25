@@ -100,8 +100,9 @@ class TestRSSConnectorFetch:
 
             with patch("feedparser.parse", return_value=mock_feedparser_result):
                 connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-                items = await connector.fetch()
+                result = await connector.fetch()
 
+        items = result.items
         assert len(items) == 1
         assert items[0]["external_id"] == "guid-123"
         assert items[0]["url"] == "https://example.com/article/123"
@@ -141,8 +142,9 @@ class TestRSSConnectorFetch:
 
             with patch("feedparser.parse", return_value=result):
                 connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-                items = await connector.fetch()
+                fetch_result = await connector.fetch()
 
+        items = fetch_result.items
         assert len(items) == 1
         assert items[0]["external_id"] == "https://example.com/article/456"
 
@@ -179,9 +181,9 @@ class TestRSSConnectorFetch:
 
             with patch("feedparser.parse", return_value=result):
                 connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-                items = await connector.fetch()
+                fetch_result = await connector.fetch()
 
-        assert len(items) == RSSConnector.MAX_ITEMS
+        assert len(fetch_result.items) == RSSConnector.MAX_ITEMS
 
     @pytest.mark.asyncio
     async def test_fetch_skips_entries_without_url(self):
@@ -219,8 +221,9 @@ class TestRSSConnectorFetch:
 
             with patch("feedparser.parse", return_value=result):
                 connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-                items = await connector.fetch()
+                fetch_result = await connector.fetch()
 
+        items = fetch_result.items
         assert len(items) == 1
         assert items[0]["external_id"] == "with-link-guid"
 
@@ -255,8 +258,9 @@ class TestRSSConnectorFetch:
 
             with patch("feedparser.parse", return_value=result):
                 connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-                items = await connector.fetch()
+                fetch_result = await connector.fetch()
 
+        items = fetch_result.items
         assert len(items) == 1
         assert items[0]["external_id"] == "bozo-guid"
 
@@ -331,8 +335,9 @@ class TestRSSConnectorFetch:
 
             with patch("feedparser.parse", return_value=result):
                 connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-                items = await connector.fetch()
+                fetch_result = await connector.fetch()
 
+        items = fetch_result.items
         assert len(items) == 1
         assert items[0]["author"] == "John Doe"
         assert items[0]["tags"] == ["security", "python"]
@@ -502,7 +507,8 @@ class TestRSSConnectorContentHash:
 
             with patch("feedparser.parse", return_value=result):
                 connector = RSSConnector({"feed_url": "https://example.com/feed.xml"})
-                items = await connector.fetch()
+                fetch_result = await connector.fetch()
 
+        items = fetch_result.items
         assert "content_hash" in items[0]
         assert items[0]["content_hash"] == connector.generate_content_hash("Content for hashing")

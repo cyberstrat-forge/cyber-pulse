@@ -2,6 +2,7 @@
 
 import email.utils
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +15,13 @@ from .connector_service import BaseConnector, ConnectorError
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class FetchResult:
+    """RSS 采集结果"""
+    items: List[Dict[str, Any]]
+    redirect_info: Optional[Dict[str, Any]] = None  # {"original_url": "...", "final_url": "...", "status_code": 301}
+
+
 class RSSConnector(BaseConnector):
     """Connector for RSS/Atom feeds.
 
@@ -23,6 +31,13 @@ class RSSConnector(BaseConnector):
 
     MAX_ITEMS = 50
     REQUIRED_CONFIG_KEYS = ["feed_url"]
+
+    # 默认浏览器 User-Agent
+    DEFAULT_USER_AGENT = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
 
     def validate_config(self) -> bool:
         """Validate that feed_url is present in config.
@@ -48,11 +63,11 @@ class RSSConnector(BaseConnector):
 
         return True
 
-    async def fetch(self) -> List[Dict[str, Any]]:
+    async def fetch(self) -> FetchResult:
         """Fetch items from the RSS feed.
 
         Returns:
-            List of item dictionaries with standardized fields
+            FetchResult with items and optional redirect_info
 
         Raises:
             ConnectorError: If feed cannot be fetched or parsed
@@ -62,21 +77,43 @@ class RSSConnector(BaseConnector):
         feed_url = self.config["feed_url"]
 
         try:
-            # SSRF protection: fetch content via httpx first (not feedparser directly)
-            # This prevents feedparser's file:// protocol support from being exploited
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-                # Validate final URL after any redirects
-                response = await client.get(feed_url)
-                response.raise_for_status()
+            # SSRF protection: fetch content via httpx with redirect following
+            async with httpx.AsyncClient(
+                timeout=30.0,
+                follow_redirects=True,  # 启用重定向跟随
+            ) as client:
+                response = await client.get(
+                    feed_url,
+                    headers={"User-Agent": self.DEFAULT_USER_AGENT},
+                )
 
                 # Validate the final URL (in case of redirects)
                 final_url = str(response.url)
-                try:
-                    validate_url_for_ssrf(final_url)
-                except SSRFError as e:
-                    raise ConnectorError(f"RSS feed redirect to blocked URL: {e}") from e
+                if final_url != feed_url:
+                    try:
+                        validate_url_for_ssrf(final_url)
+                    except SSRFError as e:
+                        raise ConnectorError(
+                            f"RSS feed redirect to blocked URL: {e}"
+                        ) from e
 
+                response.raise_for_status()
                 content = response.content
+
+            # 检测永久重定向
+            redirect_info = None
+            if response.history:
+                for hist in response.history:
+                    if hist.status_code in (301, 308):
+                        redirect_info = {
+                            "original_url": feed_url,
+                            "final_url": final_url,
+                            "status_code": hist.status_code,
+                        }
+                        logger.info(
+                            f"RSS feed permanently redirected: {feed_url} -> {final_url}"
+                        )
+                        break
 
             # Parse the fetched content with feedparser
             feed = feedparser.parse(content)
@@ -126,7 +163,7 @@ class RSSConnector(BaseConnector):
                 )
                 continue
 
-        return items
+        return FetchResult(items=items, redirect_info=redirect_info)
 
     def _parse_entry(self, entry: Any) -> Optional[Dict[str, Any]]:
         """Parse a single RSS entry into standardized format.
