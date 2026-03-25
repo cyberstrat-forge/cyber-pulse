@@ -19,19 +19,17 @@
 ## API 架构总览
 
 ```
-/health                          # 健康检查（公开，无需认证）
-
 /api/v1/
 │
 ├── /items                       # 业务 API（read 权限）
 │   └── GET /                    # 拉取情报
 │
 └── /admin                       # 管理 API（admin 权限）
+    ├── /diagnose                # 系统状态总览
     ├── /sources                 # 情报源管理
     ├── /jobs                    # 任务管理
     ├── /clients                 # 客户端管理
-    ├── /logs                    # 日志管理
-    └── /diagnose                # 诊断工具
+    └── /logs                    # 日志管理
 ```
 
 ---
@@ -249,6 +247,15 @@ completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 -
 GET /api/v1/admin/sources?status=active&tier=T1&limit=50
 ```
 
+**查询参数**：
+
+| 参数 | 说明 |
+|------|------|
+| `status` | 状态：`active`、`frozen`、`pending_review` |
+| `tier` | 等级：`T0`、`T1`、`T2`、`T3` |
+| `scheduled` | 是否已调度：`true`、`false` |
+| `limit` | 每页数量，默认 50 |
+
 **响应**：
 
 ```json
@@ -261,7 +268,10 @@ GET /api/v1/admin/sources?status=active&tier=T1&limit=50
       "score": 75.0,
       "status": "active",
       "needs_full_fetch": true,
-      "consecutive_failures": 0
+      "consecutive_failures": 0,
+      "schedule_interval": 3600,
+      "next_ingest_at": "2026-03-25T11:00:00Z",
+      "last_ingested_at": "2026-03-25T10:00:00Z"
     }
   ],
   "count": 1,
@@ -348,6 +358,9 @@ POST /api/v1/admin/sources
   "avg_content_length": 150,
   "consecutive_failures": 0,
   "last_error_at": null,
+  "schedule_interval": null,
+  "next_ingest_at": null,
+  "last_ingested_at": null,
   "warnings": [
     "URL permanently redirected: https://old-domain.com/feed.xml → https://new-domain.com/feed.xml"
   ],
@@ -385,35 +398,45 @@ skip_invalid: true
 
 ```
 POST /api/v1/admin/sources/{id}/schedule
+{
+  "interval": 3600
+}
 ```
 
-**请求体**（二选一）：
+**说明**：设置源采集间隔，调度信息存储在 Source 模型中。
 
-```json
-// 选项 1：间隔调度（秒）
-{ "interval": 3600 }
-
-// 选项 2：Cron 表达式
-{ "cron": "0 */6 * * *" }
-```
-
-**校验规则**：
-- `interval`: 正整数，最小 300（5分钟）
-- `cron`: 标准 5 字段 cron 表达式
-- 同时提供时，返回 400 错误
+**字段说明**：
+- `interval`: 采集间隔秒数，最小 300（5分钟），无上限
 
 **响应**：
 
 ```json
 {
   "source_id": "src_a1b2c3d4",
-  "schedule": { "interval": 3600 },
+  "schedule_interval": 3600,
+  "next_ingest_at": "2026-03-25T11:00:00Z",
   "message": "Schedule updated"
 }
 ```
 
+**调度机制**：
+- 设置 `schedule_interval` 后，系统自动计算 `next_ingest_at`
+- Scheduler 进程定期扫描 `next_ingest_at` 到期的源
+- 到期后创建 Job 并触发 Dramatiq 采集任务
+
 ```
 DELETE /api/v1/admin/sources/{id}/schedule  # 取消调度
+```
+
+**响应**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "schedule_interval": null,
+  "next_ingest_at": null,
+  "message": "Schedule removed"
+}
 ```
 
 ---
@@ -422,9 +445,39 @@ DELETE /api/v1/admin/sources/{id}/schedule  # 取消调度
 
 **基础路径**：`/api/v1/admin/jobs`
 
-**任务类型**：
-- `ingest`：采集任务（单个源）
-- `import`：导入任务（批量添加源）
+#### 任务管理架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  触发入口                                                        │
+│                                                                  │
+│  API 手动触发：                                                   │
+│  - POST /admin/jobs (采集) → 创建 Job → Dramatiq 任务            │
+│  - POST /admin/sources/import → 创建 Job → Dramatiq 任务         │
+│                                                                  │
+│  Scheduler 定时触发（独立进程）：                                  │
+│  - 扫描 next_ingest_at 到期的源 → 创建 Job → Dramatiq 任务        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Dramatiq Worker                                                │
+│  - 异步执行任务                                                  │
+│  - 重试、失败处理                                                │
+│  - 更新 Job 状态和结果                                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**调度存储**：Source 模型字段（`schedule_interval`、`next_ingest_at`）
+
+**执行追踪**：Job 模型
+
+#### 任务类型
+
+| 类型 | 说明 | 触发方式 |
+|------|------|---------|
+| `ingest` | 采集任务（单个源） | API 手动 / Scheduler 定时 |
+| `import` | 导入任务（批量添加源） | API 手动 |
 
 #### 端点列表
 
@@ -440,6 +493,16 @@ DELETE /api/v1/admin/sources/{id}/schedule  # 取消调度
 GET /api/v1/admin/jobs?type=ingest&status=failed&source_id=src_xxx&limit=50
 ```
 
+**查询参数**：
+
+| 参数 | 说明 |
+|------|------|
+| `type` | 任务类型：`ingest` 或 `import` |
+| `status` | 状态：`pending`、`running`、`completed`、`failed` |
+| `source_id` | 按 source 过滤（仅 ingest 类型） |
+| `since` | 创建时间起始 |
+| `limit` | 每页数量，默认 50 |
+
 **响应**：
 
 ```json
@@ -452,7 +515,9 @@ GET /api/v1/admin/jobs?type=ingest&status=failed&source_id=src_xxx&limit=50
       "source_id": "src_xxx",
       "source_name": "Example Blog",
       "created_at": "2026-03-25T10:00:00Z",
+      "started_at": "2026-03-25T10:00:01Z",
       "completed_at": "2026-03-25T10:01:00Z",
+      "duration_seconds": 59,
       "result": {
         "items_fetched": 15,
         "items_created": 12,
@@ -460,7 +525,8 @@ GET /api/v1/admin/jobs?type=ingest&status=failed&source_id=src_xxx&limit=50
       }
     }
   ],
-  "count": 1
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
 }
 ```
 
@@ -469,8 +535,7 @@ GET /api/v1/admin/jobs?type=ingest&status=failed&source_id=src_xxx&limit=50
 ```
 POST /api/v1/admin/jobs
 {
-  "source_id": "src_xxx",
-  "force": false
+  "source_id": "src_xxx"
 }
 ```
 
@@ -482,7 +547,8 @@ POST /api/v1/admin/jobs
   "type": "ingest",
   "status": "pending",
   "source_id": "src_xxx",
-  "message": "Job created"
+  "source_name": "Example Blog",
+  "message": "Job created and queued"
 }
 ```
 
@@ -502,12 +568,35 @@ GET /api/v1/admin/jobs/{id}
   "source_id": "src_xxx",
   "source_name": "Example Blog",
   "created_at": "2026-03-25T10:00:00Z",
+  "started_at": "2026-03-25T10:00:01Z",
   "completed_at": "2026-03-25T10:01:00Z",
+  "duration_seconds": 59,
   "retry_count": 0,
   "result": {
     "items_fetched": 15,
     "items_created": 12,
     "items_rejected": 3
+  }
+}
+```
+
+**ingest 类型失败响应**：
+
+```json
+{
+  "job_id": "job_def456",
+  "type": "ingest",
+  "status": "failed",
+  "source_id": "src_xxx",
+  "source_name": "Example Blog",
+  "created_at": "2026-03-25T10:00:00Z",
+  "started_at": "2026-03-25T10:00:01Z",
+  "completed_at": "2026-03-25T10:00:35Z",
+  "retry_count": 3,
+  "error": {
+    "type": "connection_timeout",
+    "message": "Connection timeout after 30s",
+    "suggestion": "检查网络连接或增加超时时间"
   }
 }
 ```
@@ -521,7 +610,9 @@ GET /api/v1/admin/jobs/{id}
   "status": "completed",
   "file_name": "subscriptions.opml",
   "created_at": "2026-03-25T10:00:00Z",
+  "started_at": "2026-03-25T10:00:01Z",
   "completed_at": "2026-03-25T10:05:00Z",
+  "duration_seconds": 299,
   "result": {
     "total": 50,
     "imported": 42,
@@ -545,10 +636,44 @@ GET /api/v1/admin/jobs/{id}
 
 | 状态 | 说明 |
 |------|------|
-| `pending` | 等待执行 |
+| `pending` | 等待执行（在队列中） |
 | `running` | 执行中 |
 | `completed` | 成功完成 |
-| `failed` | 执行失败 |
+| `failed` | 执行失败（重试耗尽） |
+
+---
+
+### Job 模型
+
+**数据库表**：`jobs`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `job_id` | VARCHAR(64) | 主键，格式：`job_{uuid}` |
+| `type` | VARCHAR(20) | 任务类型：`ingest` 或 `import` |
+| `status` | VARCHAR(20) | 状态：`pending`、`running`、`completed`、`failed` |
+| `source_id` | VARCHAR(64) | 关联源（ingest 类型），外键 |
+| `file_name` | VARCHAR(255) | 导入文件名（import 类型） |
+| `result` | JSONB | 执行结果 |
+| `error_type` | VARCHAR(50) | 错误类型（失败时） |
+| `error_message` | TEXT | 错误信息（失败时） |
+| `retry_count` | INTEGER | 重试次数，默认 0 |
+| `created_at` | TIMESTAMP | 创建时间 |
+| `started_at` | TIMESTAMP | 开始执行时间 |
+| `completed_at` | TIMESTAMP | 完成时间 |
+
+**索引**：
+- `type`, `status`, `source_id`, `created_at`
+
+### Source 调度字段扩展
+
+**新增字段**（存储在 Source 模型）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `schedule_interval` | INTEGER | 采集间隔秒数，null 表示未调度 |
+| `next_ingest_at` | TIMESTAMP | 下次采集时间 |
+| `last_ingested_at` | TIMESTAMP | 上次采集时间 |
 
 ---
 
@@ -707,18 +832,12 @@ GET /api/v1/admin/logs/stats?days=7
 
 **基础路径**：`/api/v1/admin/diagnose`
 
-#### 端点列表
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/system` | GET | 系统诊断 |
-| `/sources` | GET | 源诊断 |
-| `/errors` | GET | 错误诊断 |
+**用途**：系统状态总览，供管理员快速了解系统运行状况。
 
 #### 系统诊断
 
 ```
-GET /api/v1/admin/diagnose/system
+GET /api/v1/admin/diagnose
 ```
 
 **响应**：
@@ -726,61 +845,36 @@ GET /api/v1/admin/diagnose/system
 ```json
 {
   "status": "healthy",
-  "database": "connected",
-  "redis": "connected",
   "version": "1.3.0",
-  "scheduler": "active",
-  "pending_jobs": 3,
-  "recent_errors": 12
-}
-```
-
-#### 源诊断
-
-```
-GET /api/v1/admin/diagnose/sources?pending=true&tier=T1
-```
-
-**响应**：
-
-```json
-{
-  "summary": {
-    "active": 120,
-    "frozen": 15,
-    "pending_review": 5
+  "components": {
+    "database": "connected",
+    "redis": "connected",
+    "scheduler": "active"
   },
-  "pending_review": [
-    {
-      "source_id": "src_xxx",
-      "source_name": "Example Blog",
-      "review_reason": "连续采集失败: HTTP 403",
-      "consecutive_failures": 5
+  "statistics": {
+    "sources": {
+      "active": 120,
+      "frozen": 15,
+      "pending_review": 5
+    },
+    "jobs": {
+      "pending": 3,
+      "running": 1,
+      "failed_24h": 12
+    },
+    "items": {
+      "total": 5420,
+      "last_24h": 156
     }
-  ]
+  },
+  "server_timestamp": "2026-03-25T15:00:00Z"
 }
 ```
 
----
-
-## 健康检查 API
-
-**端点**：`GET /health`
-
-**说明**：此端点位于 `/health`（不在 `/api/v1/` 下），便于负载均衡器和监控系统直接访问，无需认证。
-
-**认证**：无需认证
-
-**响应**：
-
-```json
-{
-  "status": "healthy",
-  "database": "connected",
-  "redis": "connected",
-  "version": "1.3.0"
-}
-```
+**status 取值**：
+- `healthy` - 所有组件正常
+- `degraded` - 部分组件异常但系统可用
+- `unhealthy` - 关键组件异常
 
 ---
 
