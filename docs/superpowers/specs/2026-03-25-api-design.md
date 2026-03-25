@@ -26,6 +26,7 @@
 | **服务绑定** | `api_host`, `api_port` | 环境变量 | ❌ |
 | **安全** | `secret_key` | 环境变量 | ❌ |
 | **环境** | `environment` | 环境变量 | ❌ |
+| **管理员认证** | `admin_api_key` | 环境变量 | ✅（通过 rotate） |
 | **业务默认值** | `default_fetch_interval` | API（`/sources/defaults`） | ✅ |
 
 ### 说明
@@ -116,6 +117,116 @@ def require_permission(permission: str):
 |--------|------|------|
 | 401 | API Key 无效/过期 | `{"detail": "Invalid or expired API key"}` |
 | 403 | 权限不足 | `{"detail": "Permission 'admin' required"}` |
+
+### 管理员认证
+
+**问题**：管理 API 需要 admin 权限的 API Key，但 API Key 通过管理 API 创建，形成鸡蛋问题。
+
+**解决方案**：环境变量引导
+
+#### 环境变量配置
+
+新增 `ADMIN_API_KEY` 环境变量：
+
+```env
+# .env
+ADMIN_API_KEY=cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**生成规则**：
+- 首次部署：`generate-env.sh` 自动生成 32 字符安全随机 Key
+- 重新部署：保留现有 `ADMIN_API_KEY`（类似数据库密码的处理）
+
+#### API 启动初始化
+
+```python
+# src/cyberpulse/api/startup.py
+async def ensure_admin_client():
+    """确保管理员账户存在"""
+    admin = await client_service.get_by_permission("admin")
+    if not admin:
+        admin_key = os.getenv("ADMIN_API_KEY")
+        if not admin_key:
+            admin_key = f"cp_live_{secrets.token_urlsafe(24)}"
+        await client_service.create(
+            name="Administrator",
+            permissions=["admin", "read"],
+            api_key=admin_key
+        )
+```
+
+**初始化逻辑**：
+- 容器启动时检测数据库是否存在 admin 权限的 Client
+- 不存在 → 用 `ADMIN_API_KEY` 创建管理员
+- 存在 → 跳过初始化
+
+#### 部署脚本扩展
+
+新增 `admin` 子命令：
+
+```bash
+# 查看管理员 API Key
+./scripts/cyber-pulse.sh admin show-key
+→ 输出: cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# 重新生成管理员 API Key
+./scripts/cyber-pulse.sh admin rotate-key
+→ 旧 Key 立即失效，新 Key 显示一次
+```
+
+**实现方式**：通过调用 API 完成
+
+```bash
+# show-key: 调用 Client API 获取管理员信息
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+     http://localhost:8000/api/v1/admin/clients?permission=admin
+
+# rotate-key: 调用 rotate 端点
+curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" \
+     http://localhost:8000/api/v1/admin/clients/{admin_id}/rotate
+```
+
+#### 部署到首次访问工作流
+
+```
+1. 部署
+   ./scripts/cyber-pulse.sh deploy --env prod
+   → generate-env.sh 生成 ADMIN_API_KEY
+   → 启动容器，运行迁移
+
+2. API 启动初始化
+   → 检测无 admin Client
+   → 用 ADMIN_API_KEY 创建管理员
+
+3. 部署完成提示
+   管理员 API Key: cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ⚠ 请妥善保存
+
+4. 首次访问
+   curl -H "Authorization: Bearer cp_live_xxx" \
+        http://localhost:8000/api/v1/admin/diagnose
+
+5. 创建下游客户端
+   curl -X POST -H "Authorization: Bearer cp_live_xxx" \
+        -d '{"name": "分析系统", "permissions": ["read"]}' \
+        http://localhost:8000/api/v1/admin/clients
+
+6. 忘记 Key
+   ./scripts/cyber-pulse.sh admin show-key
+   → 输出完整 Key
+
+7. 更换 Key
+   ./scripts/cyber-pulse.sh admin rotate-key
+   → 旧 Key 失效，新 Key 显示
+```
+
+#### Key 存储说明
+
+当前版本：**可恢复存储**（明文/可逆加密）
+
+- 理由：单机版，管理员有服务器访问权限
+- 方便管理：忘记时可找回
+- 后续可升级为哈希存储（需在 rotate 时重新设置）
 
 ---
 
