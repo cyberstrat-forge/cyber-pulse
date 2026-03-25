@@ -6,6 +6,12 @@
 
 ---
 
+## 关联设计
+
+- [API Unicode Encoding Fix](./2026-03-25-api-unicode-encoding-design.md) — API 响应 Unicode 编码修复
+
+---
+
 ## 问题概述
 
 ### Issue #44: API 返回字段与文档描述不一致
@@ -216,38 +222,6 @@ completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 -
 
 ---
 
-## 向后兼容
-
-### 旧 API 端点
-
-保留 `/api/v1/contents` 端点，标记为 deprecated：
-
-```
-GET /api/v1/contents → 301 Redirect → GET /api/v1/items
-```
-
-**重定向行为**：
-- 保留所有查询参数（cursor, limit, since, source_id）
-- 返回 301 状态码
-- 响应体为空或包含简短提示
-
-响应头包含：
-```
-Deprecation: true
-Link: </api/v1/items>; rel="successor"
-Location: /api/v1/items?cursor=xxx&limit=50
-```
-
-### 迁移周期
-
-| 阶段 | 时间 | 操作 |
-|------|------|------|
-| 阶段 1 | 发布后 1 个月 | 旧端点返回警告头 |
-| 阶段 2 | 发布后 3 个月 | 旧端点返回 301 重定向 |
-| 阶段 3 | 发布后 6 个月 | 移除旧端点 |
-
----
-
 ## 数据库变更
 
 ### 新增字段到 items 表
@@ -320,15 +294,15 @@ ALTER TABLE items DROP COLUMN IF EXISTS normalized_body;
 
 ---
 
-## 下游兼容
+## 下游适配
 
-### cyber-nexus intel-pull 适配
+### cyber-nexus intel-pull 变更
 
-| 变更 | 影响 |
-|------|------|
-| API 路径变更 | `/contents` → `/items` |
-| 字段映射 | `content_id` → `id`, `fetched_at` → `fetched_at` |
-| 新增字段 | `source` 对象、`completeness_score` |
+| 变更项 | 原值 | 新值 |
+|--------|------|------|
+| API 路径 | `/api/v1/contents` | `/api/v1/items` |
+| ID 字段 | `content_id` | `id` |
+| 新增字段 | - | `source` 对象、`completeness_score` |
 
 ### cursor 兼容性
 
@@ -354,8 +328,7 @@ ALTER TABLE items DROP COLUMN IF EXISTS normalized_body;
 |--------|---------|
 | API 端到端 | 完整请求-响应流程 |
 | 分页遍历 | 多页数据完整拉取 |
-| 向后兼容 | 旧端点重定向正确 |
-| 参数转发 | 重定向保留查询参数 |
+| 中文字段 | 标题、正文中文正常显示（配合 Unicode 编码设计） |
 
 ### 手动验证
 
@@ -377,10 +350,10 @@ curl -H "Authorization: Bearer <api_key>" \
      "http://localhost:8000/api/v1/items?limit=200" | jq '.data | length'
 # 期望: 100
 
-# 5. 测试重定向
-curl -v -H "Authorization: Bearer <api_key>" \
-     "http://localhost:8000/api/v1/contents?limit=10"
-# 期望: 301 Redirect with Deprecation header
+# 5. 测试中文字段（验证 Unicode 编码）
+curl -H "Authorization: Bearer <api_key>" \
+     "http://localhost:8000/api/v1/items?limit=1" | jq '.data[0].title'
+# 期望: 中文字符正常显示，非 \uXXXX 转义
 ```
 
 ---
