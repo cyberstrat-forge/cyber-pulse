@@ -1,7 +1,6 @@
 # tests/test_models/test_source_fields.py
 """Tests for Source model fields."""
 
-import pytest
 from cyberpulse.models import Source, SourceStatus
 
 

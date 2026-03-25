@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- RSS auto-discovery service for finding RSS feeds from site URLs
+- Source failure tracking with `consecutive_failures` and `last_error_at` fields
+- Automatic source freezing after 5 consecutive failures
+- RSS feed URL auto-update on permanent redirect (301/308)
+- RSS discovery integration when adding sources via CLI
+
+### Fixed
+- HTTP redirect handling in RSS connector (now follows redirects)
+- Missing User-Agent header causing 403 errors from some RSS feeds
+
 ## [1.3.0] - 2026-03-22
 
 ### Added

@@ -255,7 +255,7 @@ def add_source(
                     config = {"feed_url": feed_url}
                     console.print(f"[green]Found RSS: {feed_url}[/green]")
                 else:
-                    console.print(f"[yellow]Could not discover RSS, using URL as feed_url[/yellow]")
+                    console.print("[yellow]Could not discover RSS, using URL as feed_url[/yellow]")
                     config = {"feed_url": url}
         elif connector == "api":
             config = {"url": url}

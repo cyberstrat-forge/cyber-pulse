@@ -2,8 +2,7 @@
 """Tests for enhanced ingestion tasks."""
 
 import pytest
-from unittest.mock import patch, MagicMock
-from datetime import datetime, timezone
+from unittest.mock import patch
 
 from cyberpulse.models import Source, SourceStatus
 from cyberpulse.services.connector_service import ConnectorError
