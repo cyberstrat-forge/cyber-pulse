@@ -769,14 +769,15 @@ GET /api/v1/admin/jobs/{id}
 |------|------|------|
 | `/` | GET | 客户端列表 |
 | `/` | POST | 创建客户端 |
-| `/{id}/disable` | PUT | 禁用客户端 |
-| `/{id}/enable` | PUT | 启用客户端 |
+| `/{id}` | GET | 客户端详情 |
+| `/{id}` | PUT | 更新客户端 |
 | `/{id}` | DELETE | 删除客户端 |
+| `/{id}/rotate` | POST | 重新生成 API Key |
 
 #### 客户端列表
 
 ```
-GET /api/v1/admin/clients?status=active&limit=50
+GET /api/v1/admin/clients?limit=50
 ```
 
 **响应**：
@@ -789,9 +790,8 @@ GET /api/v1/admin/clients?status=active&limit=50
       "name": "分析系统",
       "description": "下游分析系统",
       "permissions": ["read"],
-      "status": "active",
-      "last_used_at": "2026-03-25T10:00:00Z",
       "expires_at": "2026-12-31T23:59:59Z",
+      "last_used_at": "2026-03-25T10:00:00Z",
       "created_at": "2026-03-01T10:00:00Z"
     }
   ],
@@ -807,8 +807,8 @@ POST /api/v1/admin/clients
 {
   "name": "分析系统",
   "description": "下游分析系统",
-  "permissions": ["read"],    # read 或 admin
-  "expires_at": "2026-12-31T23:59:59Z"  # 可选
+  "permissions": ["read"],
+  "expires_at": "2026-12-31T23:59:59Z"
 }
 ```
 
@@ -818,12 +818,75 @@ POST /api/v1/admin/clients
 {
   "client_id": "cli_a1b2c3d4e5f6g7h8",
   "name": "分析系统",
-  "api_key": "cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",  // 仅创建时返回
+  "description": "下游分析系统",
+  "api_key": "cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "permissions": ["read"],
-  "status": "active",
+  "expires_at": "2026-12-31T23:59:59Z",
   "created_at": "2026-03-25T10:00:00Z"
 }
 ```
+
+**说明**：`api_key` 仅创建时返回一次，请妥善保存。
+
+#### 更新客户端
+
+```
+PUT /api/v1/admin/clients/{id}
+{
+  "name": "分析系统 v2",
+  "description": "更新后的描述",
+  "expires_at": "2027-12-31T23:59:59Z"
+}
+```
+
+**响应**：
+
+```json
+{
+  "client_id": "cli_a1b2c3d4e5f6g7h8",
+  "name": "分析系统 v2",
+  "description": "更新后的描述",
+  "permissions": ["read"],
+  "expires_at": "2027-12-31T23:59:59Z",
+  "created_at": "2026-03-25T10:00:00Z"
+}
+```
+
+**说明**：不可修改 `permissions`。
+
+#### 重新生成 API Key
+
+```
+POST /api/v1/admin/clients/{id}/rotate
+```
+
+**响应**：
+
+```json
+{
+  "client_id": "cli_a1b2c3d4e5f6g7h8",
+  "api_key": "cp_live_yyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+  "message": "API Key rotated, old key is now invalid"
+}
+```
+
+**说明**：旧 API Key 立即失效，新 Key 仅返回一次。
+
+#### 删除客户端
+
+```
+DELETE /api/v1/admin/clients/{id}
+```
+
+**响应**：
+
+```json
+{
+  "message": "Client deleted"
+}
+```
+
+**说明**：物理删除，API Key 立即失效。
 
 ---
 
