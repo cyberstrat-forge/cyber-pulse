@@ -35,18 +35,13 @@ class Source(Base, TimestampMixin):
     tier = Column(Enum(SourceTier), nullable=False, default=SourceTier.T2)
     score = Column(Float, nullable=False, default=50.0)
     status = Column(Enum(SourceStatus), nullable=False, default=SourceStatus.ACTIVE)
-    is_in_observation = Column(Boolean, nullable=False, default=False)
-    observation_until = Column(DateTime, nullable=True)
     pending_review = Column(Boolean, nullable=False, default=False)
     review_reason = Column(Text, nullable=True)
-    fetch_interval = Column(Integer, nullable=True)
     config = Column(JSONB, nullable=False, default=dict)
 
     # Statistics
-    last_fetched_at = Column(DateTime, nullable=True)
     last_scored_at = Column(DateTime, nullable=True)
     total_items = Column(Integer, nullable=False, default=0)
-    total_contents = Column(Integer, nullable=False, default=0)
 
     # Failure tracking
     consecutive_failures = Column(Integer, nullable=False, default=0)
