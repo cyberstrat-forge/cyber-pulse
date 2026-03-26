@@ -1016,11 +1016,8 @@ cmd_admin() {
     local subcommand="${1:-help}"
 
     case "$subcommand" in
-        show-key)
-            cmd_admin_show_key
-            ;;
-        rotate-key)
-            cmd_admin_rotate_key
+        reset)
+            cmd_admin_reset
             ;;
         help|--help|-h)
             print_admin_help
@@ -1033,93 +1030,90 @@ cmd_admin() {
     esac
 }
 
-cmd_admin_show_key() {
-    print_header "Admin API Key"
+cmd_admin_reset() {
+    print_header "Reset Admin API Key"
 
-    # Get admin key from environment
-    if [[ -f "$ENV_FILE" ]]; then
-        admin_key=$(grep "^ADMIN_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
-        if [[ -n "$admin_key" ]]; then
-            echo -e "${GREEN}$admin_key${NC}"
-            return 0
-        fi
-    fi
+    # Check if service is running
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
 
-    print_error "ADMIN_API_KEY not found in $ENV_FILE"
-    exit 1
-}
+    cd "$DEPLOY_DIR"
 
-cmd_admin_rotate_key() {
-    print_header "Rotate Admin API Key"
-
-    # Get current admin key
-    if [[ ! -f "$ENV_FILE" ]]; then
-        print_error ".env file not found"
+    # Check if API is running
+    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "running"; then
+        print_error "API service is not running"
+        print_info "Start the service first: ./scripts/cyber-pulse.sh start"
         exit 1
     fi
 
-    admin_key=$(grep "^ADMIN_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
-    if [[ -z "$admin_key" ]]; then
-        print_error "ADMIN_API_KEY not found in .env"
-        exit 1
+    # Warning prompt
+    print_warning "This will invalidate the current admin API key!"
+    print_warning "All clients using the old key will lose access."
+    echo ""
+    read -r -p "Are you sure you want to reset? (yes/no): " response
+
+    if [[ "$response" != "yes" ]]; then
+        print_info "Reset cancelled"
+        exit 0
     fi
 
-    # Call API to rotate
-    local api_url="http://localhost:8000"
+    # Call API to reset admin key
+    print_step "Resetting admin key..."
 
-    # Get admin client ID
-    response=$(curl -s -H "Authorization: Bearer $admin_key" \
-        "${api_url}/api/v1/admin/clients")
+    # Execute Python script inside API container to reset admin key
+    local result
+    result=$($DOCKER_COMPOSE $compose_files exec -T api python3 -c "
+import sys
+sys.path.insert(0, '/app')
+from cyberpulse.database import SessionLocal
+from cyberpulse.api.auth import ApiClientService
 
-    client_id=$(echo "$response" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for c in data.get('data', []):
-    if 'admin' in c.get('permissions', []):
-        print(c['client_id'])
-        break
-" 2>/dev/null)
+db = SessionLocal()
+try:
+    service = ApiClientService(db)
+    result = service.reset_admin_key()
+    if result:
+        client, plain_key = result
+        print(f'OK:{plain_key}')
+    else:
+        print('ERROR:No admin client found')
+finally:
+    db.close()
+" 2>&1)
 
-    if [[ -z "$client_id" ]]; then
-        print_error "Could not find admin client"
-        exit 1
-    fi
-
-    # Rotate key
-    response=$(curl -s -X POST -H "Authorization: Bearer $admin_key" \
-        "${api_url}/api/v1/admin/clients/${client_id}/rotate")
-
-    new_key=$(echo "$response" | python3 -c "
-import sys, json
-print(json.load(sys.stdin).get('api_key', ''))
-" 2>/dev/null)
-
-    if [[ -z "$new_key" ]]; then
-        print_error "Failed to rotate key"
-        exit 1
-    fi
-
-    # Update .env file
-    if [[ "$(uname)" == "Darwin" ]]; then
-        sed -i '' "s|^ADMIN_API_KEY=.*|ADMIN_API_KEY=${new_key}|" "$ENV_FILE"
+    if [[ "$result" == OK:* ]]; then
+        local new_key="${result#OK:}"
+        echo ""
+        echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
+        echo -e "${GREEN}Admin API Key reset successfully!${NC}"
+        echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "  New Admin API Key: ${YELLOW}${new_key}${NC}"
+        echo ""
+        echo -e "${RED}  IMPORTANT:${NC}"
+        echo -e "  - This key is shown ONCE. Save it securely now!"
+        echo -e "  - The old key is now INVALID"
+        echo ""
+        echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
     else
-        sed -i "s|^ADMIN_API_KEY=.*|ADMIN_API_KEY=${new_key}|" "$ENV_FILE"
+        print_error "Failed to reset admin key"
+        echo "$result"
+        exit 1
     fi
-
-    echo -e "${GREEN}Admin API Key rotated successfully!${NC}"
-    echo -e "New key: ${YELLOW}${new_key}${NC}"
-    echo -e "${RED}⚠ Old key is now invalid${NC}"
 }
 
 print_admin_help() {
     echo ""
     echo "Admin commands:"
-    echo "  show-key     Show current admin API key"
-    echo "  rotate-key   Generate new admin API key"
+    echo "  reset        Reset admin API key (old key becomes invalid)"
     echo ""
     echo "Examples:"
-    echo "  cyber-pulse.sh admin show-key"
-    echo "  cyber-pulse.sh admin rotate-key"
+    echo "  cyber-pulse.sh admin reset"
+    echo ""
+    echo "Note: Admin key is generated on first deployment and shown once."
+    echo "      If lost, use 'reset' to generate a new key."
 }
 
 # 显示帮助信息
@@ -1167,8 +1161,7 @@ show_help() {
     echo "                      --list             列出备份"
     echo "                      --from-archive     从压缩包恢复"
     echo "  admin <subcommand>  管理员操作"
-    echo "                      show-key           显示当前 API Key"
-    echo "                      rotate-key         生成新的 API Key"
+    echo "                      reset              重置 Admin API Key"
     echo "  help                显示此帮助信息"
     echo ""
     echo -e "${BOLD}环境说明:${NC}"
