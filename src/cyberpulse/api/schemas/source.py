@@ -113,6 +113,33 @@ class SourceResponse(BaseModel):
     total_items: int = Field(..., description="Total items collected")
     total_contents: int = Field(..., description="Total contents produced")
 
+    # Scheduling fields (from design doc)
+    schedule_interval: Optional[int] = Field(None, description="采集间隔秒数")
+    next_ingest_at: Optional[datetime] = Field(None, description="下次采集时间")
+    last_ingested_at: Optional[datetime] = Field(None, description="上次采集时间")
+    last_ingest_result: Optional[str] = Field(None, description="最近采集结果")
+
+    # Collection statistics (from design doc)
+    items_last_7d: int = Field(0, description="近7天采集数")
+
+    # Error tracking (from design doc)
+    consecutive_failures: int = Field(0, description="连续失败次数")
+    last_error_at: Optional[datetime] = Field(None, description="最后错误时间")
+    last_error_message: Optional[str] = Field(None, description="最后错误摘要")
+    last_job_id: Optional[str] = Field(None, description="最后Job ID")
+
+    # Full fetch configuration (from design doc)
+    needs_full_fetch: bool = Field(False, description="是否需要全文获取")
+    full_fetch_threshold: Optional[float] = Field(None, description="全文获取阈值")
+    content_type: Optional[str] = Field(None, description="内容类型")
+    avg_content_length: Optional[int] = Field(None, description="平均内容长度")
+    quality_score: Optional[float] = Field(None, description="源质量评分")
+    full_fetch_success_count: int = Field(0, description="全文获取成功次数")
+    full_fetch_failure_count: int = Field(0, description="全文获取失败次数")
+
+    # Warnings (computed field)
+    warnings: List[str] = Field(default_factory=list, description="警告信息")
+
     # Timestamps
     created_at: Optional[datetime] = Field(None, description="Creation timestamp")
     updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
@@ -140,6 +167,23 @@ class SourceResponse(BaseModel):
                 "last_scored_at": "2026-03-19T12:00:00Z",
                 "total_items": 150,
                 "total_contents": 120,
+                "schedule_interval": 3600,
+                "next_ingest_at": "2026-03-19T11:00:00Z",
+                "last_ingested_at": "2026-03-19T10:00:00Z",
+                "last_ingest_result": "success",
+                "items_last_7d": 25,
+                "consecutive_failures": 0,
+                "last_error_at": None,
+                "last_error_message": None,
+                "last_job_id": None,
+                "needs_full_fetch": True,
+                "full_fetch_threshold": 0.7,
+                "content_type": "summary",
+                "avg_content_length": 150,
+                "quality_score": 75.0,
+                "full_fetch_success_count": 10,
+                "full_fetch_failure_count": 2,
+                "warnings": [],
                 "created_at": "2026-03-19T08:00:00Z",
                 "updated_at": "2026-03-19T12:00:00Z"
             }
