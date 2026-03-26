@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic source freezing after 5 consecutive failures
 - RSS feed URL auto-update on permanent redirect (301/308)
 - RSS discovery integration when adding sources via CLI
+- Full content fetch system for low-quality RSS content
+  - `FullContentFetchService` for fetching full article content from URLs
+  - `TitleParserService` for parsing compound RSS titles (e.g., Anthropic Research)
+  - `SourceQualityValidator` for validating source content quality before admission
+  - Content quality detection (`_validate_content_quality`, `_is_title_body_same`)
+  - URL deduplication with normalization in `SourceService`
+  - `fetch_full_content` Dramatiq task for background content retrieval
+- CLI enhancements for full content fetch settings
+  - `source update --full-fetch` and `--fetch-threshold` options
+  - `source fetch-content` command to trigger full content fetch for items
+- Source model fields: `needs_full_fetch`, `full_fetch_threshold`, `content_type`, `avg_content_length`, `quality_score`, `full_fetch_success_count`, `full_fetch_failure_count`
+- Item model fields: `full_fetch_attempted`, `full_fetch_succeeded`
 
 ### Fixed
 - HTTP redirect handling in RSS connector (now follows redirects)
