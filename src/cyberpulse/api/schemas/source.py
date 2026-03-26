@@ -251,3 +251,53 @@ class SourceListResponse(BaseModel):
             }
         }
     }
+
+
+class ScheduleRequest(BaseModel):
+    """Schedule configuration request."""
+
+    interval: int = Field(..., ge=300, description="Ingest interval in seconds, minimum 300 (5 minutes)")
+
+
+class ScheduleResponse(BaseModel):
+    """Schedule configuration response."""
+
+    source_id: str
+    schedule_interval: int
+    next_ingest_at: Optional[datetime] = None
+    message: str = "Schedule updated"
+
+
+class TestResult(BaseModel):
+    """Source test result."""
+
+    source_id: str
+    test_result: str  # "success" or "failed"
+    response_time_ms: Optional[int] = None
+    items_found: Optional[int] = None
+    last_modified: Optional[datetime] = None
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+    suggestion: Optional[str] = None
+    warnings: List[str] = Field(default_factory=list)
+
+
+class DefaultsResponse(BaseModel):
+    """Default configuration response."""
+
+    default_fetch_interval: int
+    updated_at: Optional[datetime] = None
+
+
+class DefaultsUpdate(BaseModel):
+    """Default configuration update."""
+
+    default_fetch_interval: int = Field(..., ge=300, description="Default fetch interval in seconds")
+
+
+class ImportResponse(BaseModel):
+    """Batch import response."""
+
+    job_id: str
+    status: str = "pending"
+    message: str = "Import job created"
