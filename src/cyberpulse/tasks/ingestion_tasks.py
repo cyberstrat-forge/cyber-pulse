@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Export for backward compatibility with tests
+MAX_CONSECUTIVE_FAILURES = settings.max_consecutive_failures
+
 
 @dramatiq.actor(max_retries=3)
 def ingest_source(source_id: str) -> None:

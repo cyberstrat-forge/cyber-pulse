@@ -1,0 +1,244 @@
+"""Source management API router for admin endpoints."""
+
+import logging
+import re
+import secrets
+from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+
+from ...dependencies import get_db
+from ...schemas.source import SourceCreate, SourceUpdate, SourceResponse, SourceListResponse
+from ...auth import require_permissions, ApiClient
+from ....models import Source, SourceStatus, SourceTier
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# source_id format: src_{8 hex chars}
+SOURCE_ID_PATTERN = re.compile(r"^src_[a-f0-9]{8}$")
+
+
+def validate_source_id(source_id: str) -> None:
+    """Validate source_id format."""
+    if not SOURCE_ID_PATTERN.match(source_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid source_id format: {source_id}. Expected format: src_xxxxxxxx"
+        )
+
+
+def validate_tier(tier: str) -> SourceTier:
+    """Validate and convert tier string to enum."""
+    try:
+        return SourceTier(tier.upper())
+    except ValueError:
+        valid_tiers = [t.value for t in SourceTier]
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid tier '{tier}'. Must be one of: {valid_tiers}"
+        )
+
+
+def validate_status(status: str) -> SourceStatus:
+    """Validate and convert status string to enum."""
+    try:
+        return SourceStatus(status.upper())
+    except ValueError:
+        valid_statuses = [s.value for s in SourceStatus]
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid status '{status}'. Must be one of: {valid_statuses}"
+        )
+
+
+def build_source_response(source: Source) -> SourceResponse:
+    """Build SourceResponse from Source model."""
+    warnings = []
+    if source.consecutive_failures >= 3:
+        warnings.append(f"连续失败 {source.consecutive_failures} 次")
+    if source.status == SourceStatus.FROZEN:
+        warnings.append("源已冻结")
+
+    return SourceResponse(
+        source_id=source.source_id,
+        name=source.name,
+        config=source.config or {},
+        tier=source.tier.value if source.tier else "T2",
+        score=source.score or 50.0,
+        status=source.status.value if source.status else "ACTIVE",
+        needs_full_fetch=source.needs_full_fetch or False,
+        full_fetch_threshold=source.full_fetch_threshold,
+        content_type=source.content_type,
+        avg_content_length=source.avg_content_length,
+        schedule_interval=source.schedule_interval,
+        next_ingest_at=source.next_ingest_at,
+        last_ingested_at=source.last_ingested_at,
+        last_ingest_result=source.last_ingest_result,
+        total_items=source.total_items or 0,
+        items_last_7d=source.items_last_7d or 0,
+        consecutive_failures=source.consecutive_failures or 0,
+        last_error_at=source.last_error_at,
+        last_error_message=source.last_error_message,
+        last_job_id=source.last_job_id,
+        full_fetch_success_count=source.full_fetch_success_count or 0,
+        full_fetch_failure_count=source.full_fetch_failure_count or 0,
+        warnings=warnings,
+        created_at=source.created_at,
+        updated_at=source.updated_at,
+    )
+
+
+@router.get("/sources", response_model=SourceListResponse)
+async def list_sources(
+    status: Optional[str] = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED"),
+    tier: Optional[str] = Query(None, description="Filter by tier: T0, T1, T2, T3"),
+    scheduled: Optional[bool] = Query(None, description="Filter by scheduled status"),
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> SourceListResponse:
+    """List all sources with optional filtering."""
+    logger.debug(f"Listing sources: status={status}, tier={tier}, scheduled={scheduled}")
+
+    query = db.query(Source)
+
+    if status:
+        status_enum = validate_status(status)
+        query = query.filter(Source.status == status_enum)
+
+    if tier:
+        tier_enum = validate_tier(tier)
+        query = query.filter(Source.tier == tier_enum)
+
+    if scheduled is not None:
+        if scheduled:
+            query = query.filter(Source.schedule_interval.isnot(None))
+        else:
+            query = query.filter(Source.schedule_interval.is_(None))
+
+    sources = query.order_by(desc(Source.created_at)).all()
+
+    return SourceListResponse(
+        data=[build_source_response(s) for s in sources],
+        count=len(sources),
+        offset=0,
+        limit=len(sources),
+        server_timestamp=datetime.now(timezone.utc),
+    )
+
+
+@router.post("/sources", response_model=SourceResponse, status_code=201)
+async def create_source(
+    source: SourceCreate,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> SourceResponse:
+    """Add a new source."""
+    logger.info(f"Creating source: name={source.name}, connector_type={source.connector_type}")
+
+    # Check for duplicate name
+    existing = db.query(Source).filter(Source.name == source.name).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Source with name '{source.name}' already exists"
+        )
+
+    # Create source
+    tier_enum = validate_tier(source.tier) if source.tier else SourceTier.T2
+    score = source.score if source.score is not None else (90 if tier_enum == SourceTier.T0 else 70 if tier_enum == SourceTier.T1 else 50)
+
+    new_source = Source(
+        source_id=f"src_{secrets.token_hex(4)}",
+        name=source.name,
+        connector_type=source.connector_type,
+        tier=tier_enum,
+        score=score,
+        status=SourceStatus.ACTIVE,
+        config=source.config or {},
+        fetch_interval=source.fetch_interval,
+    )
+
+    db.add(new_source)
+    db.commit()
+    db.refresh(new_source)
+
+    logger.info(f"Created source: {new_source.source_id}")
+
+    return build_source_response(new_source)
+
+
+@router.get("/sources/{source_id}", response_model=SourceResponse)
+async def get_source(
+    source_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> SourceResponse:
+    """Get source details."""
+    validate_source_id(source_id)
+
+    source = db.query(Source).filter(Source.source_id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    return build_source_response(source)
+
+
+@router.put("/sources/{source_id}", response_model=SourceResponse)
+async def update_source(
+    source_id: str,
+    update: SourceUpdate,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> SourceResponse:
+    """Update source configuration."""
+    validate_source_id(source_id)
+
+    source = db.query(Source).filter(Source.source_id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    if update.name is not None:
+        source.name = update.name
+    if update.tier is not None:
+        source.tier = validate_tier(update.tier)
+    if update.score is not None:
+        source.score = update.score
+    if update.status is not None:
+        source.status = validate_status(update.status)
+    if update.fetch_interval is not None:
+        source.fetch_interval = update.fetch_interval
+    if update.config is not None:
+        source.config = update.config
+
+    db.commit()
+    db.refresh(source)
+
+    logger.info(f"Updated source: {source_id}")
+
+    return build_source_response(source)
+
+
+@router.delete("/sources/{source_id}", status_code=200)
+async def delete_source(
+    source_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> dict:
+    """Delete a source (soft delete by setting status to REMOVED)."""
+    validate_source_id(source_id)
+
+    source = db.query(Source).filter(Source.source_id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    source.status = SourceStatus.REMOVED
+    db.commit()
+
+    logger.info(f"Deleted source: {source_id}")
+
+    return {"message": f"Source {source_id} deleted"}

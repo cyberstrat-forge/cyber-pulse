@@ -334,3 +334,79 @@ class ApiClientService:
         if status_filter:
             query = query.filter(ApiClient.status == status_filter)
         return query.order_by(ApiClient.created_at.desc()).all()
+
+    def rotate_key(self, client_id: str) -> Optional[Tuple[ApiClient, str]]:
+        """
+        Rotate an API client's key.
+
+        Args:
+            client_id: The client ID to rotate
+
+        Returns:
+            Tuple of (ApiClient, new_plain_key) if successful, None otherwise
+        """
+        client = self.db.query(ApiClient).filter(
+            ApiClient.client_id == client_id
+        ).first()
+
+        if not client:
+            return None
+
+        # Generate and hash new API key
+        plain_key = generate_api_key()
+        hashed_key = hash_api_key(plain_key)
+
+        client.api_key = hashed_key  # type: ignore[assignment]
+        try:
+            self.db.commit()
+            self.db.refresh(client)
+            logger.info(f"Rotated API key for client: {client_id}")
+            return client, plain_key
+        except Exception as e:
+            logger.error(f"Failed to rotate key for {client_id}: {e}")
+            self.db.rollback()
+            raise
+
+    def get_by_permission(self, permission: str) -> Optional[ApiClient]:
+        """
+        Get first client with specific permission.
+
+        Args:
+            permission: Permission to search for
+
+        Returns:
+            ApiClient if found, None otherwise
+        """
+        clients = self.db.query(ApiClient).filter(
+            ApiClient.status == ApiClientStatus.ACTIVE
+        ).all()
+
+        for client in clients:
+            perms: List[str] = client.permissions or []  # type: ignore[assignment]
+            if permission in perms:
+                return client
+        return None
+
+    def get_plain_key(self, client_id: str) -> Optional[str]:
+        """
+        Get plain API key for client (for admin show-key).
+
+        Note: This only works if keys are stored in plaintext.
+        For hashed keys, this returns None.
+
+        Args:
+            client_id: The client ID
+
+        Returns:
+            Plain API key or None
+        """
+        import os
+        admin_key = os.getenv("ADMIN_API_KEY")
+
+        client = self.get_client(client_id)
+        if client and admin_key:
+            # For admin client, return the env var key
+            perms: List[str] = client.permissions or []  # type: ignore[assignment]
+            if "admin" in perms:
+                return admin_key
+        return None

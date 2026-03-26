@@ -1,8 +1,13 @@
+from typing import TYPE_CHECKING
 from sqlalchemy import Column, String, Integer, Float, Boolean, Text, Enum, DateTime
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 from enum import Enum as PyEnum
 from ..database import Base
 from .base import TimestampMixin
+
+if TYPE_CHECKING:
+    from .job import Job
 
 
 class SourceTier(str, PyEnum):
@@ -59,3 +64,19 @@ class Source(Base, TimestampMixin):
     # Full fetch statistics
     full_fetch_success_count = Column(Integer, nullable=False, default=0)
     full_fetch_failure_count = Column(Integer, nullable=False, default=0)
+
+    # Scheduling fields
+    schedule_interval = Column(Integer, nullable=True)  # seconds, null = not scheduled
+    next_ingest_at = Column(DateTime, nullable=True)
+    last_ingested_at = Column(DateTime, nullable=True)
+
+    # Error tracking fields
+    last_error_message = Column(String(255), nullable=True)
+    last_job_id = Column(String(64), nullable=True)
+
+    # Collection statistics
+    items_last_7d = Column(Integer, nullable=False, default=0)
+    last_ingest_result = Column(String(20), nullable=True)  # success, partial, failed
+
+    # Relationships
+    jobs = relationship("Job", back_populates="source")
