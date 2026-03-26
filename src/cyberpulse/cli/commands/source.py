@@ -411,16 +411,18 @@ def update_source(
     source_id: str = typer.Argument(..., help="Source ID to update"),
     tier: Optional[str] = typer.Option(None, "--tier", "-t", help="New tier (T0, T1, T2, T3)"),
     status: Optional[str] = typer.Option(None, "--status", "-s", help="New status (ACTIVE, FROZEN)"),
+    full_fetch: Optional[bool] = typer.Option(None, "--full-fetch", help="Enable/disable full content fetch"),
+    fetch_threshold: Optional[float] = typer.Option(None, "--fetch-threshold", help="Content quality threshold for full fetch (0.0-1.0)"),
 ) -> None:
-    """Update a source's tier or status."""
+    """Update a source's tier, status, or full content fetch settings."""
     # Validate source ID format
     if not _validate_source_id(source_id):
         console.print(f"[red]Invalid source ID format: {source_id}[/red]")
         console.print("[yellow]Expected format: src_xxxxxxxx (8 hex characters)[/yellow]")
         raise typer.Exit(1)
 
-    if not tier and not status:
-        console.print("[yellow]No updates specified. Use --tier or --status options.[/yellow]")
+    if not tier and not status and full_fetch is None and fetch_threshold is None:
+        console.print("[yellow]No updates specified. Use --tier, --status, --full-fetch, or --fetch-threshold options.[/yellow]")
         raise typer.Exit(0)
 
     db = SessionLocal()
@@ -442,6 +444,24 @@ def update_source(
                 console.print(f"[red]Invalid status: {status}[/red]")
                 raise typer.Exit(1)
 
+        # Handle full fetch settings
+        if full_fetch is not None or fetch_threshold is not None:
+            # Get current source to update config
+            source = db.query(Source).filter(Source.source_id == source_id).first()
+            if not source:
+                console.print(f"[red]Source not found: {source_id}[/red]")
+                raise typer.Exit(1)
+
+            config = source.config or {}
+            if full_fetch is not None:
+                config["needs_full_fetch"] = full_fetch
+            if fetch_threshold is not None:
+                if not 0.0 <= fetch_threshold <= 1.0:
+                    console.print(f"[red]Fetch threshold must be between 0.0 and 1.0[/red]")
+                    raise typer.Exit(1)
+                config["full_fetch_threshold"] = fetch_threshold
+            kwargs["config"] = config
+
         source, message = service.update_source(source_id, **kwargs)
 
         if source:
@@ -449,6 +469,11 @@ def update_source(
             console.print(f"  Tier: {source.tier.value}")
             console.print(f"  Score: {source.score:.1f}")
             console.print(f"  Status: {source.status.value}")
+            if source.config:
+                if source.config.get("needs_full_fetch"):
+                    console.print(f"  Full fetch: enabled (threshold: {source.config.get('full_fetch_threshold', 0.7)})")
+                else:
+                    console.print(f"  Full fetch: disabled")
         else:
             console.print(f"[red]{message}[/red]")
             raise typer.Exit(1)
@@ -1155,6 +1180,63 @@ def export_sources(
             table.add_row("...", f"({len(sources) - 10} more)", "")
 
         console.print(table)
+
+    finally:
+        db.close()
+
+
+@app.command("fetch-content")
+def fetch_content(
+    source_id: str = typer.Argument(..., help="Source ID to fetch content for"),
+    item_limit: int = typer.Option(10, "--limit", "-l", help="Maximum items to fetch content for"),
+) -> None:
+    """Trigger full content fetch for items from a source.
+
+    This command fetches full article content from original URLs for
+    items that have summary-only or low-quality content.
+    """
+    if not _validate_source_id(source_id):
+        console.print(f"[red]Invalid source ID format: {source_id}[/red]")
+        console.print("[yellow]Expected format: src_xxxxxxxx (8 hex characters)[/yellow]")
+        raise typer.Exit(1)
+
+    db = SessionLocal()
+    try:
+        from ...models import Item, ItemStatus
+
+        # Get source
+        source = db.query(Source).filter(Source.source_id == source_id).first()
+        if not source:
+            console.print(f"[red]Source not found: {source_id}[/red]")
+            raise typer.Exit(1)
+
+        # Find items that need full content fetch
+        items = (
+            db.query(Item)
+            .filter(Item.source_id == source_id)
+            .filter(Item.url.isnot(None))
+            .filter(Item.full_fetch_attempted == False)  # noqa: E712
+            .filter(Item.status == ItemStatus.MAPPED)
+            .limit(item_limit)
+            .all()
+        )
+
+        if not items:
+            console.print("[yellow]No items found that need full content fetch.[/yellow]")
+            return
+
+        console.print(f"[cyan]Found {len(items)} item(s) to fetch full content for...[/cyan]")
+
+        # Queue fetch tasks
+        from ...tasks.quality_tasks import fetch_full_content
+
+        queued = 0
+        for item in items:
+            fetch_full_content.send(item.item_id)  # type: ignore[union-attr]
+            queued += 1
+
+        console.print(f"[green]Queued {queued} full content fetch task(s)[/green]")
+        console.print("[dim]Items will be re-normalized after content is fetched.[/dim]")
 
     finally:
         db.close()
