@@ -32,9 +32,6 @@ dependencies = [
     "feedfinder2>=0.0.4",
     "trafilatura>=1.6.0",
     "google-api-python-client>=2.100.0",
-    "typer>=0.9.0",
-    "rich>=13.7.0",
-    "prompt-toolkit>=3.0.0",
     "python-dateutil>=2.8.0",
     "python-multipart>=0.0.6",
     "passlib[bcrypt]>=1.7.4",
@@ -54,9 +51,6 @@ dev = [
     "faker>=21.0.0",
     "factory-boy>=3.3.0",
 ]
-
-[project.scripts]
-cyber-pulse = "cyberpulse.cli.app:app"
 
 [project.urls]
 Homepage = "https://github.com/cyberstrat-forge/cyber-pulse"
