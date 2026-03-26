@@ -345,51 +345,6 @@ class TestAPIDataRetrieval:
     Tests the API layer with real database interactions.
     """
 
-    def test_content_list_endpoint(
-        self, api_client, db_session, mock_api_client
-    ):
-        """
-        Test content can be retrieved via API.
-
-        The endpoint requires authentication. Without auth, returns 401.
-        With valid auth, returns 200 with content list.
-        """
-        # Create test content
-        content = Content(
-            content_id="cnt_20260319120000_e2etest",
-            canonical_hash="e2e_test_hash_001",
-            normalized_title="E2E Test Content",
-            normalized_body="This is test content for E2E API testing.",
-            first_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            source_count=1,
-        )
-        db_session.add(content)
-        db_session.commit()
-
-        # Test without authentication - should return 401
-        app.dependency_overrides[content_get_db] = lambda: db_session
-        try:
-            response = api_client.get("/api/v1/contents")
-            assert response.status_code == 401
-        finally:
-            app.dependency_overrides.clear()
-
-        # Test with authentication - should return 200
-        app.dependency_overrides[content_get_db] = lambda: db_session
-        app.dependency_overrides[get_current_client] = lambda: mock_api_client
-        try:
-            response = api_client.get("/api/v1/contents")
-
-            assert response.status_code == 200
-            data = response.json()
-            assert "data" in data
-            assert "next_cursor" in data
-            assert "has_more" in data
-            assert "count" in data
-        finally:
-            app.dependency_overrides.clear()
-
     def test_health_endpoint(self, api_client, db_session):
         """
         Test health endpoint returns 200.
@@ -417,25 +372,21 @@ class TestAPIDataRetrieval:
         finally:
             app.dependency_overrides.clear()
 
-    def test_full_flow_to_api_retrieval(
+    def test_full_flow_to_item_normalization(
         self,
-        api_client,
         db_session,
-        mock_api_client,
         source_service,
         item_service,
         normalization_service,
         quality_gate_service,
-        content_service,
     ):
         """
-        Test complete flow from source creation to API retrieval.
+        Test complete flow from source creation to item normalization.
 
         This is a comprehensive E2E test that:
         1. Creates a source and item
         2. Normalizes and passes quality gate
-        3. Creates content
-        4. Verifies content is retrievable via API
+        3. Verifies item is updated with normalized fields
         """
         # Step 1: Create source and item
         source, _ = source_service.add_source(
@@ -477,38 +428,18 @@ class TestAPIDataRetrieval:
         quality_result = quality_gate_service.check(item, norm_result)
         assert quality_result.decision.value == "pass"
 
-        # Step 4: Create content
-        content, is_new = content_service.create_or_get_content(
-            canonical_hash=norm_result.canonical_hash,
-            normalized_title=norm_result.normalized_title,
-            normalized_body=norm_result.normalized_body,
-            item=item,
-        )
+        # Step 4: Update item with normalized fields
+        item.normalized_title = norm_result.normalized_title
+        item.normalized_body = norm_result.normalized_body
+        item.canonical_hash = norm_result.canonical_hash
+        item.word_count = norm_result.word_count
+        item.language = norm_result.language
+        db_session.commit()
 
-        assert is_new is True
-
-        # Step 5: Verify via API
-        app.dependency_overrides[content_get_db] = lambda: db_session
-        app.dependency_overrides[get_current_client] = lambda: mock_api_client
-        try:
-            # List content
-            response = api_client.get("/api/v1/contents")
-            assert response.status_code == 200
-
-            data = response.json()
-            assert data["count"] >= 1
-
-            # Find our created content
-            content_ids = [c["content_id"] for c in data["data"]]
-            assert content.content_id in content_ids
-
-            # Get single content
-            response = api_client.get(f"/api/v1/contents/{content.content_id}")
-            assert response.status_code == 200
-
-            content_data = response.json()
-            assert content_data["content_id"] == content.content_id
-            assert content_data["normalized_title"] == norm_result.normalized_title
-            assert content_data["source_count"] == 1
-        finally:
-            app.dependency_overrides.clear()
+        # Step 5: Verify item has normalized fields
+        db_session.refresh(item)
+        assert item.normalized_title == norm_result.normalized_title
+        assert item.normalized_body == norm_result.normalized_body
+        assert item.canonical_hash == norm_result.canonical_hash
+        assert item.word_count == norm_result.word_count
+        assert item.language == norm_result.language

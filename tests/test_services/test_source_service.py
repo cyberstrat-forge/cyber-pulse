@@ -28,8 +28,7 @@ class TestAddSource:
         assert source.connector_type == "rss"
         assert source.tier == SourceTier.T2
         assert source.status == SourceStatus.ACTIVE
-        assert source.is_in_observation is True
-        assert source.observation_until is not None
+        assert source.pending_review is False  # New sources start without pending review
         assert source.source_id.startswith("src_")
         assert "created successfully" in message
 
@@ -73,20 +72,16 @@ class TestAddSource:
         assert source2 is None
         assert "already exists" in message2
 
-    def test_add_source_observation_period(self, source_service):
-        """Test that new sources have correct observation period."""
+    def test_add_source_new_source_defaults(self, source_service):
+        """Test that new sources have correct default values."""
         source, _ = source_service.add_source(
-            name="Observation Test",
+            name="Default Test",
             connector_type="rss",
         )
 
-        assert source.is_in_observation is True
-        assert source.observation_until is not None
-
-        # Check observation period is approximately 30 days
-        expected_until = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=30)
-        delta = abs((source.observation_until - expected_until).total_seconds())
-        assert delta < 60  # Within 1 minute tolerance
+        assert source.pending_review is False
+        assert source.consecutive_failures == 0
+        assert source.total_items == 0
 
     def test_generate_source_id(self, source_service):
         """Test source ID generation."""
@@ -312,9 +307,8 @@ class TestGetSourceStatistics:
         assert stats["tier"] == "T1"
         assert stats["score"] == 65.0
         assert stats["status"] == "ACTIVE"
-        assert stats["is_in_observation"] is True
         assert stats["total_items"] == 0
-        assert stats["total_contents"] == 0
+        assert "last_ingested_at" in stats
 
     def test_get_source_statistics_nonexistent(self, source_service):
         """Test getting statistics for nonexistent source."""

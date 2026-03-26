@@ -142,7 +142,7 @@ def _handle_pass(
 
     # Update source statistics
     if source:
-        source.total_contents = (source.total_contents or 0) + 1  # type: ignore[assignment]
+        source.total_items = (source.total_items or 0) + 1  # type: ignore[assignment]
 
     logger.info(
         f"Item {item.item_id} passed quality check: "

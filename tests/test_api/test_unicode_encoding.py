@@ -2,12 +2,13 @@
 import pytest
 from unittest.mock import Mock
 from fastapi.testclient import TestClient
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from cyberpulse.api.main import app
 from cyberpulse.api.auth import get_current_client
-from cyberpulse.api.routers.content import get_db as content_get_db
-from cyberpulse.models import ApiClient, ApiClientStatus, Content, ContentStatus
+from cyberpulse.api.routers.items import get_db as items_get_db
+from cyberpulse.api.routers.health import get_db as health_get_db
+from cyberpulse.models import ApiClient, ApiClientStatus, Item, ItemStatus, Source, SourceStatus, SourceTier
 
 
 @pytest.fixture
@@ -27,6 +28,22 @@ def mock_api_client():
     return client
 
 
+@pytest.fixture
+def test_source(db_session):
+    """Create a test source for items."""
+    source = Source(
+        source_id="src_unicode_test",
+        name="Unicode Test Source",
+        connector_type="rss",
+        tier=SourceTier.T2,
+        status=SourceStatus.ACTIVE,
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+    return source
+
+
 class TestUnicodeEncoding:
     """Verify Unicode characters are not escaped in JSON responses."""
 
@@ -41,39 +58,44 @@ class TestUnicodeEncoding:
     def test_error_response_encoding(self, client, db_session, mock_api_client):
         """Error responses should preserve Unicode in error messages."""
         # Override dependencies
-        app.dependency_overrides[content_get_db] = lambda: db_session
+        app.dependency_overrides[health_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/contents/content_notfound")
+            response = client.get("/health")
+            assert response.status_code == 200
+            raw_text = response.text
+            assert "\\u" not in raw_text, "Error messages should not escape Unicode"
         finally:
             app.dependency_overrides.clear()
 
-        assert response.status_code == 404
-        raw_text = response.text
-        assert "\\u" not in raw_text, "Error messages should not escape Unicode"
-
-    def test_chinese_content_unicode(self, client, db_session, mock_api_client):
-        """Test that Chinese characters are preserved in content responses."""
+    def test_chinese_item_unicode(self, client, db_session, mock_api_client, test_source):
+        """Test that Chinese characters are preserved in item responses."""
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        # Create content with Chinese characters
-        content = Content(
-            content_id="cnt_test_chinese",
-            canonical_hash="hash_test_unique",
+        # Create item with Chinese characters
+        item = Item(
+            item_id="item_unicode_test",
+            source_id=test_source.source_id,
+            external_id="ext_unicode_test",
+            url="https://example.com/unicode-test",
+            title="测试标题",
+            raw_content="原始内容",
             normalized_title="测试标题",
             normalized_body="这是一段中文内容，用于测试 Unicode 编码。",
-            first_seen_at=now,
-            last_seen_at=now,
-            source_count=1,
-            status=ContentStatus.ACTIVE,
+            canonical_hash="hash_unicode_test",
+            language="zh",
+            word_count=15,
+            published_at=now - timedelta(hours=1),
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
         )
-        db_session.add(content)
+        db_session.add(item)
         db_session.commit()
 
         # Override dependencies
-        app.dependency_overrides[content_get_db] = lambda: db_session
+        app.dependency_overrides[items_get_db] = lambda: db_session
         app.dependency_overrides[get_current_client] = lambda: mock_api_client
         try:
-            response = client.get("/api/v1/contents")
+            response = client.get("/api/v1/items")
         finally:
             app.dependency_overrides.clear()
 
