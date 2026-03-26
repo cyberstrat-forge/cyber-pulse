@@ -3,12 +3,11 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import httpx
 import trafilatura
 
-from .base import validate_url_for_ssrf, SSRFError
+from .base import SSRFError, validate_url_for_ssrf
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,7 @@ class FullContentResult:
 
     content: str
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class FullContentFetchService:

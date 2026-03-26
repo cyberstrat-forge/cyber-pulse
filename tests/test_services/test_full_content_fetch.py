@@ -1,8 +1,10 @@
 """Tests for FullContentFetchService."""
 
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
+import pytest
+
 from cyberpulse.services.full_content_fetch_service import (
     FullContentFetchService,
     FullContentResult,

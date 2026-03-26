@@ -4,7 +4,7 @@ Base service class with common utilities.
 import ipaddress
 import logging
 import socket
-from typing import Optional, Dict, Any, Tuple
+from typing import Any
 from urllib.parse import urlparse
 
 from sqlalchemy.exc import IntegrityError
@@ -101,7 +101,7 @@ def validate_url_for_ssrf(url: str, allow_localhost: bool = False) -> str:
 
     except socket.gaierror as e:
         raise SSRFError(f"Failed to resolve hostname: {hostname}") from e
-    except (socket.timeout, socket.herror, OSError) as e:
+    except (TimeoutError, socket.herror, OSError) as e:
         # Network/DNS errors - fail closed for security
         raise SSRFError(f"DNS resolution error for {hostname}: {e}") from e
     except SSRFError:
@@ -133,8 +133,8 @@ class BaseService:
         self.db = db
 
     def get_or_create(
-        self, model, defaults: Optional[Dict[str, Any]] = None, **kwargs
-    ) -> Tuple[Any, bool]:
+        self, model, defaults: dict[str, Any] | None = None, **kwargs
+    ) -> tuple[Any, bool]:
         """Get or create a record.
 
         Args:

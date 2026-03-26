@@ -3,7 +3,6 @@
 
 import logging
 import re
-from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -44,7 +43,7 @@ class RSSDiscoveryService:
     )
     TIMEOUT = 15.0
 
-    async def discover(self, site_url: str) -> Optional[str]:
+    async def discover(self, site_url: str) -> str | None:
         """从网站发现 RSS 地址
 
         Args:
@@ -68,7 +67,7 @@ class RSSDiscoveryService:
         logger.warning(f"No RSS found for site: {site_url}")
         return None
 
-    async def _discover_from_html(self, site_url: str) -> Optional[str]:
+    async def _discover_from_html(self, site_url: str) -> str | None:
         """从 HTML 解析 RSS link"""
         try:
             async with httpx.AsyncClient(
@@ -110,7 +109,7 @@ class RSSDiscoveryService:
             logger.warning(f"Failed to discover RSS from HTML for {site_url}: {type(e).__name__}: {e}")
             return None
 
-    async def _discover_from_common_paths(self, site_url: str) -> Optional[str]:
+    async def _discover_from_common_paths(self, site_url: str) -> str | None:
         """尝试常见 RSS 路径"""
         parsed = urlparse(site_url)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
