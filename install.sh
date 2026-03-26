@@ -51,20 +51,23 @@ Cyber Pulse 一键安装脚本
   -d, --dir DIR       安装目录 (默认: ${DEFAULT_DIR})
   -v, --version TAG   安装指定版本标签 (如: v1.2.0)
   -b, --branch BRANCH 安装指定分支 (默认: ${DEFAULT_BRANCH})
+  --type TYPE         用户类型: developer 或 ops (默认: developer)
+                      - developer: 完整代码库 (git clone)
+                      - ops: 仅部署文件 (轻量级)
   -h, --help          显示此帮助信息
 
 示例:
-  # 默认安装到当前目录的 cyber-pulse 文件夹
+  # 开发者安装（默认）- 获取完整代码库
   $0
+
+  # 运维人员安装 - 仅获取部署文件
+  $0 --type ops
 
   # 安装到指定目录
   $0 --dir /opt/cyber-pulse
 
   # 安装指定版本
   $0 --version v1.2.0
-
-  # 安装指定分支
-  $0 --branch develop
 
 更多信息请访问: https://github.com/cyberstrat-forge/cyber-pulse
 EOF
@@ -75,6 +78,7 @@ parse_args() {
     INSTALL_DIR="$DEFAULT_DIR"
     VERSION=""
     BRANCH="$DEFAULT_BRANCH"
+    USER_TYPE="developer"  # developer 或 ops
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -88,6 +92,10 @@ parse_args() {
                 ;;
             -b|--branch)
                 BRANCH="$2"
+                shift 2
+                ;;
+            --type)
+                USER_TYPE="$2"
                 shift 2
                 ;;
             -h|--help)
@@ -179,10 +187,51 @@ switch_version() {
     fi
 }
 
+# 运维人员安装（下载轻量部署包）
+install_ops_package() {
+    info "运维模式: 下载部署包..."
+
+    local download_url
+    if [[ -n "${VERSION}" ]]; then
+        download_url="https://github.com/cyberstrat-forge/cyber-pulse/releases/download/${VERSION}/cyber-pulse-deploy-${VERSION}.tar.gz"
+    else
+        download_url="https://github.com/cyberstrat-forge/cyber-pulse/releases/latest/download/cyber-pulse-deploy-latest.tar.gz"
+    fi
+
+    info "下载地址: ${download_url}"
+
+    # 下载部署包
+    local temp_file="/tmp/cyber-pulse-deploy.tar.gz"
+    if ! curl -fsSL "${download_url}" -o "${temp_file}"; then
+        error "下载部署包失败"
+        echo ""
+        echo "可能的原因:"
+        echo "  1. 版本不存在"
+        echo "  2. 网络问题"
+        echo ""
+        echo "请尝试使用开发者模式: $0 --type developer"
+        exit 1
+    fi
+
+    # 解压
+    info "解压部署包..."
+    mkdir -p "${INSTALL_DIR}"
+    if ! tar -xzf "${temp_file}" -C "$(dirname "${INSTALL_DIR}")"; then
+        error "解压失败"
+        rm -f "${temp_file}"
+        exit 1
+    fi
+
+    # 清理临时文件
+    rm -f "${temp_file}"
+
+    success "部署包安装完成"
+}
+
 # 显示完成信息
 show_completion() {
     local install_path
-    install_path="$(cd "${INSTALL_DIR}" && pwd)"
+    install_path="$(cd "${INSTALL_DIR}" 2>/dev/null && pwd)" || install_path="${INSTALL_DIR}"
 
     echo ""
     echo "========================================"
@@ -190,22 +239,40 @@ show_completion() {
     echo "========================================"
     echo ""
     echo "安装位置: ${install_path}"
+    echo "用户类型: ${USER_TYPE}"
     echo ""
     echo "下一步操作:"
     echo ""
-    echo "  1. 进入项目目录:"
-    echo "     cd ${INSTALL_DIR}"
-    echo ""
-    echo "  2. 部署服务:"
-    echo "     ./scripts/cyber-pulse.sh deploy"
-    echo ""
-    echo "  3. 访问服务:"
-    echo "     http://localhost:8000"
-    echo ""
-    echo "管理命令:"
-    echo "  ./scripts/cyber-pulse.sh status    # 查看状态"
-    echo "  ./scripts/cyber-pulse.sh logs      # 查看日志"
-    echo "  ./scripts/cyber-pulse.sh --help    # 显示帮助"
+
+    if [[ "${USER_TYPE}" == "ops" ]]; then
+        echo "  1. 进入项目目录:"
+        echo "     cd ${INSTALL_DIR}"
+        echo ""
+        echo "  2. 部署服务:"
+        echo "     ./scripts/cyber-pulse.sh deploy --env prod"
+        echo ""
+        echo "  3. 配置 API 管理:"
+        echo "     ./scripts/api.sh configure"
+        echo ""
+    else
+        echo "  1. 进入项目目录:"
+        echo "     cd ${INSTALL_DIR}"
+        echo ""
+        echo "  2. 开发环境部署（本地构建）:"
+        echo "     ./scripts/cyber-pulse.sh deploy --env dev --local"
+        echo ""
+        echo "  3. 测试环境部署（本地构建）:"
+        echo "     ./scripts/cyber-pulse.sh deploy --env test --local"
+        echo ""
+        echo "  4. 生产环境部署（远程镜像）:"
+        echo "     ./scripts/cyber-pulse.sh deploy --env prod"
+        echo ""
+    fi
+
+    echo "API 管理:"
+    echo "  ./scripts/api.sh configure       # 配置 API"
+    echo "  ./scripts/api.sh diagnose         # 系统诊断"
+    echo "  ./scripts/api.sh sources list     # 情报源列表"
     echo ""
     echo "详细文档: https://github.com/cyberstrat-forge/cyber-pulse#readme"
     echo ""
@@ -221,9 +288,18 @@ main() {
 
     parse_args "$@"
     check_dependencies
-    check_directory
-    clone_repository
-    switch_version
+
+    if [[ "${USER_TYPE}" == "ops" ]]; then
+        # 运维人员安装
+        check_directory
+        install_ops_package
+    else
+        # 开发者安装
+        check_directory
+        clone_repository
+        switch_version
+    fi
+
     show_completion
 }
 
