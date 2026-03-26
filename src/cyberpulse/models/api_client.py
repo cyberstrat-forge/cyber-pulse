@@ -23,3 +23,4 @@ class ApiClient(Base, TimestampMixin):
     description = Column(Text, nullable=True)
     permissions = Column(JSONB, nullable=False, default=list)
     last_used_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
