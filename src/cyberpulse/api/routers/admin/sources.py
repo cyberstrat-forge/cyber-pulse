@@ -243,6 +243,72 @@ async def update_defaults(
     )
 
 
+@router.post("/sources/import", response_model=ImportResponse)
+async def import_sources(
+    file: UploadFile = File(..., description="OPML 文件"),
+    force: bool = Form(False, description="跳过质量验证"),
+    skip_invalid: bool = Form(True, description="跳过无效源继续导入"),
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> ImportResponse:
+    """批量导入源。从 OPML 文件批量导入 RSS 源。"""
+    import xml.etree.ElementTree as ET
+
+    # Read file content
+    content = await file.read()
+
+    # Parse OPML
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid OPML file: {str(e)}"
+        )
+
+    # Extract feed URLs
+    feeds = []
+    for outline in root.iter("outline"):
+        xml_url = outline.get("xmlUrl")
+        if xml_url:
+            feeds.append({
+                "url": xml_url,
+                "title": outline.get("title", xml_url),
+            })
+
+    if not feeds:
+        raise HTTPException(
+            status_code=400,
+            detail="No RSS feeds found in OPML file"
+        )
+
+    # Create import job
+    job = Job(
+        job_id=f"job_{secrets.token_hex(8)}",
+        type=JobType.IMPORT,
+        status=JobStatus.PENDING,
+        file_name=file.filename,
+        result={
+            "total": len(feeds),
+            "feeds": feeds,
+            "force": force,
+            "skip_invalid": skip_invalid,
+        },
+    )
+
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    logger.info(f"Created import job {job.job_id} with {len(feeds)} feeds")
+
+    return ImportResponse(
+        job_id=job.job_id,
+        status="pending",
+        message=f"Import job created with {len(feeds)} feeds. Check status at /api/v1/admin/jobs/{job.job_id}",
+    )
+
+
 # ============ 动态路径端点 ============
 
 
