@@ -6,7 +6,6 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from dramatiq import get_broker
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -15,6 +14,7 @@ from ...dependencies import get_db
 from ...schemas.job import JobResponse, JobListResponse, JobCreate, JobCreatedResponse
 from ...auth import require_permissions, ApiClient
 from ....models import Job, JobType, JobStatus, Source
+from ....tasks.ingestion_tasks import ingest_source
 
 logger = logging.getLogger(__name__)
 
@@ -152,11 +152,9 @@ async def create_job(
 
     # Trigger Dramatiq task
     try:
-        broker = get_broker()
-        ingest_actor = broker.get_actor("ingest_source")
-        ingest_actor.send(request.source_id)
+        ingest_source.send(request.source_id)
         logger.info(f"Triggered ingest_source task for source: {request.source_id}")
-    except Exception as e:
+    except (OSError, ConnectionError) as e:
         logger.warning(f"Failed to trigger ingest_source task: {e}")
 
     return JobCreatedResponse(
