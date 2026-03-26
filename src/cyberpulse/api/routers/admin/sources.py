@@ -3,17 +3,32 @@
 import logging
 import re
 import secrets
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from xml.sax.saxutils import escape
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import feedparser
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from ...dependencies import get_db
-from ...schemas.source import SourceCreate, SourceUpdate, SourceResponse, SourceListResponse
+from ...schemas.source import (
+    SourceCreate,
+    SourceUpdate,
+    SourceResponse,
+    SourceListResponse,
+    ScheduleRequest,
+    ScheduleResponse,
+    TestResult,
+    DefaultsResponse,
+    DefaultsUpdate,
+    ImportResponse,
+)
 from ...auth import require_permissions, ApiClient
-from ....models import Source, SourceStatus, SourceTier
+from ....models import Source, SourceStatus, SourceTier, Settings, Job, JobType, JobStatus
 
 logger = logging.getLogger(__name__)
 
