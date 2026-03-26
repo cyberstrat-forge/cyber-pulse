@@ -423,7 +423,6 @@ logs/upgrade-YYYYMMDD-HHMMSS.log
 
 | 文件 | 说明 |
 |------|------|
-| `scripts/upgrade.sh` | 升级脚本（远程镜像模式） |
 | `src/cyberpulse/api/routers/version.py` | 版本 API 端点 |
 
 ### 9.2 修改

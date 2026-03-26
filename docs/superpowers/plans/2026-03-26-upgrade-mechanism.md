@@ -128,9 +128,10 @@ class TestVersionEndpoint:
         data = response.json()
         # Required fields
         assert "version" in data
-        # Optional fields (may be None)
-        assert "commit" in data or "commit" not in data  # Optional
-        assert "build_time" in data or "build_time" not in data  # Optional
+        assert isinstance(data["version"], str)
+        # Optional fields - should exist but may be None
+        assert "commit" in data
+        assert "build_time" in data
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
@@ -286,24 +287,11 @@ EOF
 
 - [ ] **Step 1: 添加 API 端点版本检测函数**
 
-修改 `deploy/upgrade/check-update.sh`，在 `get_current_version()` 函数前（约第 38 行后）添加:
+修改 `deploy/upgrade/check-update.sh`，在 `get_current_version()` 函数后（约第 50 行后）添加新的版本检测函数。
+
+**注意**：`get_current_version()` 函数已存在于 check-update.sh（第 38-50 行），不要重复定义。
 
 ```bash
-# 获取当前版本
-get_current_version() {
-    local version_file="$PROJECT_ROOT/.version"
-
-    if [[ -f "$version_file" ]]; then
-        cat "$version_file"
-    else
-        # 尝试从 git 获取
-        cd "$PROJECT_ROOT"
-        local version
-        version=$(git describe --tags --always 2>/dev/null || echo "unknown")
-        echo "$version"
-    fi
-}
-
 # 从 API 端点获取当前版本（运行中的应用）
 get_current_version_from_api() {
     local api_url="${1:-http://localhost:8000}"
@@ -402,9 +390,15 @@ main() {
     local current_version
     if [[ "$use_api" == "true" ]]; then
         current_version=$(get_current_version_smart "$api_url")
+        # 输出当前版本供其他脚本使用
+        echo "CURRENT_VERSION=$current_version"
     else
         current_version=$(get_current_version)
     fi
+
+    # 获取最新版本信息（复用现有的 get_latest_version 逻辑）
+    # ... 后续逻辑保持不变
+}
 ```
 
 - [ ] **Step 3: 更新帮助信息**
@@ -594,7 +588,20 @@ cmd_rebuild() {
         echo ""
         print_success "重新构建完成!"
     else
-        print_warning "部分服务未正常运行，请检查日志"
+        print_warning "部分服务未正常运行，尝试回滚..."
+
+        # 回滚：恢复数据库快照并重启服务
+        if [[ -n "$snapshot_name" ]]; then
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] 开始回滚"
+            bash "$UPGRADE_DIR/restore-snapshot.sh" "$snapshot_name" --force
+            $DOCKER_COMPOSE down
+            $DOCKER_COMPOSE up -d
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] 回滚完成"
+            print_warning "已回滚到快照状态，请检查构建错误"
+        else
+            print_error "无可用快照，无法回滚"
+        fi
+        exit 1
     fi
 }
 ```
@@ -635,7 +642,7 @@ feat(cli): add rebuild command for developer mode
 - Rebuild using local code (docker compose build)
 - Auto snapshot before rebuild
 - Run database migration after restart
-- Health check on completion
+- Health check with auto-rollback on failure
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
@@ -664,7 +671,7 @@ Expected: 显示 `cmd_upgrade()` 函数的起始行号（约 616）
 # upgrade 命令 - 升级系统
 cmd_upgrade() {
     local target_version=""
-    local force="false"
+    local skip_snapshot="false"
     local dry_run="false"
 
     # 解析参数
@@ -673,6 +680,10 @@ cmd_upgrade() {
             --version|-v)
                 target_version="$2"
                 shift 2
+                ;;
+            --skip-snapshot)
+                skip_snapshot="true"
+                shift
                 ;;
             --dry-run)
                 dry_run="true"
@@ -698,13 +709,14 @@ cmd_upgrade() {
     fi
 
     # 运维模式升级
-    cmd_upgrade_operator "$target_version" "$dry_run"
+    cmd_upgrade_operator "$target_version" "$skip_snapshot" "$dry_run"
 }
 
 # 运维模式升级
 cmd_upgrade_operator() {
     local target_version="$1"
-    local dry_run="$2"
+    local skip_snapshot="$2"
+    local dry_run="$3"
 
     print_banner
     print_header "升级 Cyber Pulse (运维模式)"
@@ -747,7 +759,23 @@ cmd_upgrade_operator() {
 
     print_info "目标版本: $target_version"
 
-    # 3. Dry run 模式
+    # 3. 版本比较
+    if [[ -n "$current_version" && "$current_version" != "unknown" && -n "$target_version" && "$target_version" != "latest" ]]; then
+        local current_clean=${current_version#v}
+        local target_clean=${target_version#v}
+
+        # 使用 sort -V 比较
+        local sorted
+        sorted=$(printf '%s\n%s\n' "$current_clean" "$target_clean" | sort -V | tail -n1)
+
+        if [[ "$sorted" == "$current_clean" && "$current_clean" != "$target_clean" ]]; then
+            print_success "当前版本 ($current_version) 已是最新或更高版本"
+            print_info "如需强制升级，请使用: ./scripts/cyber-pulse.sh upgrade --version $target_version"
+            exit 0
+        fi
+    fi
+
+    # 4. Dry run 模式
     if [[ "$dry_run" == "true" ]]; then
         print_info "Dry run 模式，不会执行实际升级"
         echo ""
@@ -765,7 +793,9 @@ cmd_upgrade_operator() {
     # 4. 创建快照
     print_step "创建升级快照..."
     local snapshot_name=""
-    if bash "$UPGRADE_DIR/create-snapshot.sh"; then
+    if [[ "$skip_snapshot" == "true" ]]; then
+        print_warning "跳过快照创建 (--skip-snapshot)"
+    elif bash "$UPGRADE_DIR/create-snapshot.sh"; then
         snapshot_name=$(ls -t "$SNAPSHOTS_DIR" 2>/dev/null | head -1)
         print_success "快照已创建: $snapshot_name"
     else
@@ -802,6 +832,14 @@ cmd_upgrade_operator() {
         if [[ -n "$snapshot_name" ]]; then
             print_warning "正在回滚..."
             bash "$UPGRADE_DIR/restore-snapshot.sh" "$snapshot_name" --force
+            # 恢复 IMAGE_TAG 到旧版本
+            if [[ -n "$current_version" && "$current_version" != "unknown" ]]; then
+                local env_file="$DEPLOY_DIR/.env"
+                if [[ -f "$env_file" ]] && grep -q "^IMAGE_TAG=" "$env_file"; then
+                    sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=$current_version/" "$env_file"
+                fi
+            fi
+            $DOCKER_COMPOSE pull
             $DOCKER_COMPOSE up -d
         fi
         exit 1
@@ -852,7 +890,23 @@ cmd_upgrade_operator() {
         if [[ -n "$snapshot_name" ]]; then
             print_warning "正在回滚..."
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] 开始回滚"
+
+            # 恢复数据库快照
             bash "$UPGRADE_DIR/restore-snapshot.sh" "$snapshot_name" --force
+
+            # 恢复 .env 中的 IMAGE_TAG 到旧版本
+            if [[ -n "$current_version" && "$current_version" != "unknown" ]]; then
+                local env_file="$DEPLOY_DIR/.env"
+                if [[ -f "$env_file" ]]; then
+                    # 更新 IMAGE_TAG
+                    if grep -q "^IMAGE_TAG=" "$env_file"; then
+                        sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=$current_version/" "$env_file"
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] IMAGE_TAG 已恢复为 $current_version"
+                    fi
+                fi
+            fi
+
+            # 拉取旧版本镜像并重启
             $DOCKER_COMPOSE pull
             $DOCKER_COMPOSE up -d
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] 回滚完成"
@@ -880,6 +934,7 @@ print_upgrade_help() {
     echo ""
     echo "选项:"
     echo "  --version, -v TAG   升级到指定版本"
+    echo "  --skip-snapshot     跳过快照创建"
     echo "  --dry-run           预览升级计划"
     echo "  --help, -h          显示此帮助信息"
     echo ""
@@ -904,8 +959,11 @@ feat(cli): refactor upgrade command for operator mode
 
 - Separate developer (rebuild) and operator (upgrade) commands
 - Auto-detect mode and redirect developers to rebuild
+- Add version comparison (skip if already up-to-date)
 - Add upgrade logging to logs/upgrade-YYYYMMDD-HHMMSS.log
 - Auto snapshot and rollback on failure
+- Rollback restores IMAGE_TAG in .env
+- Support --skip-snapshot flag
 - Version verification after upgrade
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>

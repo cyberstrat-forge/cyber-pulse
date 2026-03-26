@@ -1,4 +1,4 @@
 """API routers."""
-from . import clients, content, health, sources
+from . import content, health, items
 
-__all__ = ["health", "content", "sources", "clients"]
+__all__ = ["health", "content", "items"]
