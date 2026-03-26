@@ -61,13 +61,10 @@ def ensure_admin_client() -> None:
         logger.info(f"Created admin client: {client_id}")
 
         # Output key to terminal ONCE
-        # Note: This is intentional - admin key must be shown once during initial setup.
-        # CodeQL suppression: this is not persistent logging, only terminal output.
         print(f"\n{'='*60}")
         print("Admin client created successfully.")
         print(f"{'='*60}")
-        # nosemgrep: python.lang.security.audit.dangerous-print-call.dangerous-print-call
-        print(f"\n  Admin API Key: {plain_key}\n")  # codeql[py/clear-text-logging]
+        print(f"\n  Admin API Key: {plain_key}\n")
         print("  IMPORTANT: This key is shown ONCE. Save it securely now!")
         print("  If lost, use './scripts/cyber-pulse.sh admin reset' to generate a new key.")
         print(f"\n{'='*60}\n")
