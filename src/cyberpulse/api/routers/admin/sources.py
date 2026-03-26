@@ -309,7 +309,72 @@ async def import_sources(
     )
 
 
-# ============ 动态路径端点 ============
+@router.get("/sources/export")
+async def export_sources(
+    status: Optional[str] = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED"),
+    tier: Optional[str] = Query(None, description="Filter by tier: T0, T1, T2, T3"),
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> Response:
+    """导出源为 OPML 格式。"""
+    query = db.query(Source)
+
+    if status:
+        status_enum = validate_status(status)
+        query = query.filter(Source.status == status_enum)
+
+    if tier:
+        tier_enum = validate_tier(tier)
+        query = query.filter(Source.tier == tier_enum)
+
+    sources = query.filter(Source.status != SourceStatus.REMOVED).all()
+
+    # Build OPML content with proper XML escaping
+    opml_lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<opml version="2.0">',
+        '  <head>',
+        '    <title>CyberPulse Sources Export</title>',
+        f'    <dateCreated>{escape(datetime.now(timezone.utc).isoformat())}</dateCreated>',
+        '  </head>',
+        '  <body>',
+    ]
+
+    for source in sources:
+        feed_url = source.config.get("feed_url", "") if source.config else ""
+        if feed_url:
+            safe_name = escape(source.name)
+            safe_url = escape(feed_url)
+            html_url = feed_url.rsplit("/", 1)[0] if "/" in feed_url else ""
+            safe_html_url = escape(html_url)
+
+            opml_lines.append(
+                f'    <outline type="rss" '
+                f'title="{safe_name}" '
+                f'text="{safe_name}" '
+                f'xmlUrl="{safe_url}" '
+                f'htmlUrl="{safe_html_url}"/>'
+            )
+
+    opml_lines.extend([
+        '  </body>',
+        '</opml>',
+    ])
+
+    opml_content = "\n".join(opml_lines)
+
+    logger.info(f"Exported {len(sources)} sources to OPML")
+
+    return Response(
+        content=opml_content,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": f"attachment; filename=cyberpulse-sources-{datetime.now().strftime('%Y%m%d')}.opml"
+        }
+    )
+
+
+# ============ 动态路径端点（必须在静态路径之后）============
 
 
 @router.get("/sources/{source_id}", response_model=SourceResponse)
