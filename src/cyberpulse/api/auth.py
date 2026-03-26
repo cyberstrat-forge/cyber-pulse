@@ -367,6 +367,35 @@ class ApiClientService:
             self.db.rollback()
             raise
 
+    def reset_admin_key(self) -> Optional[Tuple[ApiClient, str]]:
+        """
+        Reset admin API key.
+
+        Generates a new key for the first client with 'admin' permission.
+        The old key immediately becomes invalid.
+
+        Returns:
+            Tuple of (ApiClient, new_plain_key) if successful, None otherwise
+        """
+        admin = self.get_by_permission("admin")
+        if not admin:
+            return None
+
+        # Generate and hash new API key
+        plain_key = generate_api_key()
+        hashed_key = hash_api_key(plain_key)
+
+        admin.api_key = hashed_key  # type: ignore[assignment]
+        try:
+            self.db.commit()
+            self.db.refresh(admin)
+            logger.info(f"Reset admin API key for client: {admin.client_id}")
+            return admin, plain_key
+        except Exception as e:
+            logger.error(f"Failed to reset admin key: {e}")
+            self.db.rollback()
+            raise
+
     def get_by_permission(self, permission: str) -> Optional[ApiClient]:
         """
         Get first client with specific permission.
@@ -385,28 +414,4 @@ class ApiClientService:
             perms: List[str] = client.permissions or []  # type: ignore[assignment]
             if permission in perms:
                 return client
-        return None
-
-    def get_plain_key(self, client_id: str) -> Optional[str]:
-        """
-        Get plain API key for client (for admin show-key).
-
-        Note: This only works if keys are stored in plaintext.
-        For hashed keys, this returns None.
-
-        Args:
-            client_id: The client ID
-
-        Returns:
-            Plain API key or None
-        """
-        import os
-        admin_key = os.getenv("ADMIN_API_KEY")
-
-        client = self.get_client(client_id)
-        if client and admin_key:
-            # For admin client, return the env var key
-            perms: List[str] = client.permissions or []  # type: ignore[assignment]
-            if "admin" in perms:
-                return admin_key
         return None

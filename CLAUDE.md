@@ -36,10 +36,18 @@
 ### 常用管理命令
 
 ```bash
+# 部署管理
 ./scripts/cyber-pulse.sh status               # 查看状态
 ./scripts/cyber-pulse.sh logs                 # 查看日志
 ./scripts/cyber-pulse.sh stop                 # 停止服务
 ./scripts/cyber-pulse.sh restart              # 重启服务
+
+# API 管理（首次使用需先配置）
+./scripts/api.sh configure                    # 配置 API URL 和 Admin Key
+./scripts/api.sh sources list                 # 列出情报源
+./scripts/api.sh jobs run src_xxx             # 运行采集任务
+./scripts/api.sh clients list                 # 列出客户端
+./scripts/api.sh diagnose                     # 系统诊断
 ```
 
 ---
@@ -70,12 +78,6 @@ uv run mypy src/ --ignore-missing-imports  # 类型检查
 # 数据库
 uv run alembic upgrade head             # 迁移
 uv run alembic revision --autogenerate -m "description"  # 创建迁移
-
-# CLI
-uv run cyber-pulse --help               # CLI 帮助
-uv run cyber-pulse diagnose system      # 系统健康检查
-uv run cyber-pulse diagnose errors      # 错误分析
-uv run cyber-pulse log tail             # 实时查看日志
 ```
 
 ---
@@ -99,7 +101,6 @@ src/cyberpulse/
 │   └── schemas/     # Pydantic 模型
 ├── scheduler/       # APScheduler 调度系统
 ├── tasks/           # Dramatiq 异步任务
-├── cli/             # Typer CLI 工具
 ├── database.py      # DB 配置
 └── config.py        # 配置管理
 ```
