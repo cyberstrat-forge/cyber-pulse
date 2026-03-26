@@ -1,12 +1,26 @@
-from sqlalchemy import Column, String, Text, DateTime, Float, Integer, ForeignKey, Index, Enum as SAEnum, Boolean
-from sqlalchemy.dialects.postgresql import JSONB
 from enum import Enum
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
+
 from ..database import Base
 from .base import TimestampMixin
 
 
 class ItemStatus(str, Enum):
     """Item processing status"""
+
     NEW = "NEW"
     NORMALIZED = "NORMALIZED"
     MAPPED = "MAPPED"
@@ -15,10 +29,13 @@ class ItemStatus(str, Enum):
 
 class Item(Base, TimestampMixin):
     """Raw item from source with normalized content"""
+
     __tablename__ = "items"
 
     item_id = Column(String(64), primary_key=True, index=True)
-    source_id = Column(String(64), ForeignKey("sources.source_id"), nullable=False, index=True)
+    source_id = Column(
+        String(64), ForeignKey("sources.source_id"), nullable=False, index=True
+    )
     external_id = Column(String(255), nullable=False, index=True)
     url = Column(String(1024), nullable=False, index=True)
     title = Column(String(1024), nullable=False)
@@ -29,12 +46,16 @@ class Item(Base, TimestampMixin):
     # Normalized content (filled after normalization)
     normalized_title = Column(String(1024), nullable=True)
     normalized_body = Column(Text, nullable=True)
-    canonical_hash = Column(String(64), nullable=True, index=True)  # For deduplication
+    canonical_hash = Column(String(64), nullable=True)  # For deduplication
 
     # Metadata
     published_at = Column(DateTime, nullable=False, index=True)
     fetched_at = Column(DateTime, nullable=False, index=True)
-    status = Column(SAEnum(ItemStatus, name="itemstatus"), nullable=False, default=ItemStatus.NEW)
+    status = Column(
+        SAEnum(ItemStatus, name="itemstatus"),
+        nullable=False,
+        default=ItemStatus.NEW,
+    )
     raw_metadata = Column(JSONB, nullable=False, default=dict)
 
     # Quality metrics (filled after quality check)
