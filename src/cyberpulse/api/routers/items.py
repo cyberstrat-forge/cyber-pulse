@@ -82,8 +82,12 @@ async def list_items(
     if cursor:
         # Find item with this cursor
         cursor_item = db.query(Item).filter(Item.item_id == cursor).first()
-        if cursor_item:
-            query = query.filter(Item.fetched_at < cursor_item.fetched_at)
+        if not cursor_item:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cursor item not found: {cursor}"
+            )
+        query = query.filter(Item.fetched_at < cursor_item.fetched_at)
     elif from_param == "beginning":
         # Start from earliest
         query = query.order_by(Item.fetched_at.asc())
@@ -97,10 +101,15 @@ async def list_items(
     if has_more:
         items = items[:limit]
 
+    # Prefetch sources in a single query to avoid N+1
+    source_ids = {item.source_id for item in items if item.source_id}
+    sources = db.query(Source).filter(Source.source_id.in_(source_ids)).all()
+    source_map = {s.source_id: s for s in sources}
+
     # Build response
     data = []
     for item in items:
-        source = db.query(Source).filter(Source.source_id == item.source_id).first()
+        source = source_map.get(item.source_id)
         source_info = None
         if source:
             source_info = SourceInItem(
