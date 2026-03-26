@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from ..config import settings
 from .. import __version__
-from .routers import content, sources, clients, health, items
+from .routers import content, health, items
 from .routers.admin import sources_router, jobs_router, clients_router, logs_router, diagnose_router
 from .startup import ensure_admin_client
 
@@ -97,10 +97,6 @@ app.include_router(health.router, tags=["health"])
 # Business API
 app.include_router(items.router, prefix="/api/v1", tags=["items"])
 app.include_router(content.router, prefix="/api/v1", tags=["content"])
-
-# Legacy API (existing tests)
-app.include_router(sources.router, prefix="/api/v1", tags=["sources"])
-app.include_router(clients.router, prefix="/api/v1", tags=["clients"])
 
 # Admin API (new endpoints)
 app.include_router(sources_router, prefix="/api/v1/admin", tags=["admin-sources"])
