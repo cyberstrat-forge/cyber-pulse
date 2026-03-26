@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     default_fetch_interval: int = 3600  # 1 hour
 
+    # Ingestion
+    max_consecutive_failures: int = 5  # Freeze source after this many failures
+
     # Logging
     log_level: str = "INFO"
     log_file: Optional[str] = "logs/cyberpulse.log"

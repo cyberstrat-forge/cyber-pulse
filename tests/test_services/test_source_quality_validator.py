@@ -73,3 +73,23 @@ class TestSourceQualityValidator:
         )
 
         assert result.is_valid is True
+
+    @pytest.mark.asyncio
+    async def test_validate_source_missing_feed_url(self):
+        """Test validation when feed_url is missing from config."""
+        config = {}  # Missing feed_url
+
+        result = await self.validator.validate_source(config)
+
+        assert result.is_valid is False
+        assert result.rejection_reason is not None
+        assert "feed_url" in result.rejection_reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_validate_source_none_feed_url(self):
+        """Test validation when feed_url is None."""
+        config = {"feed_url": None}
+
+        result = await self.validator.validate_source(config)
+
+        assert result.is_valid is False

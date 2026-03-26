@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..database import SessionLocal
+from ..config import settings
 from ..models import Source, SourceStatus
 from ..models.item import ItemStatus
 from ..services.connector_factory import get_connector_for_source
@@ -23,9 +24,6 @@ if TYPE_CHECKING:
     from ..services.connector_service import BaseConnector
 
 logger = logging.getLogger(__name__)
-
-# Maximum consecutive failures before freezing a source
-MAX_CONSECUTIVE_FAILURES = 5
 
 
 @dramatiq.actor(max_retries=3)
@@ -189,7 +187,7 @@ def ingest_source(source_id: str) -> None:
             source.last_error_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
             # Check if should freeze
-            if source.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            if source.consecutive_failures >= settings.max_consecutive_failures:
                 source.status = SourceStatus.FROZEN
                 source.review_reason = f"连续采集失败: {str(e)[:100]}"
                 logger.warning(

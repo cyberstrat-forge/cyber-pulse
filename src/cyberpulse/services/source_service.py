@@ -34,6 +34,12 @@ class SourceService(BaseService):
         Removes trailing slashes, converts to lowercase, and removes
         common variations to enable URL deduplication.
 
+        Note: Converts https:// to http:// for deduplication purposes.
+        Most RSS feeds are accessible via both http and https, and treating
+        them as the same prevents duplicate source entries. If a source
+        genuinely has different content on http vs https, the feed_url
+        can be manually verified.
+
         Args:
             url: URL to normalize
 
@@ -50,7 +56,8 @@ class SourceService(BaseService):
         if normalized.endswith("/"):
             normalized = normalized[:-1]
 
-        # Remove common protocol prefix variations
+        # Normalize protocol to http for deduplication
+        # (Most RSS feeds are accessible via both http and https)
         if normalized.startswith("https://"):
             normalized = "http://" + normalized[8:]
         elif normalized.startswith("www."):
