@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from ..config import settings
 from .. import __version__
-from .routers import content, sources, clients, health
+from .routers import content, sources, clients, health, items
 from .startup import ensure_admin_client
 
 
@@ -99,6 +99,7 @@ app = FastAPI(
 
 # Include routers
 app.include_router(health.router, tags=["health"])
+app.include_router(items.router, prefix="/api/v1", tags=["items"])
 app.include_router(content.router, prefix="/api/v1", tags=["content"])
 app.include_router(sources.router, prefix="/api/v1", tags=["sources"])
 app.include_router(clients.router, prefix="/api/v1", tags=["clients"])
