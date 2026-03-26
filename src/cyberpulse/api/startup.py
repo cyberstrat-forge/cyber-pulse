@@ -61,11 +61,12 @@ def ensure_admin_client() -> None:
         db.refresh(admin)
 
         logger.info(f"Created admin client: {client_id}")
-        logger.info(f"Admin API Key: {admin_key}")
+        # Note: API key is not logged for security reasons.
+        # The admin key should be retrieved from ADMIN_API_KEY env var or .env file.
         print(f"\n{'='*60}")
-        print(f"ADMIN API KEY: {admin_key}")
-        print(f"{'='*60}")
-        print("Please save this key securely. It will not be shown again.\n")
+        print("Admin client created successfully.")
+        print("Check ADMIN_API_KEY in .env file for the API key.")
+        print(f"{'='*60}\n")
 
     except Exception as e:
         logger.error(f"Failed to ensure admin client: {e}")
