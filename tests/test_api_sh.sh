@@ -77,5 +77,41 @@ else
 fi
 set -e
 
+# 测试 9: 有 sources test 命令
+echo -n "Test 9: 有 sources test 命令... "
+if grep -q "cmd_sources_test" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL - 未找到 sources test 命令"
+    exit 1
+fi
+
+# 测试 10: 有 sources schedule 命令
+echo -n "Test 10: 有 sources schedule 命令... "
+if grep -q "cmd_sources_schedule\|cmd_sources_unschedule" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL - 未找到 sources schedule 命令"
+    exit 1
+fi
+
+# 测试 11: 有 sources import/export 命令
+echo -n "Test 11: 有 sources import/export 命令... "
+if grep -q "cmd_sources_import\|cmd_sources_export" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL - 未找到 sources import/export 命令"
+    exit 1
+fi
+
+# 测试 12: 有 sources defaults 命令
+echo -n "Test 12: 有 sources defaults 命令... "
+if grep -q "cmd_sources_defaults\|cmd_sources_set_defaults" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL - 未找到 sources defaults 命令"
+    exit 1
+fi
+
 echo ""
 echo "=== 所有测试通过 ==="

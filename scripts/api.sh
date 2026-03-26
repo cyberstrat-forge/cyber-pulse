@@ -220,6 +220,13 @@ cmd_sources() {
         create)         cmd_sources_create "$@" ;;
         update)         cmd_sources_update "$@" ;;
         delete)         cmd_sources_delete "$@" ;;
+        test)           cmd_sources_test "$@" ;;
+        schedule)       cmd_sources_schedule "$@" ;;
+        unschedule)     cmd_sources_unschedule "$@" ;;
+        import)         cmd_sources_import "$@" ;;
+        export)         cmd_sources_export "$@" ;;
+        defaults)       cmd_sources_defaults "$@" ;;
+        set-defaults)   cmd_sources_set_defaults "$@" ;;
         *)
             print_error "Unknown sources subcommand: $subcommand"
             print_sources_help
@@ -365,6 +372,177 @@ cmd_sources_delete() {
     fi
 }
 
+cmd_sources_test() {
+    local source_id="${1:-}"
+
+    if [[ -z "$source_id" ]]; then
+        die "Usage: api.sh sources test <source_id>"
+    fi
+
+    print_info "Testing source: $source_id"
+
+    local response
+    response=$(api_post "/api/v1/admin/sources/${source_id}/test")
+    check_api_error "$response"
+
+    local test_result
+    test_result=$(echo "$response" | jq -r '.test_result')
+
+    if [[ "$test_result" == "success" ]]; then
+        print_success "Source test passed"
+        echo ""
+        echo "$response" | jq '{
+            source_id,
+            test_result,
+            response_time_ms,
+            items_found,
+            last_modified
+        }'
+    else
+        print_error "Source test failed"
+        echo ""
+        echo "$response" | jq '{
+            source_id,
+            test_result,
+            error_type,
+            error_message,
+            suggestion
+        }'
+    fi
+}
+
+cmd_sources_schedule() {
+    local source_id="${1:-}"
+    local interval=""
+
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --interval)  interval="$2"; shift 2 ;;
+            *)           shift ;;
+        esac
+    done
+
+    if [[ -z "$source_id" ]]; then
+        die "Usage: api.sh sources schedule <source_id> --interval SECONDS"
+    fi
+
+    if [[ -z "$interval" ]]; then
+        die "Please specify --interval SECONDS (minimum 300)"
+    fi
+
+    local data="{\"interval\": ${interval}}"
+
+    local response
+    response=$(api_post "/api/v1/admin/sources/${source_id}/schedule" "$data")
+    check_api_error "$response"
+
+    print_success "Schedule set for $source_id"
+    echo "$response" | jq .
+}
+
+cmd_sources_unschedule() {
+    local source_id="${1:-}"
+
+    if [[ -z "$source_id" ]]; then
+        die "Usage: api.sh sources unschedule <source_id>"
+    fi
+
+    local response
+    response=$(api_delete "/api/v1/admin/sources/${source_id}/schedule")
+    check_api_error "$response"
+
+    print_success "Schedule removed for $source_id"
+    echo "$response" | jq .
+}
+
+cmd_sources_import() {
+    local file=""
+    local skip_invalid="false"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --file)         file="$2"; shift 2 ;;
+            --skip-invalid) skip_invalid="true"; shift ;;
+            *)              shift ;;
+        esac
+    done
+
+    if [[ -z "$file" ]]; then
+        die "Usage: api.sh sources import --file FILE.opml [--skip-invalid]"
+    fi
+
+    if [[ ! -f "$file" ]]; then
+        die "File not found: $file"
+    fi
+
+    print_info "Importing sources from: $file"
+
+    # 使用 curl 上传文件
+    local response
+    response=$(curl -s -X POST \
+        -H "Authorization: Bearer $admin_key" \
+        -F "file=@${file}" \
+        -F "skip_invalid=${skip_invalid}" \
+        "${api_url}/api/v1/admin/sources/import")
+
+    check_api_error "$response"
+
+    local job_id
+    job_id=$(echo "$response" | jq -r '.job_id')
+
+    print_success "Import job created: $job_id"
+    echo ""
+    echo "Check job status with:"
+    echo "  ./scripts/api.sh jobs get $job_id"
+}
+
+cmd_sources_export() {
+    local output_file="${1:-sources-export.yaml}"
+
+    print_info "Exporting sources..."
+
+    local response
+    response=$(api_get "/api/v1/admin/sources/export")
+    check_api_error "$response"
+
+    echo "$response" > "$output_file"
+    print_success "Sources exported to: $output_file"
+}
+
+cmd_sources_defaults() {
+    local response
+    response=$(api_get "/api/v1/admin/sources/defaults")
+    check_api_error "$response"
+
+    echo "Default fetch interval settings:"
+    echo "$response" | jq .
+}
+
+cmd_sources_set_defaults() {
+    local interval=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --interval)  interval="$2"; shift 2 ;;
+            *)           shift ;;
+        esac
+    done
+
+    if [[ -z "$interval" ]]; then
+        die "Usage: api.sh sources set-defaults --interval SECONDS"
+    fi
+
+    local data="{\"default_fetch_interval\": ${interval}}"
+
+    local response
+    response=$(api_request "PATCH" "/api/v1/admin/sources/defaults" "$data")
+    check_api_error "$response"
+
+    print_success "Default fetch interval updated"
+    echo "$response" | jq .
+}
+
 print_sources_help() {
     echo ""
     echo "Sources commands:"
@@ -373,6 +551,16 @@ print_sources_help() {
     echo "  create --name NAME --type TYPE --url URL [--tier TIER]"
     echo "  update <source_id> [--name NAME] [--url URL] [--tier TIER] [--status STATUS]"
     echo "  delete <source_id>"
+    echo ""
+    echo "  test <source_id>                          测试源连接"
+    echo "  schedule <source_id> --interval SECONDS   设置采集调度"
+    echo "  unschedule <source_id>                    取消采集调度"
+    echo ""
+    echo "  import --file FILE.opml [--skip-invalid]  批量导入"
+    echo "  export [OUTPUT_FILE]                      导出源配置"
+    echo ""
+    echo "  defaults                                  查看默认配置"
+    echo "  set-defaults --interval SECONDS           设置默认采集间隔"
 }
 
 # ============================================
@@ -811,6 +999,12 @@ show_help() {
     echo "    create               创建情报源"
     echo "    update <id>          更新情报源"
     echo "    delete <id>          删除情报源"
+    echo "    test <id>            测试连接"
+    echo "    schedule <id>        设置调度"
+    echo "    unschedule <id>      取消调度"
+    echo "    import --file FILE   批量导入"
+    echo "    export               导出配置"
+    echo "    defaults             默认配置"
     echo ""
     echo "  jobs <cmd>             任务管理"
     echo "    list                 列出任务"
