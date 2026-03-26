@@ -1,6 +1,9 @@
-from sqlalchemy import Column, String, Text, DateTime, Enum as SAEnum
-from sqlalchemy.dialects.postgresql import JSONB
 from enum import Enum
+
+from sqlalchemy import Column, DateTime, String, Text
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
+
 from ..database import Base
 from .base import TimestampMixin
 

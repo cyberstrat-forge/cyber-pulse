@@ -1,9 +1,10 @@
 """Job model for tracking async task execution."""
 
 from enum import Enum as PyEnum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, Enum as SAEnum, ForeignKey
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
@@ -11,7 +12,7 @@ from ..database import Base
 from .base import TimestampMixin
 
 if TYPE_CHECKING:
-    from .source import Source
+    pass
 
 
 class JobType(str, PyEnum):

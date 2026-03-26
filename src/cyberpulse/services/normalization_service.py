@@ -4,10 +4,8 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 import trafilatura
-
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +17,7 @@ class NormalizationResult:
     normalized_title: str
     normalized_body: str  # Markdown format
     canonical_hash: str  # For deduplication
-    language: Optional[str]
+    language: str | None
     word_count: int
     extraction_method: str  # "trafilatura" | "raw"
 
@@ -38,7 +36,7 @@ class NormalizationService:
         self,
         title: str,
         raw_content: str,
-        url: Optional[str] = None,
+        url: str | None = None,
     ) -> NormalizationResult:
         """Normalize content.
 
@@ -82,7 +80,7 @@ class NormalizationService:
         )
 
     def _extract_markdown(
-        self, raw_content: str, url: Optional[str]
+        self, raw_content: str, url: str | None
     ) -> tuple[str, str]:
         """Extract content as markdown using trafilatura.
 
@@ -190,7 +188,7 @@ class NormalizationService:
 
         return hash_value
 
-    def _detect_language(self, content: str) -> Optional[str]:
+    def _detect_language(self, content: str) -> str | None:
         """Detect content language.
 
         Uses trafilatura's built-in language detection with fallback

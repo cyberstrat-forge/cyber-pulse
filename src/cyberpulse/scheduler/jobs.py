@@ -5,17 +5,17 @@ These jobs trigger Dramatiq tasks for actual processing.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Any
 
 from ..database import SessionLocal
 from ..models import Source, SourceStatus
-from ..tasks.ingestion_tasks import ingest_source
 from ..services.source_score_service import SourceScoreService
+from ..tasks.ingestion_tasks import ingest_source
 
 logger = logging.getLogger(__name__)
 
 
-def collect_source(source_id: str) -> Dict[str, Any]:
+def collect_source(source_id: str) -> dict[str, Any]:
     """Collect items from a source via Dramatiq task.
 
     Args:
@@ -36,7 +36,7 @@ def collect_source(source_id: str) -> Dict[str, Any]:
     }
 
 
-def run_scheduled_collection() -> Dict[str, Any]:
+def run_scheduled_collection() -> dict[str, Any]:
     """Run scheduled collection for all active sources.
 
     Queries database for active sources and queues collection
@@ -79,7 +79,7 @@ def run_scheduled_collection() -> Dict[str, Any]:
         db.close()
 
 
-def update_source_scores() -> Dict[str, Any]:
+def update_source_scores() -> dict[str, Any]:
     """Update scores for all sources.
 
     Recalculates source scores based on collection statistics.

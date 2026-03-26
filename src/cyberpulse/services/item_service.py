@@ -2,13 +2,12 @@
 
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Optional, List, Dict
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 
-from .base import BaseService
 from ..models import Item, ItemStatus
+from .base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +31,7 @@ class ItemService(BaseService):
         title: str,
         raw_content: str,
         published_at: datetime,
-        content_hash: str,
-        raw_metadata: Optional[Dict] = None,
+        raw_metadata: dict | None = None,
     ) -> Item:
         """Create a new item with deduplication.
 
@@ -48,7 +46,6 @@ class ItemService(BaseService):
             title: Item title
             raw_content: Raw content of the item
             published_at: Publication timestamp
-            content_hash: Hash of the content for deduplication
             raw_metadata: Additional metadata (maps to Item.raw_metadata column)
 
         Returns:
@@ -74,7 +71,7 @@ class ItemService(BaseService):
 
         # Create new item
         item_id = self.generate_item_id()
-        fetched_at = datetime.now(timezone.utc)
+        fetched_at = datetime.now(UTC)
 
         item = Item(
             item_id=item_id,
@@ -85,7 +82,6 @@ class ItemService(BaseService):
             raw_content=raw_content,
             published_at=published_at,
             fetched_at=fetched_at,
-            content_hash=content_hash,
             status=ItemStatus.NEW,
             raw_metadata=raw_metadata or {},
         )
@@ -119,10 +115,10 @@ class ItemService(BaseService):
     def get_items_by_source(
         self,
         source_id: str,
-        status: Optional[str] = None,
+        status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Item]:
+    ) -> list[Item]:
         """List items for a source.
 
         Args:
@@ -153,8 +149,8 @@ class ItemService(BaseService):
         self,
         item_id: str,
         status: str,
-        quality_metrics: Optional[Dict] = None,
-    ) -> Optional[Item]:
+        quality_metrics: dict | None = None,
+    ) -> Item | None:
         """Update item processing status.
 
         Args:
@@ -190,7 +186,7 @@ class ItemService(BaseService):
 
         return item
 
-    def get_pending_items(self, limit: int = 100) -> List[Item]:
+    def get_pending_items(self, limit: int = 100) -> list[Item]:
         """Get items pending normalization.
 
         Returns items with status=NEW that need to be processed.

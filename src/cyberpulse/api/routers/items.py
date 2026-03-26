@@ -128,8 +128,12 @@ async def list_items(
             url=item.url,
             completeness_score=calculate_completeness_score(item),
             tags=item.raw_metadata.get("tags", []) if item.raw_metadata else [],
+            language=item.language,
+            word_count=item.word_count,
             fetched_at=item.fetched_at,
             source=source_info,
+            full_fetch_attempted=item.full_fetch_attempted,
+            full_fetch_succeeded=item.full_fetch_succeeded,
         ))
 
     next_cursor = None

@@ -3,8 +3,8 @@
 import asyncio
 import base64
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 
@@ -94,7 +94,7 @@ class APIConnector(BaseConnector):
 
         return True
 
-    async def fetch(self) -> List[Dict[str, Any]]:
+    async def fetch(self) -> list[dict[str, Any]]:
         """Fetch items from API with pagination support.
 
         Returns:
@@ -105,13 +105,13 @@ class APIConnector(BaseConnector):
         """
         self.validate_config()
 
-        all_items: List[Dict[str, Any]] = []
+        all_items: list[dict[str, Any]] = []
         page = 1
-        cursor: Optional[str] = None
+        cursor: str | None = None
         offset = 0
 
         pagination_type = self.config.get("pagination_type", "none")
-        total_items: Optional[int] = None
+        total_items: int | None = None
 
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(self.CONNECT_TIMEOUT, read=self.READ_TIMEOUT)
@@ -174,8 +174,8 @@ class APIConnector(BaseConnector):
         return all_items[: self.MAX_ITEMS * self.MAX_PAGES]
 
     def _build_request(
-        self, page: int = 1, cursor: Optional[str] = None, offset: int = 0
-    ) -> Dict[str, Any]:
+        self, page: int = 1, cursor: str | None = None, offset: int = 0
+    ) -> dict[str, Any]:
         """Build request configuration.
 
         Args:
@@ -240,8 +240,8 @@ class APIConnector(BaseConnector):
         }
 
     async def _make_request_with_retry(
-        self, client: httpx.AsyncClient, request: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, client: httpx.AsyncClient, request: dict[str, Any]
+    ) -> dict[str, Any]:
         """Make HTTP request with retry logic.
 
         Args:
@@ -254,7 +254,7 @@ class APIConnector(BaseConnector):
         Raises:
             ConnectorError: If request fails after all retries
         """
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         rate_limit_count = 0
 
         for attempt in range(self.MAX_RETRIES + 1):
@@ -379,7 +379,7 @@ class APIConnector(BaseConnector):
         # Unknown error - no retry
         return False, 0
 
-    def _extract_items(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _extract_items(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         """Extract items from API response.
 
         Args:
@@ -399,7 +399,7 @@ class APIConnector(BaseConnector):
         items = self._get_nested_value(data, item_path, [])
         return items if isinstance(items, list) else []
 
-    def _parse_response(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _parse_response(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Parse API response items to standard format.
 
         Args:
@@ -426,8 +426,8 @@ class APIConnector(BaseConnector):
         return parsed_items
 
     def _parse_item(
-        self, item: Dict[str, Any], field_mapping: Dict[str, str]
-    ) -> Optional[Dict[str, Any]]:
+        self, item: dict[str, Any], field_mapping: dict[str, str]
+    ) -> dict[str, Any] | None:
         """Parse a single API item into standardized format.
 
         Args:
@@ -478,7 +478,7 @@ class APIConnector(BaseConnector):
             "tags": list(tags),
         }
 
-    def _parse_date(self, date_value: Optional[Any]) -> datetime:
+    def _parse_date(self, date_value: Any | None) -> datetime:
         """Parse date from various formats.
 
         Args:
@@ -492,8 +492,8 @@ class APIConnector(BaseConnector):
 
         if isinstance(date_value, datetime):
             if date_value.tzinfo is None:
-                return date_value.replace(tzinfo=timezone.utc)
-            return date_value.astimezone(timezone.utc)
+                return date_value.replace(tzinfo=UTC)
+            return date_value.astimezone(UTC)
 
         if isinstance(date_value, str):
             # Try ISO format first
@@ -503,8 +503,8 @@ class APIConnector(BaseConnector):
                     date_value = date_value[:-1] + "+00:00"
                 dt = datetime.fromisoformat(date_value)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt.astimezone(timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
+                return dt.astimezone(UTC)
             except ValueError:
                 pass
 
@@ -513,7 +513,7 @@ class APIConnector(BaseConnector):
         return self.get_current_utc_time()
 
     def _get_nested_value(
-        self, data: Dict[str, Any], path: str, default: Any = None
+        self, data: dict[str, Any], path: str, default: Any = None
     ) -> Any:
         """Get a nested value from a dictionary using dot notation.
 

@@ -152,9 +152,12 @@ async def create_job(
     # Trigger Dramatiq task
     task_enqueued = False
     try:
-        ingest_source.send(request.source_id)
+        ingest_source.send(request.source_id, job_id=job.job_id)
         task_enqueued = True
-        logger.info(f"Triggered ingest_source task for source: {request.source_id}")
+        logger.info(
+            f"Triggered ingest_source task for source: {request.source_id} "
+            f"with job_id: {job.job_id}"
+        )
     except (OSError, ConnectionError) as e:
         logger.error(f"Failed to trigger ingest_source task for job {job.job_id}: {e}")
 

@@ -32,6 +32,7 @@ from ....models import (
     SourceStatus,
     SourceTier,
 )
+from ....services.source_quality_validator import SourceQualityValidator
 from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
 from ...schemas.source import (
@@ -45,6 +46,7 @@ from ...schemas.source import (
     SourceResponse,
     SourceUpdate,
     TestResult,
+    ValidationResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,16 +105,11 @@ def build_source_response(source: Source) -> SourceResponse:
         tier=source.tier.value if source.tier else "T2",
         score=source.score or 50.0,
         status=source.status.value if source.status else "ACTIVE",
-        is_in_observation=source.is_in_observation or False,
-        observation_until=source.observation_until,
         pending_review=source.pending_review or False,
         review_reason=source.review_reason,
-        fetch_interval=source.fetch_interval,
         config=source.config or {},
-        last_fetched_at=source.last_fetched_at,
         last_scored_at=source.last_scored_at,
         total_items=source.total_items or 0,
-        total_contents=source.total_contents or 0,
         schedule_interval=source.schedule_interval,
         next_ingest_at=source.next_ingest_at,
         last_ingested_at=source.last_ingested_at,
@@ -200,6 +197,40 @@ async def create_source(
         20  # T3: score < 40
     )
 
+    # Run quality validation for RSS sources with feed_url
+    pending_review = False
+    review_reason = None
+    content_type = None
+    avg_content_length = None
+
+    if source.connector_type == "rss" and source.config:
+        feed_url = source.config.get("feed_url")
+        if feed_url:
+            try:
+                validator = SourceQualityValidator()
+                validation_result = await validator.validate_source(source.config)
+
+                content_type = validation_result.content_type
+                avg_content_length = validation_result.avg_content_length
+
+                if not validation_result.is_valid:
+                    pending_review = True
+                    review_reason = validation_result.rejection_reason
+                    logger.warning(
+                        f"Source quality validation failed for {source.name}: "
+                        f"{validation_result.rejection_reason}"
+                    )
+                else:
+                    logger.info(
+                        f"Source quality validation passed for {source.name}: "
+                        f"content_type={content_type}, avg_length={avg_content_length}"
+                    )
+            except Exception as e:
+                logger.error(f"Quality validation error for {source.name}: {e}")
+                # Don't fail source creation on validation error
+                pending_review = True
+                review_reason = f"Validation error: {str(e)}"
+
     new_source = Source(
         source_id=f"src_{secrets.token_hex(4)}",
         name=source.name,
@@ -208,7 +239,10 @@ async def create_source(
         score=score,
         status=SourceStatus.ACTIVE,
         config=source.config or {},
-        fetch_interval=source.fetch_interval,
+        pending_review=pending_review,
+        review_reason=review_reason,
+        content_type=content_type,
+        avg_content_length=avg_content_length,
     )
 
     db.add(new_source)
@@ -455,8 +489,6 @@ async def update_source(
         source.score = update.score
     if update.status is not None:
         source.status = validate_status(update.status)
-    if update.fetch_interval is not None:
-        source.fetch_interval = update.fetch_interval
     if update.config is not None:
         source.config = update.config
 
@@ -568,6 +600,89 @@ async def test_source(
             error_type="connection",
             error_message=str(e),
             suggestion="检查 URL 是否正确，确认网络连接",
+        )
+
+
+@router.post("/sources/{source_id}/validate", response_model=ValidationResponse)
+async def validate_source_quality(
+    source_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> ValidationResponse:
+    """验证源质量。对 RSS 源执行质量验证，检查内容完整性。"""
+    validate_source_id(source_id)
+
+    source = db.query(Source).filter(Source.source_id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    # Only RSS sources can be validated
+    if source.connector_type != "rss":
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=False,
+            content_type="unknown",
+            sample_completeness=0.0,
+            avg_content_length=0,
+            rejection_reason="Validation only supported for RSS sources",
+        )
+
+    feed_url = source.config.get("feed_url") if source.config else None
+    if not feed_url:
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=False,
+            content_type="unknown",
+            sample_completeness=0.0,
+            avg_content_length=0,
+            rejection_reason="No feed_url configured for this source",
+        )
+
+    # Run validation
+    try:
+        validator = SourceQualityValidator()
+        result = await validator.validate_source(source.config or {})
+
+        # Update source with validation results
+        source.content_type = result.content_type
+        source.avg_content_length = result.avg_content_length
+
+        if not result.is_valid:
+            source.pending_review = True
+            source.review_reason = result.rejection_reason
+            logger.warning(
+                f"Source {source_id} quality validation failed: {result.rejection_reason}"
+            )
+        else:
+            # Clear pending review if validation passes
+            source.pending_review = False
+            source.review_reason = None
+            logger.info(
+                f"Source {source_id} quality validation passed: "
+                f"content_type={result.content_type}, avg_length={result.avg_content_length}"
+            )
+
+        db.commit()
+
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=result.is_valid,
+            content_type=result.content_type,
+            sample_completeness=result.sample_completeness,
+            avg_content_length=result.avg_content_length,
+            rejection_reason=result.rejection_reason,
+            samples_analyzed=result.samples_analyzed,
+        )
+
+    except Exception as e:
+        logger.error(f"Validation error for source {source_id}: {e}")
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=False,
+            content_type="unknown",
+            sample_completeness=0.0,
+            avg_content_length=0,
+            rejection_reason=f"Validation error: {str(e)}",
         )
 
 

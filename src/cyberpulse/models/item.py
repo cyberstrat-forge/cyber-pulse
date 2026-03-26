@@ -13,6 +13,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 
 from ..database import Base
 from .base import TimestampMixin
@@ -74,3 +75,6 @@ class Item(Base, TimestampMixin):
         Index("ix_items_source_url", "source_id", "url", unique=True),
         Index("ix_items_canonical_hash", "canonical_hash"),
     )
+
+    # Relationships
+    source = relationship("Source", backref="items", lazy="select")

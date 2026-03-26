@@ -48,8 +48,9 @@ class TestNormalizeItem:
         """Test successful item normalization."""
         mock_db = MagicMock()
 
-        # Mock query for item lookup
+        # Mock query for item lookup (with options for joinedload)
         mock_item_query = MagicMock()
+        mock_item_query.options.return_value = mock_item_query  # for .options(joinedload(...))
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
         mock_db.query.return_value = mock_item_query
@@ -88,6 +89,7 @@ class TestNormalizeItem:
         """Test normalization with non-existent item."""
         mock_db = MagicMock()
         mock_query = MagicMock()
+        mock_query.options.return_value = mock_query
         mock_query.filter.return_value = mock_query
         mock_query.first.return_value = None
         mock_db.query.return_value = mock_query
@@ -109,6 +111,7 @@ class TestNormalizeItem:
 
         mock_db = MagicMock()
         mock_item_query = MagicMock()
+        mock_item_query.options.return_value = mock_item_query
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
         mock_db.query.return_value = mock_item_query
@@ -133,6 +136,7 @@ class TestNormalizeItem:
         """Test normalization failure handling."""
         mock_db = MagicMock()
         mock_item_query = MagicMock()
+        mock_item_query.options.return_value = mock_item_query
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
         mock_db.query.return_value = mock_item_query
@@ -163,6 +167,7 @@ class TestNormalizeItemWithResult:
         """Test successful normalization with result return."""
         mock_db = MagicMock()
         mock_item_query = MagicMock()
+        mock_item_query.options.return_value = mock_item_query
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
         mock_db.query.return_value = mock_item_query
@@ -185,6 +190,7 @@ class TestNormalizeItemWithResult:
         """Test normalization with result for non-existent item."""
         mock_db = MagicMock()
         mock_query = MagicMock()
+        mock_query.options.return_value = mock_query
         mock_query.filter.return_value = mock_query
         mock_query.first.return_value = None
         mock_db.query.return_value = mock_query
@@ -203,6 +209,7 @@ class TestNormalizeItemWithResult:
         """Test normalization with result failure for expected errors."""
         mock_db = MagicMock()
         mock_item_query = MagicMock()
+        mock_item_query.options.return_value = mock_item_query
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
         mock_db.query.return_value = mock_item_query
@@ -229,6 +236,7 @@ class TestNormalizeItemWithResult:
         """Test that unexpected errors are re-raised, not returned as error dict."""
         mock_db = MagicMock()
         mock_item_query = MagicMock()
+        mock_item_query.options.return_value = mock_item_query
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
         mock_db.query.return_value = mock_item_query

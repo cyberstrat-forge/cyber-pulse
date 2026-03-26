@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cyberpulse.models.item import Item
@@ -23,9 +23,9 @@ class QualityResult:
     """Result of quality check."""
 
     decision: QualityDecision
-    warnings: List[str]
-    metrics: Dict[str, float]
-    rejection_reason: Optional[str] = None
+    warnings: list[str]
+    metrics: dict[str, float]
+    rejection_reason: str | None = None
 
 
 class QualityGateService:
@@ -127,7 +127,7 @@ class QualityGateService:
 
     def _validate_required_fields(
         self, item: "Item", norm: "NormalizationResult"
-    ) -> List[str]:
+    ) -> list[str]:
         """Validate required fields, return list of errors.
 
         Args:
@@ -157,7 +157,7 @@ class QualityGateService:
 
         return errors
 
-    def _check_optional_fields(self, item: "Item") -> List[str]:
+    def _check_optional_fields(self, item: "Item") -> list[str]:
         """Check optional fields, return list of warnings.
 
         Args:
@@ -177,7 +177,7 @@ class QualityGateService:
 
     def _calculate_metrics(
         self, item: "Item", norm: "NormalizationResult"
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate quality metrics.
 
         Metrics calculated:
@@ -327,7 +327,7 @@ class QualityGateService:
         else:
             return 0.2
 
-    def _calculate_noise_ratio(self, raw_content: Optional[str]) -> float:
+    def _calculate_noise_ratio(self, raw_content: str | None) -> float:
         """Calculate estimated noise ratio in content.
 
         Formula: (estimated_html_tags + ad_markers) / total_chars
@@ -366,7 +366,7 @@ class QualityGateService:
 
     def _validate_content_quality(
         self, title: str, body: str
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Validate content quality beyond structural checks.
 
         Checks for:

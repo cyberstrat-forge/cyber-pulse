@@ -1,13 +1,15 @@
+from enum import Enum as PyEnum
 from typing import TYPE_CHECKING
-from sqlalchemy import Column, String, Integer, Float, Boolean, Text, Enum, DateTime
+
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
-from enum import Enum as PyEnum
+
 from ..database import Base
 from .base import TimestampMixin
 
 if TYPE_CHECKING:
-    from .job import Job
+    pass
 
 
 class SourceTier(str, PyEnum):

@@ -1,16 +1,14 @@
 """Quality check tasks for validating normalized items."""
 
 import logging
-from typing import Optional
 
 import dramatiq
 
 from ..database import SessionLocal
 from ..models import Item, ItemStatus, Source
-from ..services.quality_gate_service import QualityGateService, QualityDecision
-from ..services.content_service import ContentService
-from ..services.normalization_service import NormalizationResult
 from ..services.full_content_fetch_service import FullContentFetchService
+from ..services.normalization_service import NormalizationResult
+from ..services.quality_gate_service import QualityDecision, QualityGateService
 from .worker import broker
 
 logger = logging.getLogger(__name__)
@@ -22,7 +20,7 @@ def quality_check_item(
     normalized_title: str,
     normalized_body: str,
     canonical_hash: str,
-    language: Optional[str] = None,
+    language: str | None = None,
     word_count: int = 0,
     extraction_method: str = "trafilatura",
 ) -> None:
@@ -31,7 +29,7 @@ def quality_check_item(
     This task:
     1. Gets item and normalization result
     2. Runs QualityGateService
-    3. If pass: create/update Content via ContentService
+    3. If pass: store normalized content and quality metrics on Item
     4. If reject: mark item as rejected
 
     Args:
@@ -74,7 +72,7 @@ def quality_check_item(
         )
 
         if quality_result.decision == QualityDecision.PASS:
-            # Item passed quality check - create/update Content
+            # Item passed quality check - update with normalized content
             _handle_pass(db, item, normalization_result, quality_result)
         else:
             # Item rejected - mark as rejected
@@ -102,8 +100,8 @@ def _handle_pass(
 ) -> None:
     """Handle a passed quality check.
 
-    Creates or updates Content and links the item.
-    Also checks if content needs full fetch (summary-only content).
+    Updates item with normalized content and quality metrics.
+    Checks if content needs full fetch (summary-only content).
 
     Args:
         db: Database session.
@@ -111,7 +109,6 @@ def _handle_pass(
         normalization_result: Normalization result with content.
         quality_result: Quality check result with metrics.
     """
-    content_service = ContentService(db)
     quality_service = QualityGateService()
 
     # Check if content needs full fetch
@@ -132,27 +129,24 @@ def _handle_pass(
                 f"Item {item.item_id} needs full fetch: {content_reason}"
             )
 
-    # Create or get existing content by canonical_hash
-    content, is_new = content_service.create_or_get_content(
-        canonical_hash=normalization_result.canonical_hash,
-        normalized_title=normalization_result.normalized_title,
-        normalized_body=normalization_result.normalized_body,
-        item=item,
-    )
-
-    # Update item status to mapped and store quality metrics
+    # Update item with normalized content and quality metrics
     item.status = ItemStatus.MAPPED  # type: ignore[assignment]
+    item.normalized_title = normalization_result.normalized_title
+    item.normalized_body = normalization_result.normalized_body
+    item.canonical_hash = normalization_result.canonical_hash
+    item.language = normalization_result.language
+    item.word_count = normalization_result.word_count
     item.meta_completeness = quality_result.metrics.get("meta_completeness")
     item.content_completeness = quality_result.metrics.get("content_completeness")
     item.noise_ratio = quality_result.metrics.get("noise_ratio")
 
     # Update source statistics
-    if source and is_new:
+    if source:
         source.total_contents = (source.total_contents or 0) + 1  # type: ignore[assignment]
 
     logger.info(
-        f"Content {'created' if is_new else 'updated'} for item {item.item_id}: "
-        f"content_id={content.content_id}"
+        f"Item {item.item_id} passed quality check: "
+        f"meta={item.meta_completeness:.2f}, content={item.content_completeness:.2f}"
     )
 
     # Trigger full content fetch if needed

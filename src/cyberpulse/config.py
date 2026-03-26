@@ -1,6 +1,6 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
 import logging
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
-    log_file: Optional[str] = "logs/cyberpulse.log"
+    log_file: str | None = "logs/cyberpulse.log"
 
     # Security
     secret_key: str = DEFAULT_SECRET_KEY

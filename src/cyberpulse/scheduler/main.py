@@ -12,8 +12,8 @@ import logging
 import signal
 import sys
 
-from .scheduler import SchedulerService
 from .jobs import run_scheduled_collection, update_source_scores
+from .scheduler import SchedulerService
 
 # Configure logging
 logging.basicConfig(

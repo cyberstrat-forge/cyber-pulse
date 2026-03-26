@@ -17,15 +17,24 @@ class SourceInItem(BaseModel):
 class ItemResponse(BaseModel):
     """Single item response."""
     id: str = Field(..., description="Item unique identifier")
-    title: str | None = None
+    title: str = Field(..., description="Normalized title (with fallback to raw title)")
     author: str | None = None
     published_at: datetime | None = None
     body: str | None = None
     url: str | None = None
     completeness_score: float | None = Field(None, ge=0, le=1)
     tags: list[str] = Field(default_factory=list)
+    language: str | None = Field(None, description="Detected language code (ISO 639-1)")
+    word_count: int | None = Field(None, description="Word count of normalized body")
     fetched_at: datetime | None = None
     source: SourceInItem | None = None
+    # Full content fetch status
+    full_fetch_attempted: bool = Field(
+        default=False, description="Whether full content fetch was attempted"
+    )
+    full_fetch_succeeded: bool | None = Field(
+        None, description="Whether full content fetch succeeded"
+    )
 
 
 class ItemListResponse(BaseModel):
