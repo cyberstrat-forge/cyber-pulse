@@ -5,17 +5,16 @@ Business API for downstream systems to fetch intelligence items.
 
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.orm import Session
 
+from ...models import Item, ItemStatus, Source
+from ..auth import ApiClient, require_permissions
 from ..dependencies import get_db
-from ..schemas.item import ItemResponse, ItemListResponse, SourceInItem
-from ..auth import require_permissions, ApiClient
-from ...models import Item, Source, ItemStatus
+from ..schemas.item import ItemListResponse, ItemResponse, SourceInItem
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +44,10 @@ def calculate_completeness_score(item: Item) -> float:
 
 @router.get("/items", response_model=ItemListResponse)
 async def list_items(
-    cursor: Optional[str] = Query(None, description="Pagination cursor"),
-    since: Optional[datetime] = Query(None, description="Start time"),
-    until: Optional[datetime] = Query(None, description="End time"),
-    from_param: Optional[str] = Query(None, alias="from", description="Start position: latest or beginning"),
+    cursor: str | None = Query(None, description="Pagination cursor"),
+    since: datetime | None = Query(None, description="Start time"),
+    until: datetime | None = Query(None, description="End time"),
+    from_param: str | None = Query(None, alias="from", description="Start position: latest or beginning"),
     limit: int = Query(50, ge=1, le=100, description="Page size"),
     db: Session = Depends(get_db),
     _client: ApiClient = Depends(require_permissions(["read"])),
@@ -142,5 +141,5 @@ async def list_items(
         next_cursor=next_cursor,
         has_more=has_more,
         count=len(data),
-        server_timestamp=datetime.now(timezone.utc),
+        server_timestamp=datetime.now(UTC),
     )

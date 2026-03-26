@@ -6,13 +6,12 @@ Provides secure API key generation, hashing, and validation for API clients.
 
 import logging
 import secrets
-from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from datetime import UTC, datetime
 
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-import bcrypt
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -97,10 +96,11 @@ async def get_current_client(
     for client in clients:
         if verify_api_key(api_key, client.api_key):  # type: ignore[arg-type]
             # Update last_used_at timestamp
-            client.last_used_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+            client.last_used_at = datetime.now(UTC)  # type: ignore[assignment]
             try:
                 db.commit()
-            except Exception as e:
+            except SQLAlchemyError as e:
+                # Database error - log and rollback, but don't fail auth
                 logger.error(f"Failed to update last_used_at: {e}")
                 db.rollback()
                 # Continue with authentication - don't fail the request
@@ -113,7 +113,7 @@ async def get_current_client(
     )
 
 
-def require_permissions(permissions: List[str]):
+def require_permissions(permissions: list[str]):
     """
     Dependency factory for permission checking.
 
@@ -133,7 +133,7 @@ def require_permissions(permissions: List[str]):
     async def permission_checker(
         client: ApiClient = Depends(get_current_client),
     ) -> ApiClient:
-        client_permissions: List[str] = client.permissions or []  # type: ignore[assignment]
+        client_permissions: list[str] = client.permissions or []  # type: ignore[assignment]
         if not any(perm in client_permissions for perm in permissions):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -153,9 +153,9 @@ class ApiClientService:
     def create_client(
         self,
         name: str,
-        permissions: Optional[List[str]] = None,
-        description: Optional[str] = None,
-    ) -> Tuple[ApiClient, str]:
+        permissions: list[str] | None = None,
+        description: str | None = None,
+    ) -> tuple[ApiClient, str]:
         """
         Create a new API client.
 
@@ -196,7 +196,7 @@ class ApiClientService:
             logger.error(f"Failed to create API client: {e}")
             raise
 
-    def validate_client(self, api_key: str) -> Optional[ApiClient]:
+    def validate_client(self, api_key: str) -> ApiClient | None:
         """
         Validate API key and return client if valid.
 
@@ -216,8 +216,12 @@ class ApiClientService:
         for client in active_clients:
             if verify_api_key(api_key, client.api_key):  # type: ignore[arg-type]
                 # Update last_used_at
-                client.last_used_at = datetime.now(timezone.utc)  # type: ignore[assignment]
-                self.db.commit()
+                client.last_used_at = datetime.now(UTC)  # type: ignore[assignment]
+                try:
+                    self.db.commit()
+                except SQLAlchemyError as e:
+                    logger.error(f"Failed to update last_used_at in validate_client: {e}")
+                    self.db.rollback()
                 return client
 
         return None
@@ -242,7 +246,7 @@ class ApiClientService:
         client.status = ApiClientStatus.REVOKED  # type: ignore[assignment]
         try:
             self.db.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to revoke client {client_id}: {e}")
             self.db.rollback()
             raise
@@ -269,7 +273,7 @@ class ApiClientService:
         client.status = ApiClientStatus.ACTIVE  # type: ignore[assignment]
         try:
             self.db.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to activate client {client_id}: {e}")
             self.db.rollback()
             raise
@@ -296,14 +300,14 @@ class ApiClientService:
         client.status = ApiClientStatus.SUSPENDED  # type: ignore[assignment]
         try:
             self.db.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to suspend client {client_id}: {e}")
             self.db.rollback()
             raise
         logger.info(f"Suspended API client: {client_id}")
         return True
 
-    def get_client(self, client_id: str) -> Optional[ApiClient]:
+    def get_client(self, client_id: str) -> ApiClient | None:
         """
         Get a client by ID.
 
@@ -319,8 +323,8 @@ class ApiClientService:
 
     def list_clients(
         self,
-        status_filter: Optional[ApiClientStatus] = None,
-    ) -> List[ApiClient]:
+        status_filter: ApiClientStatus | None = None,
+    ) -> list[ApiClient]:
         """
         List all API clients.
 
@@ -335,7 +339,7 @@ class ApiClientService:
             query = query.filter(ApiClient.status == status_filter)
         return query.order_by(ApiClient.created_at.desc()).all()
 
-    def rotate_key(self, client_id: str) -> Optional[Tuple[ApiClient, str]]:
+    def rotate_key(self, client_id: str) -> tuple[ApiClient, str] | None:
         """
         Rotate an API client's key.
 
@@ -362,12 +366,12 @@ class ApiClientService:
             self.db.refresh(client)
             logger.info(f"Rotated API key for client: {client_id}")
             return client, plain_key
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to rotate key for {client_id}: {e}")
             self.db.rollback()
             raise
 
-    def reset_admin_key(self) -> Optional[Tuple[ApiClient, str]]:
+    def reset_admin_key(self) -> tuple[ApiClient, str] | None:
         """
         Reset admin API key.
 
@@ -391,12 +395,12 @@ class ApiClientService:
             self.db.refresh(admin)
             logger.info(f"Reset admin API key for client: {admin.client_id}")
             return admin, plain_key
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to reset admin key: {e}")
             self.db.rollback()
             raise
 
-    def get_by_permission(self, permission: str) -> Optional[ApiClient]:
+    def get_by_permission(self, permission: str) -> ApiClient | None:
         """
         Get first client with specific permission.
 
@@ -411,7 +415,7 @@ class ApiClientService:
         ).all()
 
         for client in clients:
-            perms: List[str] = client.permissions or []  # type: ignore[assignment]
+            perms: list[str] = client.permissions or []  # type: ignore[assignment]
             if permission in perms:
                 return client
         return None

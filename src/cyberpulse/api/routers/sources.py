@@ -5,21 +5,20 @@ Provides endpoints for managing intelligence sources.
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from ..dependencies import get_db, get_current_client
+from ...models import ApiClient, SourceStatus, SourceTier
+from ...services.source_service import SourceService
+from ..dependencies import get_current_client, get_db
 from ..schemas.source import (
     SourceCreate,
-    SourceUpdate,
-    SourceResponse,
     SourceListResponse,
+    SourceResponse,
+    SourceUpdate,
 )
-from ...models import ApiClient, SourceTier, SourceStatus
-from ...services.source_service import SourceService
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +51,11 @@ def _validate_status(status: str) -> SourceStatus:
 
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
-    tier: Optional[str] = Query(
+    tier: str | None = Query(
         None,
         description="Filter by tier (T0, T1, T2, T3)"
     ),
-    status: Optional[str] = Query(
+    status: str | None = Query(
         None,
         description="Filter by status (ACTIVE, FROZEN, REMOVED)"
     ),
@@ -115,7 +114,7 @@ async def list_sources(
         count=len(sources),
         offset=offset,
         limit=limit,
-        server_timestamp=datetime.now(timezone.utc),
+        server_timestamp=datetime.now(UTC),
     )
 
 

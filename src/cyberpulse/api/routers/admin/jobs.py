@@ -1,25 +1,25 @@
 """Job management API router for admin endpoints."""
 
 import logging
-import secrets
 import re
-from datetime import datetime, timezone
-from typing import Optional
+import secrets
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.orm import Session
 
+from ....models import Job, JobStatus, JobType, Source
+from ....tasks.ingestion_tasks import ingest_source
+from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
-from ...schemas.job import JobResponse, JobListResponse, JobCreate, JobCreatedResponse
-from ...auth import require_permissions, ApiClient
-from ....models import Job, JobType, JobStatus, Source
+from ...schemas.job import JobCreate, JobCreatedResponse, JobListResponse, JobResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# job_id format: job_{uuid}
+# job_id format: job_{16 hex chars}
 JOB_ID_PATTERN = re.compile(r"^job_[a-f0-9]+$")
 
 
@@ -32,7 +32,7 @@ def validate_job_id(job_id: str) -> None:
         )
 
 
-def build_job_response(job: Job, source_name: Optional[str] = None) -> JobResponse:
+def build_job_response(job: Job, source_name: str | None = None) -> JobResponse:
     """Build JobResponse from Job model."""
     duration_seconds = None
     if job.started_at and job.completed_at:
@@ -65,10 +65,10 @@ def build_job_response(job: Job, source_name: Optional[str] = None) -> JobRespon
 
 @router.get("/jobs", response_model=JobListResponse)
 async def list_jobs(
-    type: Optional[str] = Query(None, description="Filter by type: ingest, import"),
-    status: Optional[str] = Query(None, description="Filter by status: pending, running, completed, failed"),
-    source_id: Optional[str] = Query(None, description="Filter by source ID"),
-    since: Optional[datetime] = Query(None, description="Created after this time"),
+    type: str | None = Query(None, description="Filter by type: ingest, import"),
+    status: str | None = Query(None, description="Filter by status: pending, running, completed, failed"),
+    source_id: str | None = Query(None, description="Filter by source ID"),
+    since: datetime | None = Query(None, description="Created after this time"),
     limit: int = Query(50, ge=1, le=100, description="Max results"),
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
@@ -114,7 +114,7 @@ async def list_jobs(
     return JobListResponse(
         data=[build_job_response(j, source_map.get(j.source_id)) for j in jobs],
         count=len(jobs),
-        server_timestamp=datetime.now(timezone.utc),
+        server_timestamp=datetime.now(UTC),
     )
 
 
@@ -149,13 +149,22 @@ async def create_job(
 
     logger.info(f"Created job: {job.job_id}")
 
+    # Trigger Dramatiq task
+    task_enqueued = False
+    try:
+        ingest_source.send(request.source_id)
+        task_enqueued = True
+        logger.info(f"Triggered ingest_source task for source: {request.source_id}")
+    except (OSError, ConnectionError) as e:
+        logger.error(f"Failed to trigger ingest_source task for job {job.job_id}: {e}")
+
     return JobCreatedResponse(
         job_id=job.job_id,
         type=job.type.value,
         status=job.status.value,
         source_id=request.source_id,
         source_name=source.name,
-        message="Job created and queued",
+        message="Job created and queued" if task_enqueued else "Job created but task queue unavailable. Job may need manual trigger.",
     )
 
 

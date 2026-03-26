@@ -36,6 +36,7 @@ dependencies = [
     "python-multipart>=0.0.6",
     "passlib[bcrypt]>=1.7.4",
     "beautifulsoup4>=4.14.3",
+    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]

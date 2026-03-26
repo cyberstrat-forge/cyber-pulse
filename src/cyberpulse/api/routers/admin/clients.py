@@ -2,28 +2,27 @@
 
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from ....models import ApiClientStatus
+from ...auth import ApiClient, ApiClientService, require_permissions
 from ...dependencies import get_db
 from ...schemas.client import (
     ClientCreate,
-    ClientResponse,
     ClientCreatedResponse,
     ClientListResponse,
+    ClientResponse,
 )
-from ....models import ApiClientStatus
-from ...auth import ApiClientService, require_permissions, ApiClient
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 # client_id format: cli_{16 hex chars}
-CLIENT_ID_PATTERN = re.compile(r"^cli_[a-f0-9]{8,16}$")
+CLIENT_ID_PATTERN = re.compile(r"^cli_[a-f0-9]{16}$")
 
 
 def validate_client_id(client_id: str) -> None:
@@ -62,7 +61,7 @@ async def create_client(
 
 @router.get("/clients", response_model=ClientListResponse)
 async def list_clients(
-    status: Optional[str] = Query(None, description="Filter by status: ACTIVE, SUSPENDED, REVOKED"),
+    status: str | None = Query(None, description="Filter by status: ACTIVE, SUSPENDED, REVOKED"),
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> ClientListResponse:
@@ -86,7 +85,7 @@ async def list_clients(
     return ClientListResponse(
         data=[ClientResponse.model_validate(c) for c in clients],
         count=len(clients),
-        server_timestamp=datetime.now(timezone.utc),
+        server_timestamp=datetime.now(UTC),
     )
 
 

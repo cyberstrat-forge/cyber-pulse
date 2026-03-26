@@ -5,7 +5,7 @@ Pydantic models for Source API request/response validation.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -20,21 +20,21 @@ class SourceBase(BaseModel):
         min_length=1,
         max_length=50
     )
-    tier: Optional[str] = Field(
+    tier: str | None = Field(
         None,
         description="Source tier (T0, T1, T2, T3). Derived from score if not provided."
     )
-    score: Optional[float] = Field(
+    score: float | None = Field(
         None,
         description="Source quality score (0-100). Derived from tier if not provided.",
         ge=0.0,
         le=100.0
     )
-    config: Optional[Dict[str, Any]] = Field(
+    config: dict[str, Any] | None = Field(
         default_factory=dict,
         description="Connector configuration"
     )
-    fetch_interval: Optional[int] = Field(
+    fetch_interval: int | None = Field(
         None,
         description="Fetch interval in seconds",
         ge=60
@@ -64,17 +64,17 @@ class SourceCreate(SourceBase):
 class SourceUpdate(BaseModel):
     """Schema for updating a source. All fields are optional."""
 
-    name: Optional[str] = Field(None, description="Unique source name", min_length=1, max_length=255)
-    connector_type: Optional[str] = Field(None, description="Type of connector", min_length=1, max_length=50)
-    tier: Optional[str] = Field(None, description="Source tier (T0, T1, T2, T3)")
-    score: Optional[float] = Field(None, description="Source quality score (0-100)", ge=0.0, le=100.0)
-    status: Optional[str] = Field(None, description="Source status (ACTIVE, FROZEN, REMOVED)")
-    is_in_observation: Optional[bool] = Field(None, description="Whether source is in observation period")
-    observation_until: Optional[datetime] = Field(None, description="Observation period end date")
-    pending_review: Optional[bool] = Field(None, description="Whether source is pending review")
-    review_reason: Optional[str] = Field(None, description="Reason for review")
-    fetch_interval: Optional[int] = Field(None, description="Fetch interval in seconds", ge=60)
-    config: Optional[Dict[str, Any]] = Field(None, description="Connector configuration")
+    name: str | None = Field(None, description="Unique source name", min_length=1, max_length=255)
+    connector_type: str | None = Field(None, description="Type of connector", min_length=1, max_length=50)
+    tier: str | None = Field(None, description="Source tier (T0, T1, T2, T3)")
+    score: float | None = Field(None, description="Source quality score (0-100)", ge=0.0, le=100.0)
+    status: str | None = Field(None, description="Source status (ACTIVE, FROZEN, REMOVED)")
+    is_in_observation: bool | None = Field(None, description="Whether source is in observation period")
+    observation_until: datetime | None = Field(None, description="Observation period end date")
+    pending_review: bool | None = Field(None, description="Whether source is pending review")
+    review_reason: str | None = Field(None, description="Reason for review")
+    fetch_interval: int | None = Field(None, description="Fetch interval in seconds", ge=60)
+    config: dict[str, Any] | None = Field(None, description="Connector configuration")
 
     model_config = {
         "json_schema_extra": {
@@ -101,21 +101,48 @@ class SourceResponse(BaseModel):
     score: float = Field(..., description="Source quality score (0-100)")
     status: str = Field(..., description="Source status (ACTIVE, FROZEN, REMOVED)")
     is_in_observation: bool = Field(..., description="Whether source is in observation period")
-    observation_until: Optional[datetime] = Field(None, description="Observation period end date")
+    observation_until: datetime | None = Field(None, description="Observation period end date")
     pending_review: bool = Field(..., description="Whether source is pending review")
-    review_reason: Optional[str] = Field(None, description="Reason for review")
-    fetch_interval: Optional[int] = Field(None, description="Fetch interval in seconds")
-    config: Dict[str, Any] = Field(..., description="Connector configuration")
+    review_reason: str | None = Field(None, description="Reason for review")
+    fetch_interval: int | None = Field(None, description="Fetch interval in seconds")
+    config: dict[str, Any] = Field(..., description="Connector configuration")
 
     # Statistics
-    last_fetched_at: Optional[datetime] = Field(None, description="Last fetch timestamp")
-    last_scored_at: Optional[datetime] = Field(None, description="Last scoring timestamp")
+    last_fetched_at: datetime | None = Field(None, description="Last fetch timestamp")
+    last_scored_at: datetime | None = Field(None, description="Last scoring timestamp")
     total_items: int = Field(..., description="Total items collected")
     total_contents: int = Field(..., description="Total contents produced")
 
+    # Scheduling fields (from design doc)
+    schedule_interval: int | None = Field(None, description="Ingest interval in seconds")
+    next_ingest_at: datetime | None = Field(None, description="Next ingest scheduled time")
+    last_ingested_at: datetime | None = Field(None, description="Last ingest timestamp")
+    last_ingest_result: str | None = Field(None, description="Last ingest result status")
+
+    # Collection statistics (from design doc)
+    items_last_7d: int = Field(0, description="Items collected in last 7 days")
+
+    # Error tracking (from design doc)
+    consecutive_failures: int = Field(0, description="Consecutive failure count")
+    last_error_at: datetime | None = Field(None, description="Last error timestamp")
+    last_error_message: str | None = Field(None, description="Last error message summary")
+    last_job_id: str | None = Field(None, description="Last job ID")
+
+    # Full fetch configuration (from design doc)
+    needs_full_fetch: bool = Field(False, description="Whether full text fetch is needed")
+    full_fetch_threshold: float | None = Field(None, description="Full text fetch threshold")
+    content_type: str | None = Field(None, description="Content type")
+    avg_content_length: int | None = Field(None, description="Average content length")
+    quality_score: float | None = Field(None, description="Source quality score")
+    full_fetch_success_count: int = Field(0, description="Full text fetch success count")
+    full_fetch_failure_count: int = Field(0, description="Full text fetch failure count")
+
+    # Warnings (computed field)
+    warnings: list[str] = Field(default_factory=list, description="Warning messages")
+
     # Timestamps
-    created_at: Optional[datetime] = Field(None, description="Creation timestamp")
-    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
+    created_at: datetime | None = Field(None, description="Creation timestamp")
+    updated_at: datetime | None = Field(None, description="Last update timestamp")
 
     model_config = {
         "from_attributes": True,
@@ -140,6 +167,23 @@ class SourceResponse(BaseModel):
                 "last_scored_at": "2026-03-19T12:00:00Z",
                 "total_items": 150,
                 "total_contents": 120,
+                "schedule_interval": 3600,
+                "next_ingest_at": "2026-03-19T11:00:00Z",
+                "last_ingested_at": "2026-03-19T10:00:00Z",
+                "last_ingest_result": "success",
+                "items_last_7d": 25,
+                "consecutive_failures": 0,
+                "last_error_at": None,
+                "last_error_message": None,
+                "last_job_id": None,
+                "needs_full_fetch": True,
+                "full_fetch_threshold": 0.7,
+                "content_type": "summary",
+                "avg_content_length": 150,
+                "quality_score": 75.0,
+                "full_fetch_success_count": 10,
+                "full_fetch_failure_count": 2,
+                "warnings": [],
                 "created_at": "2026-03-19T08:00:00Z",
                 "updated_at": "2026-03-19T12:00:00Z"
             }
@@ -154,7 +198,7 @@ class SourceListResponse(BaseModel):
     Uses offset-based pagination for simplicity.
     """
 
-    data: List[SourceResponse] = Field(
+    data: list[SourceResponse] = Field(
         default_factory=list,
         description="List of sources"
     )
@@ -207,3 +251,53 @@ class SourceListResponse(BaseModel):
             }
         }
     }
+
+
+class ScheduleRequest(BaseModel):
+    """Schedule configuration request."""
+
+    interval: int = Field(..., ge=300, description="Ingest interval in seconds, minimum 300 (5 minutes)")
+
+
+class ScheduleResponse(BaseModel):
+    """Schedule configuration response."""
+
+    source_id: str
+    schedule_interval: int
+    next_ingest_at: datetime | None = None
+    message: str = "Schedule updated"
+
+
+class TestResult(BaseModel):
+    """Source test result."""
+
+    source_id: str
+    test_result: str  # "success" or "failed"
+    response_time_ms: int | None = None
+    items_found: int | None = None
+    last_modified: datetime | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    suggestion: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DefaultsResponse(BaseModel):
+    """Default configuration response."""
+
+    default_fetch_interval: int
+    updated_at: datetime | None = None
+
+
+class DefaultsUpdate(BaseModel):
+    """Default configuration update."""
+
+    default_fetch_interval: int = Field(..., ge=300, description="Default fetch interval in seconds")
+
+
+class ImportResponse(BaseModel):
+    """Batch import response."""
+
+    job_id: str
+    status: str = "pending"
+    message: str = "Import job created"

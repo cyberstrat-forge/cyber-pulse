@@ -5,7 +5,6 @@ Pydantic models for Client API request/response validation.
 """
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,11 +18,11 @@ class ClientCreate(BaseModel):
         min_length=1,
         max_length=255
     )
-    permissions: Optional[List[str]] = Field(
+    permissions: list[str] | None = Field(
         default_factory=list,
         description="List of permissions for this client (e.g., ['read', 'write'])"
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         None,
         description="Optional description of the client's purpose"
     )
@@ -50,17 +49,17 @@ class ClientResponse(BaseModel):
     client_id: str = Field(..., description="Unique client identifier")
     name: str = Field(..., description="Client name")
     status: str = Field(..., description="Client status (ACTIVE, SUSPENDED, REVOKED)")
-    permissions: List[str] = Field(
+    permissions: list[str] = Field(
         default_factory=list,
         description="List of permissions for this client"
     )
-    description: Optional[str] = Field(None, description="Client description")
-    last_used_at: Optional[datetime] = Field(
+    description: str | None = Field(None, description="Client description")
+    last_used_at: datetime | None = Field(
         None,
         description="When the client was last used"
     )
-    created_at: Optional[datetime] = Field(None, description="Creation timestamp")
-    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
+    created_at: datetime | None = Field(None, description="Creation timestamp")
+    updated_at: datetime | None = Field(None, description="Last update timestamp")
 
     model_config = {
         "from_attributes": True,
@@ -128,7 +127,7 @@ class ClientListResponse(BaseModel):
     have fewer clients).
     """
 
-    data: List[ClientResponse] = Field(
+    data: list[ClientResponse] = Field(
         default_factory=list,
         description="List of API clients"
     )
