@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # client_id format: cli_{16 hex chars}
-CLIENT_ID_PATTERN = re.compile(r"^cli_[a-f0-9]{8,16}$")
+CLIENT_ID_PATTERN = re.compile(r"^cli_[a-f0-9]{16}$")
 
 
 def validate_client_id(client_id: str) -> None:

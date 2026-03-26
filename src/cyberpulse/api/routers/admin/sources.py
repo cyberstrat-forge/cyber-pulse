@@ -292,7 +292,7 @@ async def import_sources(
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> ImportResponse:
     """批量导入源。从 OPML 文件批量导入 RSS 源。"""
-    import xml.etree.ElementTree as ET
+    import defusedxml.ElementTree as ET
 
     # Read file content
     content = await file.read()
