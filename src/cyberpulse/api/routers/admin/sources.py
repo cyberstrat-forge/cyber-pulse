@@ -20,6 +20,7 @@ from fastapi import (
     UploadFile,
 )
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ....models import (
@@ -191,7 +192,13 @@ async def create_source(
 
     # Create source
     tier_enum = validate_tier(source.tier) if source.tier else SourceTier.T2
-    score = source.score if source.score is not None else (90 if tier_enum == SourceTier.T0 else 70 if tier_enum == SourceTier.T1 else 50)
+    # Tier-score mapping: T0>=80, T1>=60, T2>=40, T3<40
+    score = source.score if source.score is not None else (
+        90 if tier_enum == SourceTier.T0 else
+        70 if tier_enum == SourceTier.T1 else
+        50 if tier_enum == SourceTier.T2 else
+        20  # T3: score < 40
+    )
 
     new_source = Source(
         source_id=f"src_{secrets.token_hex(4)}",
@@ -205,8 +212,16 @@ async def create_source(
     )
 
     db.add(new_source)
-    db.commit()
-    db.refresh(new_source)
+    try:
+        db.commit()
+        db.refresh(new_source)
+    except IntegrityError:
+        # Race condition: another request created source with same name
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Source with name '{source.name}' already exists"
+        )
 
     logger.info(f"Created source: {new_source.source_id}")
 
@@ -248,8 +263,17 @@ async def update_defaults(
         )
         db.add(setting)
 
-    db.commit()
-    db.refresh(setting)
+    try:
+        db.commit()
+        db.refresh(setting)
+    except IntegrityError:
+        db.rollback()
+        # Retry: fetch existing setting and update
+        setting = db.query(Settings).filter(Settings.key == "default_fetch_interval").first()
+        if setting:
+            setting.value = str(update.default_fetch_interval)
+            db.commit()
+            db.refresh(setting)
 
     logger.info(f"Updated default_fetch_interval to {update.default_fetch_interval}")
 

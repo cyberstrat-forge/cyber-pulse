@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -99,7 +99,8 @@ async def get_current_client(
             client.last_used_at = datetime.now(UTC)  # type: ignore[assignment]
             try:
                 db.commit()
-            except Exception as e:
+            except SQLAlchemyError as e:
+                # Database error - log and rollback, but don't fail auth
                 logger.error(f"Failed to update last_used_at: {e}")
                 db.rollback()
                 # Continue with authentication - don't fail the request

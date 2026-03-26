@@ -175,6 +175,29 @@ class TestSourceCreate:
         assert data["tier"] == "T0"
         assert data["score"] == 90.0
 
+    def test_create_source_with_t3_tier_score(self, client, db_session, mock_admin_client):
+        """Test that T3 tier gets score < 40 (within T3 range)."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.post(
+                "/api/v1/admin/sources",
+                json={
+                    "name": "T3 Source",
+                    "connector_type": "rss",
+                    "tier": "T3"
+                }
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["tier"] == "T3"
+        # T3 score should be < 40 (we use 20 as default)
+        assert data["score"] < 40.0
+        assert data["score"] == 20.0
+
     def test_create_source_missing_name(self, client, db_session, mock_admin_client):
         """Test creating source without name."""
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
