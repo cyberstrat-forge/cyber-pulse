@@ -10,6 +10,28 @@
 
 ---
 
+## 前置条件检查
+
+在开始实现前，确认以下部署优化阶段1的内容已完成：
+
+```bash
+# 检查 CLI 模块已移除
+ls src/cyberpulse/cli/ 2>/dev/null && echo "CLI still exists" || echo "CLI removed ✓"
+
+# 检查 api.sh 已创建
+ls scripts/api.sh && echo "api.sh exists ✓"
+
+# 检查 install.sh 支持 --type ops
+grep -q "USER_TYPE" install.sh && echo "install.sh supports --type ✓"
+
+# 检查 admin reset 命令存在
+grep -q "cmd_admin_reset" scripts/cyber-pulse.sh && echo "admin reset exists ✓"
+```
+
+**如果任何检查失败**，需要先完成部署优化阶段1的实现。
+
+---
+
 ## 任务依赖关系
 
 ```
@@ -626,6 +648,13 @@ EOF
 
 **Files:**
 - Modify: `scripts/cyber-pulse.sh`
+
+**注意**：此任务需要完全替换现有的 `cmd_upgrade` 函数。现有函数位于第 616-864 行左右。
+
+- [ ] **Step 0: 定位现有 upgrade 函数**
+
+Run: `cd /Users/luoweirong/cyberstrat-forge/cyber-pulse && grep -n "^cmd_upgrade()" scripts/cyber-pulse.sh`
+Expected: 显示 `cmd_upgrade()` 函数的起始行号（约 616）
 
 - [ ] **Step 1: 重写 cmd_upgrade 函数**
 
