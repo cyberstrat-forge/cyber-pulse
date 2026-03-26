@@ -197,6 +197,55 @@ async def create_source(
     return build_source_response(new_source)
 
 
+# ============ 静态路径端点（必须在动态路径之前）============
+
+
+@router.get("/sources/defaults", response_model=DefaultsResponse)
+async def get_defaults(
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> DefaultsResponse:
+    """获取源默认配置。"""
+    setting = db.query(Settings).filter(Settings.key == "default_fetch_interval").first()
+
+    return DefaultsResponse(
+        default_fetch_interval=int(setting.value) if setting else 3600,
+        updated_at=setting.updated_at if setting else None,
+    )
+
+
+@router.patch("/sources/defaults", response_model=DefaultsResponse)
+async def update_defaults(
+    update: DefaultsUpdate,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> DefaultsResponse:
+    """更新源默认配置。"""
+    setting = db.query(Settings).filter(Settings.key == "default_fetch_interval").first()
+
+    if setting:
+        setting.value = str(update.default_fetch_interval)
+    else:
+        setting = Settings(
+            key="default_fetch_interval",
+            value=str(update.default_fetch_interval)
+        )
+        db.add(setting)
+
+    db.commit()
+    db.refresh(setting)
+
+    logger.info(f"Updated default_fetch_interval to {update.default_fetch_interval}")
+
+    return DefaultsResponse(
+        default_fetch_interval=update.default_fetch_interval,
+        updated_at=setting.updated_at,
+    )
+
+
+# ============ 动态路径端点 ============
+
+
 @router.get("/sources/{source_id}", response_model=SourceResponse)
 async def get_source(
     source_id: str,
