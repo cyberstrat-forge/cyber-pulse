@@ -1,6 +1,7 @@
 """Web Scraper Connector implementation for web page scraping."""
 
 import asyncio
+import hashlib
 import logging
 import re
 import urllib.parse
@@ -401,16 +402,12 @@ class WebScraperConnector(BaseConnector):
         # Generate external_id from URL
         external_id = self._generate_external_id(url)
 
-        # Generate content hash
-        content_hash = self.generate_content_hash(extracted)
-
         return {
             "external_id": external_id,
             "url": url,
             "title": title,
             "published_at": published_at,
             "content": extracted,
-            "content_hash": content_hash,
             "author": author,
             "tags": [],
         }
@@ -484,16 +481,12 @@ class WebScraperConnector(BaseConnector):
             # Generate external_id from URL
             external_id = self._generate_external_id(url)
 
-            # Generate content hash
-            content_hash = self.generate_content_hash(content)
-
             return {
                 "external_id": external_id,
                 "url": url,
                 "title": title,
                 "published_at": published_at,
                 "content": content,
-                "content_hash": content_hash,
                 "author": author,
                 "tags": [],
             }
@@ -578,8 +571,8 @@ class WebScraperConnector(BaseConnector):
         Returns:
             External ID string
         """
-        # Use the URL hash as external_id
-        return self.generate_content_hash(url)
+        # Use MD5 hash of URL as external_id
+        return hashlib.md5(url.encode("utf-8")).hexdigest()
 
     def _is_article_page(self, url: str, html: str) -> bool:
         """Determine if the page is an article page vs listing page.

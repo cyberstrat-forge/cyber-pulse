@@ -35,7 +35,6 @@ def test_item(test_source):
         raw_content="<html><body><p>This is test content for normalization.</p></body></html>",
         published_at=datetime.now(timezone.utc) - timedelta(hours=1),
         fetched_at=datetime.now(timezone.utc),
-        content_hash=hashlib.md5(b"test_content").hexdigest(),
         status=ItemStatus.NEW,
         raw_metadata={"author": "Test Author", "tags": ["test"]},
     )

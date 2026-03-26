@@ -1,6 +1,5 @@
 import pytest
 from datetime import datetime, timedelta, timezone
-import hashlib
 
 from cyberpulse.models import ItemStatus, Source, SourceTier, SourceStatus
 from cyberpulse.services import ItemService
@@ -28,18 +27,12 @@ def test_source(db_session):
     return source
 
 
-def make_content_hash(content: str) -> str:
-    """Generate a content hash for testing."""
-    return hashlib.sha256(content.encode()).hexdigest()
-
-
 class TestCreateItem:
     """Tests for create_item method."""
 
     def test_create_item_success(self, item_service, test_source):
         """Test creating a new item."""
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        content_hash = make_content_hash("test content")
 
         item = item_service.create_item(
             source_id=test_source.source_id,
@@ -48,7 +41,6 @@ class TestCreateItem:
             title="Test Article",
             raw_content="This is test content",
             published_at=published_at,
-            content_hash=content_hash,
         )
 
         assert item is not None
@@ -58,7 +50,6 @@ class TestCreateItem:
         assert item.url == "https://example.com/article/001"
         assert item.title == "Test Article"
         assert item.raw_content == "This is test content"
-        assert item.content_hash == content_hash
         assert item.status == ItemStatus.NEW
         assert item.raw_metadata == {}
         assert item.fetched_at is not None
@@ -66,7 +57,6 @@ class TestCreateItem:
     def test_create_item_with_metadata(self, item_service, test_source):
         """Test creating an item with metadata."""
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        content_hash = make_content_hash("test content")
         metadata = {"author": "John Doe", "tags": ["tech", "security"]}
 
         item = item_service.create_item(
@@ -76,7 +66,6 @@ class TestCreateItem:
             title="Article with Metadata",
             raw_content="Content with metadata",
             published_at=published_at,
-            content_hash=content_hash,
             raw_metadata=metadata,
         )
 
@@ -86,7 +75,6 @@ class TestCreateItem:
     def test_create_duplicate_item_by_external_id(self, item_service, test_source):
         """Test that duplicate by external_id returns existing item."""
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        content_hash = make_content_hash("original content")
 
         # Create first item
         item1 = item_service.create_item(
@@ -96,7 +84,6 @@ class TestCreateItem:
             title="Original Article",
             raw_content="Original content",
             published_at=published_at,
-            content_hash=content_hash,
         )
 
         # Try to create duplicate with same external_id but different url
@@ -107,7 +94,6 @@ class TestCreateItem:
             title="Duplicate Article",
             raw_content="Different content",
             published_at=published_at,
-            content_hash=make_content_hash("different content"),
         )
 
         # Should return the existing item
@@ -118,7 +104,6 @@ class TestCreateItem:
     def test_create_duplicate_item_by_url(self, item_service, test_source):
         """Test that duplicate by url returns existing item."""
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        content_hash = make_content_hash("original content")
 
         # Create first item
         item1 = item_service.create_item(
@@ -128,7 +113,6 @@ class TestCreateItem:
             title="Original URL Article",
             raw_content="Original content",
             published_at=published_at,
-            content_hash=content_hash,
         )
 
         # Try to create duplicate with same url but different external_id
@@ -139,7 +123,6 @@ class TestCreateItem:
             title="Duplicate URL Article",
             raw_content="Different content",
             published_at=published_at,
-            content_hash=make_content_hash("different content"),
         )
 
         # Should return the existing item
@@ -174,7 +157,6 @@ class TestGetItemsBySource:
                 title=f"Article {i}",
                 raw_content=f"Content {i}",
                 published_at=published_at - timedelta(hours=i),
-                content_hash=make_content_hash(f"content_{i}"),
             )
 
         items = item_service.get_items_by_source(test_source.source_id)
@@ -193,7 +175,6 @@ class TestGetItemsBySource:
             title="New Item",
             raw_content="Content",
             published_at=published_at,
-            content_hash=make_content_hash("content"),
         )
         item2 = item_service.create_item(
             source_id=test_source.source_id,
@@ -202,7 +183,6 @@ class TestGetItemsBySource:
             title="To Be Normalized",
             raw_content="Content",
             published_at=published_at,
-            content_hash=make_content_hash("content"),
         )
 
         # Update one item's status
@@ -234,7 +214,6 @@ class TestGetItemsBySource:
                 title=f"Page Article {i}",
                 raw_content=f"Content {i}",
                 published_at=published_at - timedelta(hours=i),
-                content_hash=make_content_hash(f"page_content_{i}"),
             )
 
         # Test limit
@@ -259,7 +238,6 @@ class TestUpdateItemStatus:
     def test_update_item_status(self, item_service, test_source):
         """Test updating item status."""
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        content_hash = make_content_hash("content")
 
         item = item_service.create_item(
             source_id=test_source.source_id,
@@ -268,7 +246,6 @@ class TestUpdateItemStatus:
             title="Update Status Test",
             raw_content="Content",
             published_at=published_at,
-            content_hash=content_hash,
         )
 
         updated = item_service.update_item_status(item.item_id, "normalized")
@@ -279,7 +256,6 @@ class TestUpdateItemStatus:
     def test_update_item_status_with_quality_metrics(self, item_service, test_source):
         """Test updating item status with quality metrics."""
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        content_hash = make_content_hash("content")
 
         item = item_service.create_item(
             source_id=test_source.source_id,
@@ -288,7 +264,6 @@ class TestUpdateItemStatus:
             title="Quality Metrics Test",
             raw_content="Content",
             published_at=published_at,
-            content_hash=content_hash,
         )
 
         quality_metrics = {
@@ -310,7 +285,6 @@ class TestUpdateItemStatus:
     def test_update_item_status_partial_metrics(self, item_service, test_source):
         """Test updating item status with partial quality metrics."""
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        content_hash = make_content_hash("content")
 
         item = item_service.create_item(
             source_id=test_source.source_id,
@@ -319,7 +293,6 @@ class TestUpdateItemStatus:
             title="Partial Metrics Test",
             raw_content="Content",
             published_at=published_at,
-            content_hash=content_hash,
         )
 
         quality_metrics = {
@@ -343,7 +316,6 @@ class TestUpdateItemStatus:
     def test_update_item_status_all_statuses(self, item_service, test_source):
         """Test updating to all possible statuses."""
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        content_hash = make_content_hash("content")
 
         statuses = ["NEW", "NORMALIZED", "MAPPED", "REJECTED"]
 
@@ -355,7 +327,6 @@ class TestUpdateItemStatus:
                 title=f"Status {status}",
                 raw_content="Content",
                 published_at=published_at,
-                content_hash=content_hash,
             )
 
             updated = item_service.update_item_status(item.item_id, status)
@@ -378,7 +349,6 @@ class TestGetPendingItems:
                 title=f"Pending Article {i}",
                 raw_content=f"Content {i}",
                 published_at=published_at - timedelta(hours=i),
-                content_hash=make_content_hash(f"pending_{i}"),
             )
 
             # Update some items to normalized
@@ -405,7 +375,6 @@ class TestGetPendingItems:
                 title=f"Order Article {i}",
                 raw_content=f"Content {i}",
                 published_at=published_at - timedelta(hours=i),
-                content_hash=make_content_hash(f"order_{i}"),
             )
             items.append(item)
 
@@ -429,7 +398,6 @@ class TestGetPendingItems:
                 title=f"Limit Article {i}",
                 raw_content=f"Content {i}",
                 published_at=published_at - timedelta(hours=i),
-                content_hash=make_content_hash(f"limit_{i}"),
             )
 
         pending = item_service.get_pending_items(limit=5)

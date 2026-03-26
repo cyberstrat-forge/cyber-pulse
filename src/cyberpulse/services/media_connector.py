@@ -188,16 +188,12 @@ class MediaAPIConnector(BaseConnector):
         # Build URL
         url = f"https://www.youtube.com/watch?v={video_id}"
 
-        # Generate content hash
-        content_hash = self.generate_content_hash(content)
-
         return {
             "external_id": video_id,
             "url": url,
             "title": title,
             "published_at": published_at,
             "content": content,
-            "content_hash": content_hash,
             "author": author,
             "tags": tags,
         }

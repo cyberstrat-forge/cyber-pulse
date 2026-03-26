@@ -38,7 +38,6 @@ def test_item(test_source):
         raw_content="<html><body><p>This is sufficient content for quality check.</p></body></html>",
         published_at=now - timedelta(hours=1),
         fetched_at=now,
-        content_hash=hashlib.md5(b"test_content").hexdigest(),
         status=ItemStatus.NORMALIZED,
         raw_metadata={"author": "Test Author"},
     )
@@ -291,7 +290,6 @@ class TestRecheckItem:
             raw_content="Content to recheck",
             published_at=now,
             fetched_at=now,
-            content_hash=hashlib.md5(b"recheck").hexdigest(),
             status=ItemStatus.REJECTED,
             raw_metadata={"rejection_reason": "Test rejection"},
         )
@@ -353,7 +351,6 @@ class TestFetchFullContent:
             raw_content="Short summary",
             published_at=now,
             fetched_at=now,
-            content_hash=hashlib.md5(b"fetch").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         test_item.source = test_source
@@ -419,7 +416,6 @@ class TestFetchFullContent:
             raw_content="Short summary",
             published_at=now,
             fetched_at=now,
-            content_hash=hashlib.md5(b"fail").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         test_item.source = test_source
@@ -474,7 +470,6 @@ class TestFetchFullContent:
             raw_content="Content",
             published_at=now,
             fetched_at=now,
-            content_hash=hashlib.md5(b"nourl").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
 

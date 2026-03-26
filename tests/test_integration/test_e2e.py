@@ -148,7 +148,6 @@ class TestE2EDataFlow:
             title="Important Security Update",
             raw_content=raw_content,
             published_at=published_at,
-            content_hash=hashlib.sha256(raw_content.encode()).hexdigest(),
             raw_metadata={
                 "author": "Security Team",
                 "tags": ["security", "update"],
@@ -255,7 +254,6 @@ class TestE2EDataFlow:
             title="Deduplication Test Article",
             raw_content=raw_content,
             published_at=published_at,
-            content_hash=hashlib.sha256(b"content1").hexdigest(),
         )
 
         # Normalize and create content for first item
@@ -286,7 +284,6 @@ class TestE2EDataFlow:
             title="Deduplication Test Article",  # Same title
             raw_content=raw_content,  # Same content
             published_at=published_at,
-            content_hash=hashlib.sha256(b"content2").hexdigest(),
         )
 
         norm_result2 = normalization_service.normalize(
@@ -347,7 +344,6 @@ class TestE2EDataFlow:
             title="Bad",  # Too short (< 5 chars)
             raw_content=raw_content,
             published_at=published_at,
-            content_hash=hashlib.sha256(b"quality_fail").hexdigest(),
         )
 
         norm_result = normalization_service.normalize(
@@ -490,7 +486,6 @@ class TestAPIDataRetrieval:
             title="Critical Security Advisory",
             raw_content=raw_content,
             published_at=published_at,
-            content_hash=hashlib.sha256(raw_content.encode()).hexdigest(),
             raw_metadata={"author": "Security Advisory Team"},
         )
 

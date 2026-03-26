@@ -164,7 +164,6 @@ class TestAPIConnectorFetchNoAuth:
         assert items[0]["content"] == "Content of first article"
         assert items[0]["author"] == "John Doe"
         assert items[0]["tags"] == ["security", "python"]
-        assert "content_hash" in items[0]
 
     @pytest.mark.asyncio
     async def test_fetch_with_custom_item_path(self):

@@ -52,7 +52,6 @@ def test_source_with_items(db_session, test_source):
             raw_content=f"Content {i}",
             published_at=fetched_at,
             fetched_at=fetched_at,
-            content_hash=f"hash_{i}",
             status=ItemStatus.NORMALIZED,
             meta_completeness=0.8,
             content_completeness=0.7,
@@ -105,7 +104,6 @@ class TestCalculateStability:
                 raw_content=f"Content {i}",
                 published_at=fetched_at,
                 fetched_at=fetched_at,
-                content_hash=f"hash_daily_{i}",
                 status=ItemStatus.NEW,
             )
             db_session.add(item)
@@ -151,7 +149,6 @@ class TestCalculateActivity:
                 raw_content=f"Content {i}",
                 published_at=fetched_at,
                 fetched_at=fetched_at,
-                content_hash=f"hash_low_{i}",
                 status=ItemStatus.NEW,
             )
             db_session.add(item)
@@ -196,7 +193,6 @@ class TestCalculateQuality:
             raw_content="Content",
             published_at=now,
             fetched_at=now,
-            content_hash="hash_no_metrics",
             status=ItemStatus.NEW,
             # No quality metrics set
         )
@@ -223,7 +219,6 @@ class TestCalculateQuality:
                 raw_content="Content",
                 published_at=now,
                 fetched_at=now,
-                content_hash="hash_q1",
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=1.0,
                 content_completeness=1.0,
@@ -238,7 +233,6 @@ class TestCalculateQuality:
                 raw_content="Content",
                 published_at=now,
                 fetched_at=now,
-                content_hash="hash_q2",
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=0.5,
                 content_completeness=0.5,
@@ -324,7 +318,6 @@ class TestUpdateTier:
                 raw_content=f"Content {i}",
                 published_at=fetched_at,
                 fetched_at=fetched_at,
-                content_hash=f"hash_t0_{i}",
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=1.0,
                 content_completeness=1.0,
@@ -364,7 +357,6 @@ class TestUpdateTier:
                 raw_content=f"Content {i}",
                 published_at=fetched_at,
                 fetched_at=fetched_at,
-                content_hash=f"hash_t1_{i}",
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=0.7,
                 content_completeness=0.7,
@@ -407,7 +399,6 @@ class TestUpdateTier:
                 raw_content=f"Content {i}",
                 published_at=fetched_at,
                 fetched_at=fetched_at,
-                content_hash=f"hash_t3_{i}",
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=0.2,
                 content_completeness=0.2,
@@ -474,7 +465,6 @@ class TestTierEvolution:
                 raw_content=f"Content {i}",
                 published_at=fetched_at,
                 fetched_at=fetched_at,
-                content_hash=f"hash_promo_{i}",
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=1.0,
                 content_completeness=1.0,
@@ -518,7 +508,6 @@ class TestTierEvolution:
                 raw_content=f"Content {i}",
                 published_at=fetched_at,
                 fetched_at=fetched_at,
-                content_hash=f"hash_demo_{i}",
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=0.2,
                 content_completeness=0.2,

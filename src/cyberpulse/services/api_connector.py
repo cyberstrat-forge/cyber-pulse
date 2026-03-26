@@ -468,16 +468,12 @@ class APIConnector(BaseConnector):
         if isinstance(tags, str):
             tags = [tags]
 
-        # Generate content hash
-        content_hash = self.generate_content_hash(content)
-
         return {
             "external_id": str(external_id),
             "url": str(url),
             "title": str(title),
             "published_at": published_at,
             "content": str(content),
-            "content_hash": content_hash,
             "author": str(author),
             "tags": list(tags),
         }

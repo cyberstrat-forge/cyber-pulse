@@ -42,7 +42,6 @@ def test_item(db_session, test_source):
         raw_content="Test content",
         published_at=datetime.now(timezone.utc) - timedelta(hours=1),
         fetched_at=datetime.now(timezone.utc),
-        content_hash=hashlib.sha256(b"test content").hexdigest(),
         status=ItemStatus.NORMALIZED,
     )
     db_session.add(item)
@@ -149,7 +148,6 @@ class TestCreateContentDuplicate:
             raw_content="Content",
             published_at=datetime.now(timezone.utc) - timedelta(hours=2),
             fetched_at=datetime.now(timezone.utc) - timedelta(hours=1),
-            content_hash=hashlib.sha256(b"content1").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         db_session.add(item1)
@@ -176,7 +174,6 @@ class TestCreateContentDuplicate:
             raw_content="Content",
             published_at=datetime.now(timezone.utc) - timedelta(hours=1),
             fetched_at=datetime.now(timezone.utc),
-            content_hash=hashlib.sha256(b"content2").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         db_session.add(item2)
@@ -212,7 +209,6 @@ class TestCreateContentDuplicate:
             raw_content="Content",
             published_at=datetime.now(timezone.utc),
             fetched_at=datetime.now(timezone.utc),
-            content_hash=hashlib.sha256(b"content").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         db_session.add(item1)
@@ -236,7 +232,6 @@ class TestCreateContentDuplicate:
             raw_content="Content",
             published_at=datetime.now(timezone.utc),
             fetched_at=datetime.now(timezone.utc),
-            content_hash=hashlib.sha256(b"content2").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         db_session.add(item2)
@@ -276,7 +271,6 @@ class TestGetContents:
                 raw_content="Content",
                 published_at=now - timedelta(hours=i),
                 fetched_at=now,
-                content_hash=hashlib.sha256(f"content_{i}".encode()).hexdigest(),
                 status=ItemStatus.NORMALIZED,
             )
             db_session.add(item)
@@ -317,7 +311,6 @@ class TestGetContents:
                 raw_content="Content",
                 published_at=now - timedelta(hours=i),
                 fetched_at=now,
-                content_hash=hashlib.sha256(f"content_until_{i}".encode()).hexdigest(),
                 status=ItemStatus.NORMALIZED,
             )
             db_session.add(item)
@@ -497,7 +490,6 @@ class TestIntegrityErrorFallback:
                     raw_content="Content",
                     published_at=datetime.now(timezone.utc),
                     fetched_at=datetime.now(timezone.utc),
-                    content_hash=hashlib.sha256(f"content_{item_id}".encode()).hexdigest(),
                     status=ItemStatus.NORMALIZED,
                 )
                 db_session.add(item)
@@ -556,7 +548,6 @@ class TestIntegrityErrorFallback:
             raw_content="Content",
             published_at=datetime.now(timezone.utc),
             fetched_at=datetime.now(timezone.utc),
-            content_hash=hashlib.sha256(b"reuse1").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         db_session.add(item1)
@@ -583,7 +574,6 @@ class TestIntegrityErrorFallback:
             raw_content="Content",
             published_at=datetime.now(timezone.utc),
             fetched_at=datetime.now(timezone.utc),
-            content_hash=hashlib.sha256(b"reuse2").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         db_session.add(item2)
