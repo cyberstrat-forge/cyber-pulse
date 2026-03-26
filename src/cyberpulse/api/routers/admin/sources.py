@@ -447,3 +447,85 @@ async def delete_source(
     logger.info(f"Deleted source: {source_id}")
 
     return {"message": f"Source {source_id} deleted"}
+
+
+@router.post("/sources/{source_id}/test", response_model=TestResult)
+async def test_source(
+    source_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> TestResult:
+    """测试源连接性。"""
+    validate_source_id(source_id)
+
+    source = db.query(Source).filter(Source.source_id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    feed_url = source.config.get("feed_url") if source.config else None
+    if not feed_url:
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="config",
+            error_message="No feed URL configured",
+            suggestion="Configure feed_url in source config",
+        )
+
+    try:
+        start_time = time.time()
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(
+                feed_url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; CyberPulse/1.0)"},
+            )
+            response.raise_for_status()
+            content = response.content
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        feed = feedparser.parse(content)
+        items_found = len(feed.get("entries", []))
+
+        warnings = []
+        if feed.get("bozo"):
+            warnings.append("RSS feed has format issues")
+
+        return TestResult(
+            source_id=source_id,
+            test_result="success",
+            response_time_ms=elapsed_ms,
+            items_found=items_found,
+            last_modified=None,
+            warnings=warnings,
+        )
+
+    except httpx.TimeoutException:
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="timeout",
+            error_message="Connection timeout after 30s",
+            suggestion="检查网络连接或增加超时时间",
+        )
+    except httpx.HTTPStatusError as e:
+        error_type = f"http_{e.response.status_code}"
+        suggestion_map = {
+            403: "检查网站反爬策略，可能需要添加 User-Agent 或 IP 白名单",
+            404: "RSS 地址已失效，尝试自动发现新地址",
+            429: "降低采集频率，添加请求间隔",
+        }
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type=error_type,
+            error_message=f"HTTP {e.response.status_code}: {e.response.reason_phrase}",
+            suggestion=suggestion_map.get(e.response.status_code, "检查网站访问权限"),
+        )
+    except Exception as e:
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="connection",
+            error_message=str(e),
+            suggestion="检查 URL 是否正确，确认网络连接",
+        )
