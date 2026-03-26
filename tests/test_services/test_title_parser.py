@@ -1,6 +1,5 @@
 """Tests for TitleParserService."""
 
-import pytest
 from cyberpulse.services.title_parser_service import (
     TitleParserService,
     ParsedTitle,
