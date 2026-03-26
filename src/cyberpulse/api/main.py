@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from ..config import settings
 from .. import __version__
 from .routers import content, sources, clients, health, items
-from .routers.admin import sources_router, jobs_router, clients_router
+from .routers.admin import sources_router, jobs_router, clients_router, logs_router, diagnose_router
 from .startup import ensure_admin_client
 
 
@@ -106,3 +106,5 @@ app.include_router(clients.router, prefix="/api/v1", tags=["clients"])
 app.include_router(sources_router, prefix="/api/v1/admin", tags=["admin-sources"])
 app.include_router(jobs_router, prefix="/api/v1/admin", tags=["admin-jobs"])
 app.include_router(clients_router, prefix="/api/v1/admin", tags=["admin-clients"])
+app.include_router(logs_router, prefix="/api/v1/admin", tags=["admin-logs"])
+app.include_router(diagnose_router, prefix="/api/v1/admin", tags=["admin-diagnose"])

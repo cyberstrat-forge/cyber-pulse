@@ -1008,6 +1008,120 @@ cmd_env() {
     esac
 }
 
+# ============================================
+# Admin 命令
+# ============================================
+
+cmd_admin() {
+    local subcommand="${1:-help}"
+
+    case "$subcommand" in
+        show-key)
+            cmd_admin_show_key
+            ;;
+        rotate-key)
+            cmd_admin_rotate_key
+            ;;
+        help|--help|-h)
+            print_admin_help
+            ;;
+        *)
+            print_error "Unknown admin subcommand: $subcommand"
+            print_admin_help
+            exit 1
+            ;;
+    esac
+}
+
+cmd_admin_show_key() {
+    print_header "Admin API Key"
+
+    # Get admin key from environment
+    if [[ -f "$ENV_FILE" ]]; then
+        admin_key=$(grep "^ADMIN_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
+        if [[ -n "$admin_key" ]]; then
+            echo -e "${GREEN}$admin_key${NC}"
+            return 0
+        fi
+    fi
+
+    print_error "ADMIN_API_KEY not found in $ENV_FILE"
+    exit 1
+}
+
+cmd_admin_rotate_key() {
+    print_header "Rotate Admin API Key"
+
+    # Get current admin key
+    if [[ ! -f "$ENV_FILE" ]]; then
+        print_error ".env file not found"
+        exit 1
+    fi
+
+    admin_key=$(grep "^ADMIN_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
+    if [[ -z "$admin_key" ]]; then
+        print_error "ADMIN_API_KEY not found in .env"
+        exit 1
+    fi
+
+    # Call API to rotate
+    local api_url="http://localhost:8000"
+
+    # Get admin client ID
+    response=$(curl -s -H "Authorization: Bearer $admin_key" \
+        "${api_url}/api/v1/admin/clients")
+
+    client_id=$(echo "$response" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for c in data.get('data', []):
+    if 'admin' in c.get('permissions', []):
+        print(c['client_id'])
+        break
+" 2>/dev/null)
+
+    if [[ -z "$client_id" ]]; then
+        print_error "Could not find admin client"
+        exit 1
+    fi
+
+    # Rotate key
+    response=$(curl -s -X POST -H "Authorization: Bearer $admin_key" \
+        "${api_url}/api/v1/admin/clients/${client_id}/rotate")
+
+    new_key=$(echo "$response" | python3 -c "
+import sys, json
+print(json.load(sys.stdin).get('api_key', ''))
+" 2>/dev/null)
+
+    if [[ -z "$new_key" ]]; then
+        print_error "Failed to rotate key"
+        exit 1
+    fi
+
+    # Update .env file
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "s|^ADMIN_API_KEY=.*|ADMIN_API_KEY=${new_key}|" "$ENV_FILE"
+    else
+        sed -i "s|^ADMIN_API_KEY=.*|ADMIN_API_KEY=${new_key}|" "$ENV_FILE"
+    fi
+
+    echo -e "${GREEN}Admin API Key rotated successfully!${NC}"
+    echo -e "New key: ${YELLOW}${new_key}${NC}"
+    echo -e "${RED}⚠ Old key is now invalid${NC}"
+}
+
+print_admin_help() {
+    echo ""
+    echo "Admin commands:"
+    echo "  show-key     Show current admin API key"
+    echo "  rotate-key   Generate new admin API key"
+    echo ""
+    echo "Examples:"
+    echo "  cyber-pulse.sh admin show-key"
+    echo "  cyber-pulse.sh admin rotate-key"
+}
+
 # 显示帮助信息
 show_help() {
     print_banner
@@ -1052,6 +1166,9 @@ show_help() {
     echo "  restore <name>      恢复备份"
     echo "                      --list             列出备份"
     echo "                      --from-archive     从压缩包恢复"
+    echo "  admin <subcommand>  管理员操作"
+    echo "                      show-key           显示当前 API Key"
+    echo "                      rotate-key         生成新的 API Key"
     echo "  help                显示此帮助信息"
     echo ""
     echo -e "${BOLD}环境说明:${NC}"
@@ -1172,6 +1289,10 @@ main() {
             ;;
         restore)
             cmd_restore "${@:2}"
+            ;;
+        admin)
+            shift || true
+            cmd_admin "$@"
             ;;
         help|--help|-h)
             show_help
