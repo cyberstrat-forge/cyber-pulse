@@ -57,6 +57,13 @@ generate_secret_key() {
     generate_password 64
 }
 
+# 生成 Admin API Key (32 字符，cp_live_ 前缀)
+generate_admin_api_key() {
+    local random_part
+    random_part=$(python3 -c "import secrets; print(secrets.token_hex(16))" 2>/dev/null || openssl rand -hex 16 2>/dev/null)
+    echo "cp_live_${random_part}"
+}
+
 # 备份现有配置
 backup_existing_env() {
     if [[ -f "$ENV_FILE" ]]; then
@@ -81,6 +88,7 @@ generate_env_file() {
     local force="${1:-false}"
     local postgres_password=""
     local secret_key=""
+    local admin_api_key=""
     local db_user="cyberpulse"
     local db_name="cyberpulse"
 
@@ -120,6 +128,7 @@ generate_env_file() {
     fi
 
     secret_key=$(generate_secret_key)
+    admin_api_key=$(generate_admin_api_key)
 
     # 生成配置文件
     echo -e "${BLUE}正在生成配置文件...${NC}"
@@ -154,6 +163,9 @@ SECRET_KEY=${secret_key}
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
+# Admin API Key (首次启动时创建管理员客户端)
+ADMIN_API_KEY=${admin_api_key}
+
 # 日志配置
 LOG_LEVEL=INFO
 LOG_FILE=logs/cyber_pulse.log
@@ -169,16 +181,18 @@ EOF
     echo -e "${GREEN}✓ 配置文件已生成: $ENV_FILE${NC}"
     echo ""
     echo -e "${BLUE}配置摘要:${NC}"
-    echo -e "  数据库用户: ${db_user}"
-    echo -e "  数据库名称: ${db_name}"
-    echo -e "  数据库密码: ${YELLOW}********${NC} (${#postgres_password} 字符)"
-    echo -e "  JWT 密钥:   ${YELLOW}********${NC} (${#secret_key} 字符)"
-    echo -e "  文件权限:   600"
+    echo -e "  数据库用户:   ${db_user}"
+    echo -e "  数据库名称:   ${db_name}"
+    echo -e "  数据库密码:   ${YELLOW}********${NC} (${#postgres_password} 字符)"
+    echo -e "  JWT 密钥:     ${YELLOW}********${NC} (${#secret_key} 字符)"
+    echo -e "  Admin API Key: ${YELLOW}********${NC} (${#admin_api_key} 字符)"
+    echo -e "  文件权限:     600"
     echo ""
     echo -e "${YELLOW}⚠ 重要提示:${NC}"
     echo "  1. 请妥善保管此配置文件，不要提交到版本控制"
     echo "  2. 数据库密码仅在首次部署时生成，后续会保留"
-    echo "  3. 如需重置密码，请手动删除 .env 文件后重新运行"
+    echo "  3. ADMIN_API_KEY 用于管理端 API 认证，请妥善保管"
+    echo "  4. 如需重置密码，请手动删除 .env 文件后重新运行"
     echo ""
 }
 
