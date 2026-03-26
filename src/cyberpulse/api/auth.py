@@ -217,7 +217,11 @@ class ApiClientService:
             if verify_api_key(api_key, client.api_key):  # type: ignore[arg-type]
                 # Update last_used_at
                 client.last_used_at = datetime.now(UTC)  # type: ignore[assignment]
-                self.db.commit()
+                try:
+                    self.db.commit()
+                except SQLAlchemyError as e:
+                    logger.error(f"Failed to update last_used_at in validate_client: {e}")
+                    self.db.rollback()
                 return client
 
         return None
@@ -242,7 +246,7 @@ class ApiClientService:
         client.status = ApiClientStatus.REVOKED  # type: ignore[assignment]
         try:
             self.db.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to revoke client {client_id}: {e}")
             self.db.rollback()
             raise
@@ -269,7 +273,7 @@ class ApiClientService:
         client.status = ApiClientStatus.ACTIVE  # type: ignore[assignment]
         try:
             self.db.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to activate client {client_id}: {e}")
             self.db.rollback()
             raise
@@ -296,7 +300,7 @@ class ApiClientService:
         client.status = ApiClientStatus.SUSPENDED  # type: ignore[assignment]
         try:
             self.db.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to suspend client {client_id}: {e}")
             self.db.rollback()
             raise
@@ -362,7 +366,7 @@ class ApiClientService:
             self.db.refresh(client)
             logger.info(f"Rotated API key for client: {client_id}")
             return client, plain_key
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to rotate key for {client_id}: {e}")
             self.db.rollback()
             raise
@@ -391,7 +395,7 @@ class ApiClientService:
             self.db.refresh(admin)
             logger.info(f"Reset admin API key for client: {admin.client_id}")
             return admin, plain_key
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to reset admin key: {e}")
             self.db.rollback()
             raise

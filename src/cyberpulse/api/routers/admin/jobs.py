@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# job_id format: job_{uuid}
+# job_id format: job_{16 hex chars}
 JOB_ID_PATTERN = re.compile(r"^job_[a-f0-9]+$")
 
 
@@ -150,11 +150,13 @@ async def create_job(
     logger.info(f"Created job: {job.job_id}")
 
     # Trigger Dramatiq task
+    task_enqueued = False
     try:
         ingest_source.send(request.source_id)
+        task_enqueued = True
         logger.info(f"Triggered ingest_source task for source: {request.source_id}")
     except (OSError, ConnectionError) as e:
-        logger.warning(f"Failed to trigger ingest_source task: {e}")
+        logger.error(f"Failed to trigger ingest_source task for job {job.job_id}: {e}")
 
     return JobCreatedResponse(
         job_id=job.job_id,
@@ -162,7 +164,7 @@ async def create_job(
         status=job.status.value,
         source_id=request.source_id,
         source_name=source.name,
-        message="Job created and queued",
+        message="Job created and queued" if task_enqueued else "Job created but task queue unavailable. Job may need manual trigger.",
     )
 
 
