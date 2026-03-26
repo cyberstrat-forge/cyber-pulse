@@ -364,3 +364,187 @@ class TestBaseService:
         assert created is False
         assert source is not None
         assert source.name == "Existing Source"
+
+
+class TestURLDeduplication:
+    """Tests for URL deduplication in add_source."""
+
+    def test_add_duplicate_url_rss(self, source_service):
+        """Test adding RSS source with duplicate URL fails."""
+        # Add first source
+        source1, msg1 = source_service.add_source(
+            name="First RSS",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+        assert source1 is not None
+
+        # Try to add source with same URL
+        source2, msg2 = source_service.add_source(
+            name="Second RSS",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+
+        assert source2 is None
+        assert "already exists" in msg2.lower()
+
+    def test_add_duplicate_url_web_scraper(self, source_service):
+        """Test adding web_scraper source with duplicate URL fails."""
+        # Add first source
+        source1, msg1 = source_service.add_source(
+            name="First Scraper",
+            connector_type="web_scraper",
+            config={"url": "https://example.com/page"},
+        )
+        assert source1 is not None
+
+        # Try to add source with same URL
+        source2, msg2 = source_service.add_source(
+            name="Second Scraper",
+            connector_type="web_scraper",
+            config={"url": "https://example.com/page"},
+        )
+
+        assert source2 is None
+        assert "already exists" in msg2.lower()
+
+    def test_add_different_urls_allowed(self, source_service):
+        """Test adding sources with different URLs is allowed."""
+        source1, msg1 = source_service.add_source(
+            name="RSS One",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed1.xml"},
+        )
+        source2, msg2 = source_service.add_source(
+            name="RSS Two",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed2.xml"},
+        )
+
+        assert source1 is not None
+        assert source2 is not None
+
+    def test_url_normalization_trailing_slash(self, source_service):
+        """Test URL normalization handles trailing slash."""
+        source1, msg1 = source_service.add_source(
+            name="No Slash",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed"},
+        )
+        assert source1 is not None
+
+        # Same URL with trailing slash should be detected as duplicate
+        source2, msg2 = source_service.add_source(
+            name="With Slash",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed/"},
+        )
+
+        assert source2 is None
+        assert "already exists" in msg2.lower()
+
+    def test_url_normalization_case_insensitive(self, source_service):
+        """Test URL normalization is case-insensitive for domain."""
+        source1, msg1 = source_service.add_source(
+            name="Lowercase",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+        assert source1 is not None
+
+        # Same URL with different case should be detected as duplicate
+        source2, msg2 = source_service.add_source(
+            name="Uppercase",
+            connector_type="rss",
+            config={"feed_url": "https://EXAMPLE.COM/feed.xml"},
+        )
+
+        assert source2 is None
+        assert "already exists" in msg2.lower()
+
+    def test_url_normalization_protocol(self, source_service):
+        """Test URL normalization handles http/https."""
+        source1, msg1 = source_service.add_source(
+            name="HTTPS",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+        assert source1 is not None
+
+        # Same URL with http should be detected as duplicate
+        source2, msg2 = source_service.add_source(
+            name="HTTP",
+            connector_type="rss",
+            config={"feed_url": "http://example.com/feed.xml"},
+        )
+
+        assert source2 is None
+        assert "already exists" in msg2.lower()
+
+    def test_url_deduplication_ignores_removed_sources(self, source_service):
+        """Test URL deduplication ignores removed sources."""
+        # Add and remove a source
+        source1, msg1 = source_service.add_source(
+            name="To Remove",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+        assert source1 is not None
+        source_service.remove_source(source1.source_id)
+
+        # Should be able to add source with same URL
+        source2, msg2 = source_service.add_source(
+            name="New Source",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+
+        assert source2 is not None
+
+    def test_url_deduplication_api_type_not_checked(self, source_service):
+        """Test URL deduplication not applied to API connectors."""
+        source1, msg1 = source_service.add_source(
+            name="API One",
+            connector_type="api",
+            config={"url": "https://api.example.com/endpoint"},
+        )
+        source2, msg2 = source_service.add_source(
+            name="API Two",
+            connector_type="api",
+            config={"url": "https://api.example.com/endpoint"},
+        )
+
+        # API sources should not have URL deduplication
+        assert source1 is not None
+        assert source2 is not None
+
+
+class TestNormalizeURL:
+    """Tests for _normalize_url method."""
+
+    def test_normalize_url_trailing_slash(self, source_service):
+        """Test normalization removes trailing slash."""
+        result = source_service._normalize_url("https://example.com/feed/")
+        assert result == "http://example.com/feed"
+
+    def test_normalize_url_lowercase(self, source_service):
+        """Test normalization converts to lowercase."""
+        result = source_service._normalize_url("https://EXAMPLE.COM/Feed.xml")
+        assert result == "http://example.com/feed.xml"
+
+    def test_normalize_url_removes_params(self, source_service):
+        """Test normalization removes query parameters."""
+        result = source_service._normalize_url("https://example.com/feed?utm_source=test")
+        assert result == "http://example.com/feed"
+
+    def test_normalize_url_empty(self, source_service):
+        """Test normalization handles empty URL."""
+        result = source_service._normalize_url("")
+        assert result == ""
+
+    def test_normalize_url_protocol(self, source_service):
+        """Test normalization handles protocol variations."""
+        result_https = source_service._normalize_url("https://example.com/feed")
+        result_http = source_service._normalize_url("http://example.com/feed")
+        assert result_https == result_http

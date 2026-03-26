@@ -6,10 +6,11 @@ from typing import Optional
 import dramatiq
 
 from ..database import SessionLocal
-from ..models import Item, ItemStatus
+from ..models import Item, ItemStatus, Source
 from ..services.quality_gate_service import QualityGateService, QualityDecision
 from ..services.content_service import ContentService
 from ..services.normalization_service import NormalizationResult
+from ..services.full_content_fetch_service import FullContentFetchService
 from .worker import broker
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ def _handle_pass(
     """Handle a passed quality check.
 
     Creates or updates Content and links the item.
+    Also checks if content needs full fetch (summary-only content).
 
     Args:
         db: Database session.
@@ -110,6 +112,25 @@ def _handle_pass(
         quality_result: Quality check result with metrics.
     """
     content_service = ContentService(db)
+    quality_service = QualityGateService()
+
+    # Check if content needs full fetch
+    content_validity, content_reason = quality_service._validate_content_quality(
+        normalization_result.normalized_title,
+        normalization_result.normalized_body,
+    )
+
+    # Determine if we should trigger full content fetch
+    source = getattr(item, "source", None)
+    needs_full_fetch = False
+
+    if not content_validity and item.url:
+        # Content quality is low, check if source allows full fetch
+        if source and source.needs_full_fetch:
+            needs_full_fetch = True
+            logger.info(
+                f"Item {item.item_id} needs full fetch: {content_reason}"
+            )
 
     # Create or get existing content by canonical_hash
     content, is_new = content_service.create_or_get_content(
@@ -126,7 +147,6 @@ def _handle_pass(
     item.noise_ratio = quality_result.metrics.get("noise_ratio")
 
     # Update source statistics
-    source = getattr(item, "source", None)  # type: ignore[attr-defined]
     if source and is_new:
         source.total_contents = (source.total_contents or 0) + 1  # type: ignore[assignment]
 
@@ -134,6 +154,11 @@ def _handle_pass(
         f"Content {'created' if is_new else 'updated'} for item {item.item_id}: "
         f"content_id={content.content_id}"
     )
+
+    # Trigger full content fetch if needed
+    if needs_full_fetch and not item.full_fetch_attempted:
+        fetch_actor = broker.get_actor("fetch_full_content")
+        fetch_actor.send(item.item_id)
 
 
 def _handle_reject(db, item: Item, quality_result) -> None:
@@ -190,6 +215,77 @@ def recheck_item(item_id: str) -> None:
 
     except Exception as e:
         logger.error(f"Recheck failed for item {item_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@dramatiq.actor(max_retries=2)
+def fetch_full_content(item_id: str) -> None:
+    """Fetch full content for an item.
+
+    This task is triggered when an item's body is detected as summary-only
+    or low quality. It attempts to fetch the full article content from the
+    original URL.
+
+    Args:
+        item_id: The item ID to fetch full content for.
+    """
+    import asyncio
+
+    db = SessionLocal()
+    try:
+        item = db.query(Item).filter(Item.item_id == item_id).first()
+        if not item:
+            logger.error(f"Item not found: {item_id}")
+            return
+
+        # Mark as attempted
+        item.full_fetch_attempted = True  # type: ignore[assignment]
+
+        if not item.url:
+            logger.warning(f"Item {item_id} has no URL, cannot fetch full content")
+            db.commit()
+            return
+
+        db.commit()
+
+        logger.info(f"Fetching full content for item: {item_id}")
+
+        # Fetch full content
+        fetch_service = FullContentFetchService()
+        result = asyncio.run(fetch_service.fetch_with_retry(item.url))
+
+        if result.success:
+            # Update item with full content
+            item.raw_content = result.content
+            item.full_fetch_succeeded = True  # type: ignore[assignment]
+
+            # Update source statistics
+            source = db.query(Source).filter(Source.source_id == item.source_id).first()
+            if source:
+                source.full_fetch_success_count = (source.full_fetch_success_count or 0) + 1
+
+            db.commit()
+            logger.info(f"Full content fetched for item {item_id}: {len(result.content)} chars")
+
+            # Re-queue normalization with new content
+            normalize_actor = broker.get_actor("normalize_item")
+            normalize_actor.send(item_id)
+        else:
+            item.full_fetch_succeeded = False  # type: ignore[assignment]
+
+            # Update source statistics
+            source = db.query(Source).filter(Source.source_id == item.source_id).first()
+            if source:
+                source.full_fetch_failure_count = (source.full_fetch_failure_count or 0) + 1
+
+            db.commit()
+            logger.warning(f"Failed to fetch full content for item {item_id}: {result.error}")
+
+    except Exception as e:
+        logger.error(f"Full content fetch failed for item {item_id}: {e}", exc_info=True)
         db.rollback()
         raise
     finally:
