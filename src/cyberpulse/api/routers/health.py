@@ -2,13 +2,14 @@
 Health check endpoint.
 """
 import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from ...database import get_db
 from ... import __version__
+from ...database import get_db
 
 logger = logging.getLogger(__name__)
 

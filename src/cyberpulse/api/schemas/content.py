@@ -5,7 +5,6 @@ Pydantic models for Content API request/response validation.
 """
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -50,11 +49,11 @@ class ContentListResponse(BaseModel):
     Uses cursor-based pagination for efficient large dataset traversal.
     """
 
-    data: List[ContentResponse] = Field(
+    data: list[ContentResponse] = Field(
         default_factory=list,
         description="List of content items"
     )
-    next_cursor: Optional[str] = Field(
+    next_cursor: str | None = Field(
         None,
         description="Cursor for the next page (last content_id in this page)"
     )

@@ -5,16 +5,15 @@ Provides endpoints for retrieving deduplicated content items.
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from ..dependencies import get_db, get_current_client
-from ..schemas.content import ContentResponse, ContentListResponse
 from ...models import ApiClient
 from ...services.content_service import ContentService
+from ..dependencies import get_current_client, get_db
+from ..schemas.content import ContentListResponse, ContentResponse
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +22,11 @@ router = APIRouter()
 
 @router.get("/contents", response_model=ContentListResponse)
 async def list_content(
-    cursor: Optional[str] = Query(
+    cursor: str | None = Query(
         None,
         description="Pagination cursor (last content_id seen from previous page)"
     ),
-    since: Optional[datetime] = Query(
+    since: datetime | None = Query(
         None,
         description="Filter contents first_seen_at >= since (ISO 8601)"
     ),
@@ -37,7 +36,7 @@ async def list_content(
         le=1000,
         description="Maximum number of results (1-1000)"
     ),
-    source_tier: Optional[str] = Query(
+    source_tier: str | None = Query(
         None,
         description="Filter by source tier (T0, T1, T2, T3) - not yet implemented"
     ),
@@ -88,7 +87,7 @@ async def list_content(
     has_more = len(contents) == limit
 
     # The next cursor is the last item's content_id
-    next_cursor: Optional[str] = None
+    next_cursor: str | None = None
     if contents:
         next_cursor = str(contents[-1].content_id)
 
@@ -98,7 +97,7 @@ async def list_content(
         next_cursor=next_cursor,
         has_more=has_more,
         count=len(contents),
-        server_timestamp=datetime.now(timezone.utc),
+        server_timestamp=datetime.now(UTC),
     )
 
 

@@ -4,31 +4,47 @@ import logging
 import re
 import secrets
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from xml.sax.saxutils import escape
 
 import feedparser
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, File, Form
-from sqlalchemy.orm import Session
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from sqlalchemy import desc
+from sqlalchemy.orm import Session
 
+from ....models import (
+    Job,
+    JobStatus,
+    JobType,
+    Settings,
+    Source,
+    SourceStatus,
+    SourceTier,
+)
+from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
 from ...schemas.source import (
-    SourceCreate,
-    SourceUpdate,
-    SourceResponse,
-    SourceListResponse,
-    ScheduleRequest,
-    ScheduleResponse,
-    TestResult,
     DefaultsResponse,
     DefaultsUpdate,
     ImportResponse,
+    ScheduleRequest,
+    ScheduleResponse,
+    SourceCreate,
+    SourceListResponse,
+    SourceResponse,
+    SourceUpdate,
+    TestResult,
 )
-from ...auth import require_permissions, ApiClient
-from ....models import Source, SourceStatus, SourceTier, Settings, Job, JobType, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +136,9 @@ def build_source_response(source: Source) -> SourceResponse:
 
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
-    status: Optional[str] = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED"),
-    tier: Optional[str] = Query(None, description="Filter by tier: T0, T1, T2, T3"),
-    scheduled: Optional[bool] = Query(None, description="Filter by scheduled status"),
+    status: str | None = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED"),
+    tier: str | None = Query(None, description="Filter by tier: T0, T1, T2, T3"),
+    scheduled: bool | None = Query(None, description="Filter by scheduled status"),
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> SourceListResponse:
@@ -152,7 +168,7 @@ async def list_sources(
         count=len(sources),
         offset=0,
         limit=len(sources),
-        server_timestamp=datetime.now(timezone.utc),
+        server_timestamp=datetime.now(UTC),
     )
 
 
@@ -311,8 +327,8 @@ async def import_sources(
 
 @router.get("/sources/export")
 async def export_sources(
-    status: Optional[str] = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED"),
-    tier: Optional[str] = Query(None, description="Filter by tier: T0, T1, T2, T3"),
+    status: str | None = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED"),
+    tier: str | None = Query(None, description="Filter by tier: T0, T1, T2, T3"),
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> Response:
@@ -335,7 +351,7 @@ async def export_sources(
         '<opml version="2.0">',
         '  <head>',
         '    <title>CyberPulse Sources Export</title>',
-        f'    <dateCreated>{escape(datetime.now(timezone.utc).isoformat())}</dateCreated>',
+        f'    <dateCreated>{escape(datetime.now(UTC).isoformat())}</dateCreated>',
         '  </head>',
         '  <body>',
     ]
@@ -546,7 +562,7 @@ async def set_schedule(
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
     source.schedule_interval = request.interval
-    source.next_ingest_at = datetime.now(timezone.utc) + timedelta(seconds=request.interval)
+    source.next_ingest_at = datetime.now(UTC) + timedelta(seconds=request.interval)
 
     db.commit()
     db.refresh(source)

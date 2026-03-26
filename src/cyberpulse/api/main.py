@@ -3,17 +3,23 @@ FastAPI application entry point.
 """
 import json
 import logging
+from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from ..config import settings
 from .. import __version__
+from ..config import settings
 from .routers import content, health, items
-from .routers.admin import sources_router, jobs_router, clients_router, logs_router, diagnose_router
+from .routers.admin import (
+    clients_router,
+    diagnose_router,
+    jobs_router,
+    logs_router,
+    sources_router,
+)
 from .startup import ensure_admin_client
 
 
