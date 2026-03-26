@@ -107,7 +107,7 @@ class RSSDiscoveryService:
             return rss_links[0] if rss_links else None
 
         except Exception as e:
-            logger.debug(f"Failed to discover RSS from HTML: {e}")
+            logger.warning(f"Failed to discover RSS from HTML for {site_url}: {type(e).__name__}: {e}")
             return None
 
     async def _discover_from_common_paths(self, site_url: str) -> Optional[str]:
@@ -130,7 +130,8 @@ class RSSDiscoveryService:
                         content_type = response.headers.get("content-type", "")
                         if "xml" in content_type or "rss" in content_type:
                             return test_url
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to check RSS path {test_url}: {type(e).__name__}: {e}")
                     continue
 
         return None

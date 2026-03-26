@@ -8,6 +8,8 @@ from typing import Optional
 import httpx
 import trafilatura
 
+from .base import validate_url_for_ssrf, SSRFError
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +41,17 @@ class FullContentFetchService:
         Returns:
             FullContentResult with the extracted content or error.
         """
+        # SSRF validation before fetching
+        try:
+            validate_url_for_ssrf(url)
+        except SSRFError as e:
+            logger.warning(f"SSRF protection blocked URL: {url}")
+            return FullContentResult(
+                content="",
+                success=False,
+                error=f"URL blocked by SSRF protection: {e}",
+            )
+
         try:
             async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
                 response = await client.get(
@@ -46,6 +59,20 @@ class FullContentFetchService:
                     follow_redirects=True,
                     headers={"User-Agent": self.DEFAULT_USER_AGENT},
                 )
+
+                # Validate final URL after redirects
+                final_url = str(response.url)
+                if final_url != url:
+                    try:
+                        validate_url_for_ssrf(final_url)
+                    except SSRFError as e:
+                        logger.warning(f"Redirect to blocked URL: {final_url}")
+                        return FullContentResult(
+                            content="",
+                            success=False,
+                            error=f"Redirect to blocked URL: {e}",
+                        )
+
                 response.raise_for_status()
 
                 # Extract content using trafilatura
@@ -84,11 +111,11 @@ class FullContentFetchService:
                 error=f"HTTP error: {e.response.status_code}",
             )
         except Exception as e:
-            logger.error(f"Error fetching content from {url}: {e}")
+            logger.error(f"Error fetching content from {url}: {type(e).__name__}: {e}")
             return FullContentResult(
                 content="",
                 success=False,
-                error=str(e),
+                error=f"{type(e).__name__}: {e}",
             )
 
     async def fetch_with_retry(
