@@ -529,3 +529,61 @@ async def test_source(
             error_message=str(e),
             suggestion="检查 URL 是否正确，确认网络连接",
         )
+
+
+@router.post("/sources/{source_id}/schedule", response_model=ScheduleResponse)
+async def set_schedule(
+    source_id: str,
+    request: ScheduleRequest,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> ScheduleResponse:
+    """设置源采集调度。"""
+    validate_source_id(source_id)
+
+    source = db.query(Source).filter(Source.source_id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    source.schedule_interval = request.interval
+    source.next_ingest_at = datetime.now(timezone.utc) + timedelta(seconds=request.interval)
+
+    db.commit()
+    db.refresh(source)
+
+    logger.info(f"Set schedule for source {source_id}: interval={request.interval}s")
+
+    return ScheduleResponse(
+        source_id=source_id,
+        schedule_interval=request.interval,
+        next_ingest_at=source.next_ingest_at,
+        message="Schedule updated",
+    )
+
+
+@router.delete("/sources/{source_id}/schedule")
+async def remove_schedule(
+    source_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> dict:
+    """取消源采集调度。"""
+    validate_source_id(source_id)
+
+    source = db.query(Source).filter(Source.source_id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    source.schedule_interval = None
+    source.next_ingest_at = None
+
+    db.commit()
+
+    logger.info(f"Removed schedule for source {source_id}")
+
+    return {
+        "source_id": source_id,
+        "schedule_interval": None,
+        "next_ingest_at": None,
+        "message": "Schedule removed"
+    }
