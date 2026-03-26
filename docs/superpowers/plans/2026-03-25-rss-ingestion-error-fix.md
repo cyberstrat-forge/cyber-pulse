@@ -42,13 +42,13 @@
 **Files:**
 - Modify: `pyproject.toml`
 
-- [ ] **Step 1: 添加依赖**
+- [x] **Step 1: 添加依赖**
 
 ```bash
 uv add beautifulsoup4
 ```
 
-- [ ] **Step 2: 验证依赖添加成功**
+- [x] **Step 2: 验证依赖添加成功**
 
 ```bash
 grep "beautifulsoup4" pyproject.toml
@@ -56,7 +56,7 @@ grep "beautifulsoup4" pyproject.toml
 
 Expected: 显示 beautifulsoup4 行
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add pyproject.toml uv.lock
@@ -71,7 +71,7 @@ git commit -m "chore: add beautifulsoup4 dependency for RSS discovery"
 - Create: `src/cyberpulse/services/rss_discovery.py`
 - Create: `tests/test_services/test_rss_discovery.py`
 
-- [ ] **Step 1: 编写 RSSDiscoveryService 测试**
+- [x] **Step 1: 编写 RSSDiscoveryService 测试**
 
 ```python
 # tests/test_services/test_rss_discovery.py
@@ -178,7 +178,7 @@ class TestRSSDiscovery:
             assert result == "https://example.com/blog/feed.xml"
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run pytest tests/test_services/test_rss_discovery.py -v
@@ -186,7 +186,7 @@ uv run pytest tests/test_services/test_rss_discovery.py -v
 
 Expected: 测试失败（模块不存在）
 
-- [ ] **Step 3: 实现 RSSDiscoveryService**
+- [x] **Step 3: 实现 RSSDiscoveryService**
 
 ```python
 # src/cyberpulse/services/rss_discovery.py
@@ -325,7 +325,7 @@ class RSSDiscoveryService:
         return None
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run pytest tests/test_services/test_rss_discovery.py -v
@@ -333,7 +333,7 @@ uv run pytest tests/test_services/test_rss_discovery.py -v
 
 Expected: 所有测试通过
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/cyberpulse/services/rss_discovery.py tests/test_services/test_rss_discovery.py
@@ -347,7 +347,7 @@ git commit -m "feat: add RSSDiscoveryService for automatic RSS feed discovery"
 **Files:**
 - Modify: `src/cyberpulse/models/source.py`
 
-- [ ] **Step 1: 编写模型字段测试**
+- [x] **Step 1: 编写模型字段测试**
 
 ```python
 # tests/test_models/test_source_fields.py
@@ -396,7 +396,7 @@ class TestSourceFailureTracking:
         assert source.last_error_at is not None
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run pytest tests/test_models/test_source_fields.py -v
@@ -404,7 +404,7 @@ uv run pytest tests/test_models/test_source_fields.py -v
 
 Expected: 测试失败（字段不存在）
 
-- [ ] **Step 3: 添加模型字段**
+- [x] **Step 3: 添加模型字段**
 
 ```python
 # src/cyberpulse/models/source.py
@@ -421,7 +421,7 @@ Expected: 测试失败（字段不存在）
     last_error_at = Column(DateTime, nullable=True)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run pytest tests/test_models/test_source_fields.py -v
@@ -429,13 +429,13 @@ uv run pytest tests/test_models/test_source_fields.py -v
 
 Expected: 测试通过
 
-- [ ] **Step 5: 创建数据库迁移**
+- [x] **Step 5: 创建数据库迁移**
 
 ```bash
 uv run alembic revision --autogenerate -m "add source failure tracking fields"
 ```
 
-- [ ] **Step 6: 验证迁移文件**
+- [x] **Step 6: 验证迁移文件**
 
 ```bash
 ls -la alembic/versions/ | tail -1
@@ -443,7 +443,7 @@ ls -la alembic/versions/ | tail -1
 
 Expected: 显示新创建的迁移文件
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add src/cyberpulse/models/source.py tests/test_models/test_source_fields.py alembic/versions/
@@ -458,7 +458,7 @@ git commit -m "feat: add consecutive_failures and last_error_at fields to Source
 - Modify: `src/cyberpulse/services/rss_connector.py`
 - Create: `tests/test_services/test_rss_connector_enhanced.py`
 
-- [ ] **Step 1: 编写 RSSConnector 增强测试**
+- [x] **Step 1: 编写 RSSConnector 增强测试**
 
 ```python
 # tests/test_services/test_rss_connector_enhanced.py
@@ -566,7 +566,7 @@ class TestRSSConnectorEnhanced:
             assert "Mozilla" in headers["User-Agent"]
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run pytest tests/test_services/test_rss_connector_enhanced.py -v
@@ -574,7 +574,7 @@ uv run pytest tests/test_services/test_rss_connector_enhanced.py -v
 
 Expected: 测试失败（FetchResult 不存在）
 
-- [ ] **Step 3: 添加 FetchResult 数据类和增强 fetch 方法**
+- [x] **Step 3: 添加 FetchResult 数据类和增强 fetch 方法**
 
 ```python
 # src/cyberpulse/services/rss_connector.py
@@ -707,7 +707,7 @@ class RSSConnector(BaseConnector):
         return FetchResult(items=items, redirect_info=redirect_info)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run pytest tests/test_services/test_rss_connector_enhanced.py -v
@@ -715,7 +715,7 @@ uv run pytest tests/test_services/test_rss_connector_enhanced.py -v
 
 Expected: 所有测试通过
 
-- [ ] **Step 5: 运行现有 RSS connector 测试确保无回归**
+- [x] **Step 5: 运行现有 RSS connector 测试确保无回归**
 
 ```bash
 uv run pytest tests/test_services/test_rss_connector.py -v
@@ -723,7 +723,7 @@ uv run pytest tests/test_services/test_rss_connector.py -v
 
 Expected: 所有测试通过（可能需要更新部分测试以适配 FetchResult）
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/cyberpulse/services/rss_connector.py tests/test_services/test_rss_connector_enhanced.py
@@ -738,7 +738,7 @@ git commit -m "feat: enhance RSSConnector with redirect following and User-Agent
 - Modify: `src/cyberpulse/tasks/ingestion_tasks.py`
 - Create: `tests/test_tasks/test_ingestion_enhanced.py`
 
-- [ ] **Step 1: 编写采集任务增强测试**
+- [x] **Step 1: 编写采集任务增强测试**
 
 ```python
 # tests/test_tasks/test_ingestion_enhanced.py
@@ -937,7 +937,7 @@ class TestIngestionFailureTracking:
         assert source.status == SourceStatus.ACTIVE
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run pytest tests/test_tasks/test_ingestion_enhanced.py -v
@@ -945,7 +945,7 @@ uv run pytest tests/test_tasks/test_ingestion_enhanced.py -v
 
 Expected: 测试失败（功能未实现）
 
-- [ ] **Step 3: 增强 ingestion_tasks.py**
+- [x] **Step 3: 增强 ingestion_tasks.py**
 
 ```python
 # src/cyberpulse/tasks/ingestion_tasks.py
@@ -1144,7 +1144,7 @@ async def _try_discover_rss(source: Source) -> str | None:
     return await discovery.discover(site_url)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run pytest tests/test_tasks/test_ingestion_enhanced.py -v
@@ -1152,7 +1152,7 @@ uv run pytest tests/test_tasks/test_ingestion_enhanced.py -v
 
 Expected: 所有测试通过
 
-- [ ] **Step 5: 运行现有测试确保无回归**
+- [x] **Step 5: 运行现有测试确保无回归**
 
 ```bash
 uv run pytest tests/test_tasks/ -v
@@ -1160,7 +1160,7 @@ uv run pytest tests/test_tasks/ -v
 
 Expected: 所有测试通过
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/cyberpulse/tasks/ingestion_tasks.py tests/test_tasks/test_ingestion_enhanced.py
@@ -1174,7 +1174,7 @@ git commit -m "feat: add failure tracking and auto-freeze to ingestion tasks"
 **Files:**
 - Modify: `src/cyberpulse/cli/commands/source.py`
 
-- [ ] **Step 1: 添加 RSS 发现辅助函数**
+- [x] **Step 1: 添加 RSS 发现辅助函数**
 
 ```python
 # src/cyberpulse/cli/commands/source.py
@@ -1207,7 +1207,7 @@ async def _discover_rss_for_cli(site_url: str) -> Optional[str]:
     return await discovery.discover(site_url)
 ```
 
-- [ ] **Step 2: 修改 add_source 命令**
+- [x] **Step 2: 修改 add_source 命令**
 
 在 `add_source` 函数中，找到准备 config 的部分（约第 217-226 行），替换为：
 
@@ -1236,7 +1236,7 @@ async def _discover_rss_for_cli(site_url: str) -> Optional[str]:
             config = {"url": url}
 ```
 
-- [ ] **Step 3: 手动测试 CLI**
+- [x] **Step 3: 手动测试 CLI**
 
 ```bash
 # 测试自动发现（使用一个已知有 RSS 的网站）
@@ -1248,7 +1248,7 @@ uv run cyber-pulse source list --format yaml | grep -A5 "Test Discovery"
 
 Expected: 显示发现的 RSS URL
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add src/cyberpulse/cli/commands/source.py
@@ -1259,7 +1259,7 @@ git commit -m "feat: add RSS auto-discovery when adding sources"
 
 ## Task 7: 集成测试和验证
 
-- [ ] **Step 1: 运行全部测试**
+- [x] **Step 1: 运行全部测试**
 
 ```bash
 uv run pytest -v
@@ -1267,7 +1267,7 @@ uv run pytest -v
 
 Expected: 所有测试通过
 
-- [ ] **Step 2: 运行代码检查**
+- [x] **Step 2: 运行代码检查**
 
 ```bash
 uv run ruff check src/ tests/
@@ -1276,7 +1276,7 @@ uv run mypy src/ --ignore-missing-imports
 
 Expected: 无错误
 
-- [ ] **Step 3: 更新 CHANGELOG**
+- [x] **Step 3: 更新 CHANGELOG**
 
 在 `CHANGELOG.md` 中添加：
 
@@ -1294,7 +1294,7 @@ Expected: 无错误
 - Missing User-Agent header causing 403 errors
 ```
 
-- [ ] **Step 4: 最终提交**
+- [x] **Step 4: 最终提交**
 
 ```bash
 git add CHANGELOG.md

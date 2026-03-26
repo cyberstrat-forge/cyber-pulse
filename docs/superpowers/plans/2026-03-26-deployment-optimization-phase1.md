@@ -10,6 +10,51 @@
 
 ---
 
+## 任务依赖关系
+
+```
+Task 1 (CLI 移除)
+    │
+    ├──→ Task 2 (startup.py) ──→ Task 3 (auth.py)
+    │         │                        │
+    │         └────────────────────────┴──→ Task 4 (generate-env.sh)
+    │                                        │
+    │                                        └──→ Task 5 (cyber-pulse.sh)
+    │                                              │
+    └──────────────────────────────────────────────┘
+                       │
+                       ↓
+              Task 6 (api.sh 基础)
+                       │
+                       ↓
+              Task 7 (文档更新)
+                       │
+                       ↓
+              Task 8 (基本验证)
+                       │
+                       ↓
+              Task 9 (build-deploy-package.sh)
+                       │
+                       ↓
+              Task 10 (install.sh 用户分离)
+                       │
+                       ↓
+              Task 11 (api.sh 高级命令)
+                       │
+                       ↓
+              Task 12 (完整验证)
+```
+
+**执行顺序说明**:
+- Task 1 必须首先完成（移除 CLI 后才能验证其他功能）
+- Task 2-5 可并行执行（均为 Admin Key 机制重构，互不依赖）
+- Task 6 依赖 Task 1（api.sh 替代 CLI）
+- Task 7-8 依赖 Task 1-6（文档和验证需要功能完成）
+- Task 9-11 依赖 Task 6（高级功能基于 api.sh 基础）
+- Task 12 必须最后执行（完整验证所有功能）
+
+---
+
 ## 文件结构
 
 ### 删除
@@ -29,17 +74,69 @@
 
 ## Task 1: 移除 CLI 模块
 
+**Depends on:** 无（首个任务）
+
 **Files:**
 - Delete: `src/cyberpulse/cli/` (整个目录)
 - Modify: `pyproject.toml:35-37,58-59`
+- Test: `tests/test_cli_removal.py` (新建)
 
-- [ ] **Step 1: 删除 CLI 模块目录**
+- [ ] **Step 1: 编写测试验证 CLI 移除**
+
+创建测试文件 `tests/test_cli_removal.py`:
+
+```python
+"""Tests for CLI module removal verification."""
+
+import subprocess
+import sys
+
+
+class TestCLIRemoval:
+    """Verify CLI module has been completely removed."""
+
+    def test_cli_module_not_importable(self):
+        """CLI module should not be importable."""
+        result = subprocess.run(
+            [sys.executable, "-c", "import cyberpulse.cli"],
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode != 0, "CLI module should not be importable"
+        assert "No module named" in result.stderr or "cannot import" in result.stderr
+
+    def test_cyber_pulse_command_not_exists(self):
+        """cyber-pulse CLI command should not exist."""
+        result = subprocess.run(
+            ["cyber-pulse", "--help"],
+            capture_output=True,
+            text=True
+        )
+        # Command should fail (not found or exit with error)
+        assert result.returncode != 0
+
+    def test_cli_directory_not_exists(self):
+        """CLI directory should not exist."""
+        import pathlib
+        cli_dir = pathlib.Path("src/cyberpulse/cli")
+        assert not cli_dir.exists(), "CLI directory should be removed"
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+uv run pytest tests/test_cli_removal.py -v
+```
+
+Expected: 测试失败（CLI 模块仍存在）
+
+- [ ] **Step 3: 删除 CLI 模块目录**
 
 ```bash
 rm -rf src/cyberpulse/cli/
 ```
 
-- [ ] **Step 2: 修改 pyproject.toml 移除 CLI 入口点**
+- [ ] **Step 4: 修改 pyproject.toml 移除 CLI 入口点**
 
 删除第 58-59 行：
 ```diff
@@ -69,7 +166,7 @@ Homepage = "https://github.com/cyberstrat-forge/cyber-pulse"
 Repository = "https://github.com/cyberstrat-forge/cyber-pulse"
 ```
 
-- [ ] **Step 3: 修改 pyproject.toml 移除 CLI 依赖**
+- [ ] **Step 5: 修改 pyproject.toml 移除 CLI 依赖**
 
 从 `dependencies` 列表中移除 typer, rich, prompt-toolkit（第 35-37 行）：
 
@@ -100,31 +197,25 @@ dependencies = [
 ]
 ```
 
-- [ ] **Step 4: 验证 CLI 已移除**
+- [ ] **Step 6: 运行测试验证通过**
 
 ```bash
-# 检查目录不存在
-ls src/cyberpulse/cli/ 2>/dev/null && echo "FAIL: CLI 目录仍存在" || echo "PASS: CLI 目录已删除"
-
-# 检查 pyproject.toml 中无 CLI 入口点
-grep -n "cyberpulse.cli" pyproject.toml && echo "FAIL: CLI 入口点仍存在" || echo "PASS: CLI 入口点已移除"
-
-# 检查依赖已移除
-grep -E "typer|rich|prompt-toolkit" pyproject.toml && echo "FAIL: CLI 依赖仍存在" || echo "PASS: CLI 依赖已移除"
+uv run pytest tests/test_cli_removal.py -v
 ```
 
-Expected: 全部 PASS
+Expected: 所有测试通过
 
-- [ ] **Step 5: 提交 CLI 移除**
+- [ ] **Step 7: 提交 CLI 移除**
 
 ```bash
-git add pyproject.toml
+git add pyproject.toml tests/test_cli_removal.py
 git add -u src/cyberpulse/cli/
 git commit -m "refactor: remove CLI module
 
 - Delete src/cyberpulse/cli/ directory
 - Remove [project.scripts] entry point from pyproject.toml
 - Remove typer, rich, prompt-toolkit dependencies
+- Add tests to verify CLI removal
 
 CLI is replaced by scripts/api.sh for API management"
 ```
@@ -133,8 +224,11 @@ CLI is replaced by scripts/api.sh for API management"
 
 ## Task 2: 重构管理员 Key 机制 - startup.py
 
+**Depends on:** Task 1 (CLI 移除)
+
 **Files:**
 - Modify: `src/cyberpulse/api/startup.py`
+- Test: `tests/test_startup.py` (新建)
 
 - [ ] **Step 1: 编写测试用例**
 
@@ -347,10 +441,88 @@ git commit -m "feat(api): generate and output admin key on first run
 
 ## Task 3: 重构管理员 Key 机制 - auth.py
 
+**Depends on:** Task 2 (startup.py 已实现 Admin Key 生成)
+
 **Files:**
 - Modify: `src/cyberpulse/api/auth.py`
+- Test: `tests/test_api_auth.py` (补充测试)
 
-- [ ] **Step 1: 添加 reset_admin_key 方法到 ApiClientService**
+- [ ] **Step 1: 编写 reset_admin_key 测试用例**
+
+在 `tests/test_api_auth.py` 中添加测试类：
+
+```python
+class TestResetAdminKey:
+    """Tests for reset_admin_key functionality."""
+
+    def test_reset_admin_key_success(self, db_session):
+        """Should reset admin key and return new plain key."""
+        # Create existing admin
+        from cyberpulse.api.auth import hash_api_key, generate_api_key
+        old_key = generate_api_key()
+        admin = ApiClient(
+            client_id="cli_admin01",
+            name="Admin",
+            api_key=hash_api_key(old_key),
+            status=ApiClientStatus.ACTIVE,
+            permissions=["admin", "read"],
+        )
+        db_session.add(admin)
+        db_session.commit()
+
+        # Reset key
+        from cyberpulse.api.auth import ApiClientService
+        service = ApiClientService(db_session)
+        result = service.reset_admin_key()
+
+        assert result is not None
+        client, new_key = result
+        assert client.client_id == "cli_admin01"
+        assert new_key.startswith("cp_live_")
+        assert new_key != old_key
+
+        # Verify new key works
+        from cyberpulse.api.auth import verify_api_key
+        assert verify_api_key(new_key, client.api_key)
+
+    def test_reset_admin_key_no_admin_exists(self, db_session):
+        """Should return None if no admin client exists."""
+        from cyberpulse.api.auth import ApiClientService
+        service = ApiClientService(db_session)
+        result = service.reset_admin_key()
+        assert result is None
+
+    def test_old_key_invalid_after_reset(self, db_session):
+        """Old key should be invalid after reset."""
+        from cyberpulse.api.auth import hash_api_key, generate_api_key, ApiClientService, verify_api_key
+        old_key = generate_api_key()
+        admin = ApiClient(
+            client_id="cli_admin02",
+            name="Admin",
+            api_key=hash_api_key(old_key),
+            status=ApiClientStatus.ACTIVE,
+            permissions=["admin"],
+        )
+        db_session.add(admin)
+        db_session.commit()
+
+        service = ApiClientService(db_session)
+        service.reset_admin_key()
+
+        # Old key should no longer verify
+        db_session.refresh(admin)
+        assert not verify_api_key(old_key, admin.api_key)
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+uv run pytest tests/test_api_auth.py::TestResetAdminKey -v
+```
+
+Expected: 测试失败（方法未实现）
+
+- [ ] **Step 3: 添加 reset_admin_key 方法到 ApiClientService**
 
 在 `ApiClientService` 类中添加 `reset_admin_key` 方法（在 `rotate_key` 方法后）：
 
@@ -385,37 +557,89 @@ git commit -m "feat(api): generate and output admin key on first run
             raise
 ```
 
-- [ ] **Step 2: 移除 get_plain_key 方法**
+- [ ] **Step 4: 移除 get_plain_key 方法**
 
 删除 `get_plain_key` 方法（第 390-412 行），因为它依赖于环境变量中的明文 Key，与新的设计不符。
 
-- [ ] **Step 3: 验证修改**
+- [ ] **Step 5: 运行测试验证通过**
 
 ```bash
-uv run pytest tests/test_api_auth.py -v 2>/dev/null || uv run pytest tests/ -k "auth" -v
+uv run pytest tests/test_api_auth.py -v
 ```
 
-Expected: 测试通过
+Expected: 所有测试通过
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 6: 提交**
 
 ```bash
-git add src/cyberpulse/api/auth.py
+git add src/cyberpulse/api/auth.py tests/test_api_auth.py
 git commit -m "refactor(auth): add reset_admin_key, remove get_plain_key
 
 - Add reset_admin_key() for admin key reset functionality
 - Remove get_plain_key() which relied on env variable storage
-- Admin key is now database-only (bcrypt hashed)"
+- Admin key is now database-only (bcrypt hashed)
+- Add tests for reset_admin_key"
 ```
 
 ---
 
 ## Task 4: 重构管理员 Key 机制 - generate-env.sh
 
+**Depends on:** Task 3 (auth.py 已实现 reset_admin_key)
+
 **Files:**
 - Modify: `deploy/init/generate-env.sh`
+- Test: Shell 脚本语法验证
 
-- [ ] **Step 1: 移除 ADMIN_API_KEY 生成**
+- [ ] **Step 1: 编写验证测试**
+
+创建测试脚本 `tests/test_generate_env.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Tests for generate-env.sh modifications
+
+set -e
+
+SCRIPT_PATH="deploy/init/generate-env.sh"
+
+echo "Testing generate-env.sh..."
+
+# Test 1: Script syntax is valid
+echo -n "  Syntax check... "
+bash -n "$SCRIPT_PATH" && echo "PASS" || { echo "FAIL"; exit 1; }
+
+# Test 2: No ADMIN_API_KEY in output
+echo -n "  No ADMIN_API_KEY in script... "
+if grep -q "ADMIN_API_KEY" "$SCRIPT_PATH"; then
+    echo "FAIL: ADMIN_API_KEY still present"
+    exit 1
+else
+    echo "PASS"
+fi
+
+# Test 3: No generate_admin_api_key function
+echo -n "  No generate_admin_api_key function... "
+if grep -q "generate_admin_api_key" "$SCRIPT_PATH"; then
+    echo "FAIL: generate_admin_api_key function still present"
+    exit 1
+else
+    echo "PASS"
+fi
+
+echo "All tests passed!"
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+chmod +x tests/test_generate_env.sh
+./tests/test_generate_env.sh
+```
+
+Expected: 测试失败（ADMIN_API_KEY 仍存在）
+
+- [ ] **Step 3: 移除 ADMIN_API_KEY 生成**
 
 删除 `generate_admin_api_key` 函数（第 60-65 行）和相关调用：
 
@@ -428,7 +652,7 @@ git commit -m "refactor(auth): add reset_admin_key, remove get_plain_key
 - }
 ```
 
-- [ ] **Step 2: 移除 generate_env_file 中的 admin_api_key 变量和生成逻辑**
+- [ ] **Step 4: 移除 generate_env_file 中的 admin_api_key 变量和生成逻辑**
 
 修改 `generate_env_file` 函数：
 
@@ -447,7 +671,7 @@ git commit -m "refactor(auth): add reset_admin_key, remove get_plain_key
 -     admin_api_key=$(generate_admin_api_key)
 ```
 
-- [ ] **Step 3: 从 .env 模板中移除 ADMIN_API_KEY**
+- [ ] **Step 5: 从 .env 模板中移除 ADMIN_API_KEY**
 
 修改 cat heredoc 部分（删除 ADMIN_API_KEY 相关行）：
 
@@ -464,7 +688,7 @@ git commit -m "refactor(auth): add reset_admin_key, remove get_plain_key
   LOG_LEVEL=INFO
 ```
 
-- [ ] **Step 4: 更新输出摘要**
+- [ ] **Step 6: 更新输出摘要**
 
 修改输出摘要部分（删除 Admin API Key 相关行）：
 
@@ -486,32 +710,94 @@ git commit -m "refactor(auth): add reset_admin_key, remove get_plain_key
 +     echo "  4. 如需重置 Key，请运行: ./scripts/cyber-pulse.sh admin reset"
 ```
 
-- [ ] **Step 5: 验证脚本语法**
+- [ ] **Step 7: 运行测试验证通过**
 
 ```bash
-bash -n deploy/init/generate-env.sh && echo "PASS: 语法正确" || echo "FAIL: 语法错误"
+./tests/test_generate_env.sh
 ```
 
-Expected: PASS
+Expected: 所有测试通过
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 8: 提交**
 
 ```bash
-git add deploy/init/generate-env.sh
+git add deploy/init/generate-env.sh tests/test_generate_env.sh
 git commit -m "refactor(deploy): remove ADMIN_API_KEY from .env generation
 
 Admin API Key is now generated on first API startup and output
-to terminal once. No longer stored in .env file."
+to terminal once. No longer stored in .env file.
+
+Add shell test to verify removal."
 ```
 
 ---
 
 ## Task 5: 重构管理员 Key 机制 - cyber-pulse.sh
 
+**Depends on:** Task 4 (generate-env.sh 已移除 ADMIN_API_KEY)
+
 **Files:**
 - Modify: `scripts/cyber-pulse.sh`
+- Test: Shell 脚本功能验证
 
-- [ ] **Step 1: 修改 cmd_admin 函数**
+- [ ] **Step 1: 编写 admin reset 功能测试**
+
+创建测试脚本 `tests/test_admin_reset.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Tests for cyber-pulse.sh admin reset command
+
+set -e
+
+SCRIPT_PATH="scripts/cyber-pulse.sh"
+
+echo "Testing cyber-pulse.sh admin commands..."
+
+# Test 1: Script syntax is valid
+echo -n "  Syntax check... "
+bash -n "$SCRIPT_PATH" && echo "PASS" || { echo "FAIL"; exit 1; }
+
+# Test 2: No show-key command
+echo -n "  No show-key command... "
+if grep -q "show-key\|show_key" "$SCRIPT_PATH"; then
+    echo "FAIL: show-key still present"
+    exit 1
+else
+    echo "PASS"
+fi
+
+# Test 3: No rotate-key command
+echo -n "  No rotate-key command... "
+if grep -q "rotate-key\|rotate_key" "$SCRIPT_PATH"; then
+    echo "FAIL: rotate-key still present"
+    exit 1
+else
+    echo "PASS"
+fi
+
+# Test 4: Has reset command
+echo -n "  Has reset command... "
+if grep -q "cmd_admin_reset\|admin reset" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: reset command not found"
+    exit 1
+fi
+
+echo "All tests passed!"
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+chmod +x tests/test_admin_reset.sh
+./tests/test_admin_reset.sh
+```
+
+Expected: 测试失败（show-key/rotate-key 仍存在）
+
+- [ ] **Step 3: 修改 cmd_admin 函数**
 
 替换 `cmd_admin` 函数（第 1015-1034 行）：
 
@@ -655,33 +941,130 @@ print_admin_help() {
 + echo "                      reset              重置 Admin API Key"
 ```
 
-- [ ] **Step 6: 验证脚本语法**
+- [ ] **Step 6: 运行测试验证通过**
 
 ```bash
-bash -n scripts/cyber-pulse.sh && echo "PASS: 语法正确" || echo "FAIL: 语法错误"
+./tests/test_admin_reset.sh
 ```
 
-Expected: PASS
+Expected: 所有测试通过
 
 - [ ] **Step 7: 提交**
 
 ```bash
-git add scripts/cyber-pulse.sh
+git add scripts/cyber-pulse.sh tests/test_admin_reset.sh
 git commit -m "refactor(scripts): replace admin show-key/rotate-key with reset
 
 - Remove show-key and rotate-key commands (key no longer in .env)
 - Add reset command that generates new key and outputs to terminal
-- Admin key reset is done via in-container Python execution"
+- Admin key reset is done via in-container Python execution
+- Add shell test for admin commands"
 ```
 
 ---
 
 ## Task 6: 创建 api.sh 管理脚本
 
+**Depends on:** Task 1 (CLI 移除), Task 5 (cyber-pulse.sh admin reset 已实现)
+
 **Files:**
 - Create: `scripts/api.sh`
+- Test: Shell 脚本功能验证
 
-- [ ] **Step 1: 创建 api.sh 脚本（第一部分：头部和配置）**
+- [ ] **Step 1: 编写 api.sh 功能测试**
+
+创建测试脚本 `tests/test_api_sh.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Tests for api.sh script
+
+set -e
+
+SCRIPT_PATH="scripts/api.sh"
+
+echo "Testing api.sh..."
+
+# Test 1: Script exists and is executable
+echo -n "  Script exists... "
+if [[ -f "$SCRIPT_PATH" ]]; then
+    echo "PASS"
+else
+    echo "FAIL: Script not found"
+    exit 1
+fi
+
+# Test 2: Script syntax is valid
+echo -n "  Syntax check... "
+bash -n "$SCRIPT_PATH" && echo "PASS" || { echo "FAIL"; exit 1; }
+
+# Test 3: Has configure command
+echo -n "  Has configure command... "
+if grep -q "cmd_configure" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: configure command not found"
+    exit 1
+fi
+
+# Test 4: Has sources commands
+echo -n "  Has sources commands... "
+if grep -q "cmd_sources_list\|cmd_sources_get\|cmd_sources_create" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: sources commands not found"
+    exit 1
+fi
+
+# Test 5: Has jobs commands
+echo -n "  Has jobs commands... "
+if grep -q "cmd_jobs_list\|cmd_jobs_run" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: jobs commands not found"
+    exit 1
+fi
+
+# Test 6: Has clients commands
+echo -n "  Has clients commands... "
+if grep -q "cmd_clients_list\|cmd_clients_create" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: clients commands not found"
+    exit 1
+fi
+
+# Test 7: Has diagnose command
+echo -n "  Has diagnose command... "
+if grep -q "cmd_diagnose" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: diagnose command not found"
+    exit 1
+fi
+
+# Test 8: Help command works
+echo -n "  Help command works... "
+if bash "$SCRIPT_PATH" help 2>&1 | grep -q "configure"; then
+    echo "PASS"
+else
+    echo "FAIL: help command not working"
+    exit 1
+fi
+
+echo "All tests passed!"
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+chmod +x tests/test_api_sh.sh
+./tests/test_api_sh.sh
+```
+
+Expected: 测试失败（脚本不存在）
+
+- [ ] **Step 3: 创建 api.sh 脚本（第一部分：头部和配置）**
 
 ```bash
 #!/usr/bin/env bash
@@ -953,7 +1336,7 @@ cmd_sources_list() {
         if .data then
             ["ID", "Name", "Type", "Status", "Tier", "Scheduled"],
             ["--", "----", "----", "------", "----", "---------"],
-            (.data[] | [.source_id, .name, .connector_type, .status, .tier, (.is_scheduled | if true then "Yes" else "No" end)])
+            (.data[] | [.source_id, .name, .connector_type, .status, .tier, (if .schedule_interval != null then "Yes" else "No" end)])
             | @tsv
         else
             .[]
@@ -1600,32 +1983,24 @@ main() {
 main "$@"
 ```
 
-- [ ] **Step 5: 设置脚本权限**
+- [ ] **Step 6: 设置脚本权限**
 
 ```bash
 chmod +x scripts/api.sh
 ```
 
-- [ ] **Step 6: 验证脚本语法**
+- [ ] **Step 7: 运行测试验证通过**
 
 ```bash
-bash -n scripts/api.sh && echo "PASS: 语法正确" || echo "FAIL: 语法错误"
+./tests/test_api_sh.sh
 ```
 
-Expected: PASS
-
-- [ ] **Step 7: 测试帮助命令**
-
-```bash
-./scripts/api.sh help
-```
-
-Expected: 显示帮助信息
+Expected: 所有测试通过
 
 - [ ] **Step 8: 提交**
 
 ```bash
-git add scripts/api.sh
+git add scripts/api.sh tests/test_api_sh.sh
 git commit -m "feat(scripts): add api.sh management script
 
 Pure Bash script for API management:
@@ -1637,12 +2012,16 @@ Pure Bash script for API management:
 - logs: Log viewing with filters
 - diagnose: System health check
 
-Uses curl + jq, stores config in ~/.config/cyber-pulse/config"
+Uses curl + jq, stores config in ~/.config/cyber-pulse/config
+
+Add shell tests for script verification"
 ```
 
 ---
 
 ## Task 7: 更新 CLAUDE.md 文档
+
+**Depends on:** Task 6 (api.sh 已创建)
 
 **Files:**
 - Modify: `CLAUDE.md`
@@ -1704,6 +2083,18 @@ Uses curl + jq, stores config in ~/.config/cyber-pulse/config"
  ```
 ```
 
+- [ ] **Step 2: 验证文档更新**
+
+```bash
+# 检查 CLI 命令已移除
+grep -q "cyber-pulse --help" CLAUDE.md && echo "FAIL: CLI 命令仍存在" || echo "PASS"
+
+# 检查 api.sh 命令已添加
+grep -q "api.sh configure" CLAUDE.md && echo "PASS" || echo "FAIL: api.sh 命令未添加"
+```
+
+Expected: 全部 PASS
+
 - [ ] **Step 3: 提交**
 
 ```bash
@@ -1716,7 +2107,9 @@ git commit -m "docs: update CLAUDE.md for CLI removal
 
 ---
 
-## Task 8: 验证清单
+## Task 8: 基本验证
+
+**Depends on:** Task 1-7 (所有前置任务完成)
 
 - [ ] **Step 1: 验证 CLI 完全移除**
 
@@ -1745,7 +2138,7 @@ test -x scripts/api.sh && echo "PASS" || echo "FAIL"
 
 Expected: 全部 PASS
 
-- [ ] **Step 3: 运行测试**
+- [ ] **Step 3: 运行所有测试**
 
 ```bash
 uv run pytest tests/ -v --tb=short
@@ -1753,7 +2146,1199 @@ uv run pytest tests/ -v --tb=short
 
 Expected: 所有测试通过
 
-- [ ] **Step 4: 提交最终验证**
+- [ ] **Step 4: 提交验证结果**
+
+```bash
+git add -A
+git status
+```
+
+确认没有未跟踪或未提交的文件。
+
+---
+
+## Task 9: 创建运维部署包构建脚本
+
+**Depends on:** Task 6 (api.sh 已创建), Task 8 (基本验证通过)
+
+**Files:**
+- Create: `scripts/build-deploy-package.sh`
+- Test: Shell 脚本功能验证
+
+**背景:** 设计文档要求支持用户分离：开发者获取完整代码库，运维人员仅获取部署管理包。
+
+- [ ] **Step 1: 编写构建脚本测试**
+
+创建测试脚本 `tests/test_build_deploy_package.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Tests for build-deploy-package.sh
+
+set -e
+
+SCRIPT_PATH="scripts/build-deploy-package.sh"
+
+echo "Testing build-deploy-package.sh..."
+
+# Test 1: Script exists
+echo -n "  Script exists... "
+if [[ -f "$SCRIPT_PATH" ]]; then
+    echo "PASS"
+else
+    echo "FAIL"
+    exit 1
+fi
+
+# Test 2: Script is executable
+echo -n "  Script is executable... "
+if [[ -x "$SCRIPT_PATH" ]]; then
+    echo "PASS"
+else
+    echo "FAIL"
+    exit 1
+fi
+
+# Test 3: Script syntax valid
+echo -n "  Syntax check... "
+bash -n "$SCRIPT_PATH" && echo "PASS" || { echo "FAIL"; exit 1; }
+
+# Test 4: Has required functions
+echo -n "  Has check_required_files... "
+grep -q "check_required_files" "$SCRIPT_PATH" && echo "PASS" || { echo "FAIL"; exit 1; }
+
+echo -n "  Has create_archive... "
+grep -q "create_archive" "$SCRIPT_PATH" && echo "PASS" || { echo "FAIL"; exit 1; }
+
+# Test 5: Excludes src/ tests/ docs/
+echo -n "  Excludes src/ from package... "
+if grep -q "src/" "$SCRIPT_PATH" && ! grep -q '"src/' "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: src/ might be included"
+    exit 1
+fi
+
+echo "All tests passed!"
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+chmod +x tests/test_build_deploy_package.sh
+./tests/test_build_deploy_package.sh
+```
+
+Expected: 测试失败（脚本不存在）
+
+- [ ] **Step 3: 创建 build-deploy-package.sh 脚本**
+
+```bash
+#!/usr/bin/env bash
+#
+# build-deploy-package.sh - 构建运维部署包
+#
+# 功能:
+#   从完整代码库中提取运维人员所需的部署文件，生成轻量级部署包
+#
+# 使用:
+#   ./scripts/build-deploy-package.sh [--version VERSION]
+#
+# 输出:
+#   cyber-pulse-deploy-{VERSION}.tar.gz
+#
+
+set -euo pipefail
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# 项目根目录
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# 默认版本号
+VERSION="${1:-}"
+
+# 输出文件名
+if [[ -n "$VERSION" ]]; then
+    OUTPUT_FILE="cyber-pulse-deploy-${VERSION}.tar.gz"
+else
+    OUTPUT_FILE="cyber-pulse-deploy-$(date +%Y%m%d%H%M%S).tar.gz"
+fi
+
+# 部署包包含的文件
+DEPLOY_FILES=(
+    "scripts/cyber-pulse.sh"
+    "scripts/api.sh"
+    "deploy/"
+    "sources.yaml"
+    "install-ops.sh"
+)
+
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+}
+
+# 检查必需文件
+check_required_files() {
+    print_info "检查必需文件..."
+
+    local missing=()
+    for file in "${DEPLOY_FILES[@]}"; do
+        if [[ ! -e "$PROJECT_ROOT/$file" ]] && [[ "$file" != "install-ops.sh" ]]; then
+            missing+=("$file")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        print_error "缺少必需文件: ${missing[*]}"
+        exit 1
+    fi
+
+    print_success "所有必需文件存在"
+}
+
+# 创建临时目录
+create_temp_dir() {
+    TEMP_DIR=$(mktemp -d)
+    trap "rm -rf $TEMP_DIR" EXIT
+    print_info "临时目录: $TEMP_DIR"
+}
+
+# 复制文件到临时目录
+copy_files() {
+    print_info "复制部署文件..."
+
+    mkdir -p "$TEMP_DIR/cyber-pulse"
+
+    for file in "${DEPLOY_FILES[@]}"; do
+        if [[ -e "$PROJECT_ROOT/$file" ]]; then
+            # 创建父目录
+            parent_dir=$(dirname "$file")
+            if [[ "$parent_dir" != "." ]]; then
+                mkdir -p "$TEMP_DIR/cyber-pulse/$parent_dir"
+            fi
+            cp -r "$PROJECT_ROOT/$file" "$TEMP_DIR/cyber-pulse/$file"
+        fi
+    done
+
+    # 创建 sources.yaml 示例文件（如果不存在）
+    if [[ ! -f "$TEMP_DIR/cyber-pulse/sources.yaml" ]]; then
+        cat > "$TEMP_DIR/cyber-pulse/sources.yaml" << 'EOF'
+# Cyber Pulse 情报源配置
+# 格式参考: docs/source-config-examples.md
+
+sources: []
+EOF
+    fi
+
+    print_success "文件复制完成"
+}
+
+# 创建 install-ops.sh（运维安装脚本）
+create_install_ops() {
+    print_info "创建运维安装脚本..."
+
+    cat > "$TEMP_DIR/cyber-pulse/install-ops.sh" << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+#
+# Cyber Pulse 运维安装脚本
+# 用于从部署包安装（非 git clone 方式）
+#
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+INSTALL_DIR="${1:-cyber-pulse}"
+
+info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+
+main() {
+    echo ""
+    echo "========================================"
+    echo "   Cyber Pulse 运维安装"
+    echo "========================================"
+    echo ""
+
+    # 检查当前目录是否为部署包目录
+    if [[ ! -f "scripts/cyber-pulse.sh" ]]; then
+        error "请在部署包根目录运行此脚本"
+        exit 1
+    fi
+
+    info "安装目录: $INSTALL_DIR"
+
+    # 如果指定了不同的安装目录，复制文件
+    if [[ "$INSTALL_DIR" != "." ]] && [[ "$INSTALL_DIR" != "cyber-pulse" ]]; then
+        info "复制文件到 $INSTALL_DIR..."
+        mkdir -p "$INSTALL_DIR"
+        cp -r scripts deploy sources.yaml "$INSTALL_DIR/" 2>/dev/null || true
+        cd "$INSTALL_DIR"
+    fi
+
+    # 检查依赖
+    info "检查依赖..."
+    local missing=()
+
+    command -v docker &>/dev/null || missing+=("docker")
+    command -v docker-compose &>/dev/null || command -v docker &>/dev/null && docker compose version &>/dev/null || missing+=("docker-compose")
+    command -v curl &>/dev/null || missing+=("curl")
+    command -v jq &>/dev/null || missing+=("jq")
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        error "缺少依赖: ${missing[*]}"
+        echo ""
+        echo "安装依赖:"
+        echo "  Docker:       https://docs.docker.com/get-docker/"
+        echo "  Docker Compose: https://docs.docker.com/compose/install/"
+        echo "  curl:         通常已预装"
+        echo "  jq:           apt install jq / brew install jq"
+        exit 1
+    fi
+
+    success "依赖检查通过"
+
+    # 设置脚本权限
+    chmod +x scripts/cyber-pulse.sh scripts/api.sh
+
+    echo ""
+    success "安装完成!"
+    echo ""
+    echo "下一步操作:"
+    echo ""
+    echo "  1. 部署服务:"
+    echo "     ./scripts/cyber-pulse.sh deploy --env prod"
+    echo ""
+    echo "  2. 配置管理脚本:"
+    echo "     ./scripts/api.sh configure"
+    echo ""
+    echo "  3. 管理命令:"
+    echo "     ./scripts/api.sh diagnose"
+    echo "     ./scripts/api.sh sources list"
+    echo ""
+}
+
+main "$@"
+INSTALL_SCRIPT
+
+    chmod +x "$TEMP_DIR/cyber-pulse/install-ops.sh"
+    print_success "运维安装脚本创建完成"
+}
+
+# 创建 README
+create_readme() {
+    print_info "创建部署包 README..."
+
+    cat > "$TEMP_DIR/cyber-pulse/README.md" << 'EOF'
+# Cyber Pulse 部署包
+
+本部署包仅包含运维部署所需的文件，不包含源代码和测试文件。
+
+## 目录结构
+
+```
+cyber-pulse/
+├── scripts/
+│   ├── cyber-pulse.sh      # 部署脚本
+│   └── api.sh              # API 管理脚本
+├── deploy/
+│   ├── docker-compose.yml
+│   └── init/
+├── sources.yaml            # 情报源配置
+├── install-ops.sh          # 运维安装脚本
+└── README.md
+```
+
+## 快速开始
+
+### 1. 安装
+
+```bash
+./install-ops.sh
+```
+
+### 2. 部署
+
+```bash
+./scripts/cyber-pulse.sh deploy --env prod
+```
+
+### 3. 配置 API 管理
+
+```bash
+./scripts/api.sh configure
+```
+
+### 4. 日常管理
+
+```bash
+./scripts/api.sh diagnose        # 系统诊断
+./scripts/api.sh sources list    # 情报源列表
+./scripts/api.sh jobs run src_xxx  # 运行采集
+```
+
+## 注意事项
+
+- Admin API Key 在首次部署时自动生成并输出到终端
+- 请妥善保存 Admin Key，忘记后需使用 `admin reset` 重置
+- 详细文档: https://github.com/cyberstrat-forge/cyber-pulse
+EOF
+
+    print_success "README 创建完成"
+}
+
+# 打包
+create_archive() {
+    print_info "创建部署包..."
+
+    cd "$TEMP_DIR"
+    tar -czf "$PROJECT_ROOT/$OUTPUT_FILE" cyber-pulse
+
+    local size
+    size=$(du -h "$PROJECT_ROOT/$OUTPUT_FILE" | cut -f1)
+
+    print_success "部署包创建完成: $OUTPUT_FILE ($size)"
+}
+
+# 显示完成信息
+show_completion() {
+    echo ""
+    echo "========================================"
+    print_success "部署包构建完成!"
+    echo "========================================"
+    echo ""
+    echo "输出文件: $OUTPUT_FILE"
+    echo ""
+    echo "运维人员安装方式:"
+    echo ""
+    echo "  1. 下载部署包"
+    echo "  2. 解压: tar -xzf $OUTPUT_FILE"
+    echo "  3. 进入目录: cd cyber-pulse"
+    echo "  4. 安装: ./install-ops.sh"
+    echo ""
+}
+
+# 主函数
+main() {
+    echo ""
+    echo "========================================"
+    echo "   Cyber Pulse 部署包构建"
+    echo "========================================"
+    echo ""
+
+    check_required_files
+    create_temp_dir
+    copy_files
+    create_install_ops
+    create_readme
+    create_archive
+    show_completion
+}
+
+main
+```
+
+- [ ] **Step 4: 设置脚本权限**
+
+```bash
+chmod +x scripts/build-deploy-package.sh
+```
+
+- [ ] **Step 5: 运行测试验证通过**
+
+```bash
+./tests/test_build_deploy_package.sh
+```
+
+Expected: 所有测试通过
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add scripts/build-deploy-package.sh tests/test_build_deploy_package.sh
+git commit -m "feat(scripts): add build-deploy-package.sh for ops package
+
+Creates lightweight deployment package containing:
+- scripts/cyber-pulse.sh (deployment)
+- scripts/api.sh (API management)
+- deploy/ directory
+- install-ops.sh (ops installation script)
+- README.md
+
+Excludes src/, tests/, docs/ for ops personnel
+
+Add shell tests for script verification"
+```
+
+---
+
+## Task 10: 修改 install.sh 支持用户分离
+
+**Depends on:** Task 9 (build-deploy-package.sh 已创建)
+
+**Files:**
+- Modify: `install.sh`
+- Test: Shell 脚本功能验证
+
+**背景:** 设计文档要求开发者使用 `git clone`，运维人员使用轻量部署包。现有 install.sh 不支持用户类型选择。
+
+- [ ] **Step 1: 编写用户分离测试**
+
+创建测试脚本 `tests/test_install_user_types.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Tests for install.sh user type separation
+
+set -e
+
+SCRIPT_PATH="install.sh"
+
+echo "Testing install.sh user types..."
+
+# Test 1: Script syntax valid
+echo -n "  Syntax check... "
+bash -n "$SCRIPT_PATH" && echo "PASS" || { echo "FAIL"; exit 1; }
+
+# Test 2: Has --type option
+echo -n "  Has --type option... "
+if grep -q "\-\-type\|USER_TYPE" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: --type option not found"
+    exit 1
+fi
+
+# Test 3: Has developer mode
+echo -n "  Has developer mode... "
+if grep -q "developer" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: developer mode not found"
+    exit 1
+fi
+
+# Test 4: Has ops mode
+echo -n "  Has ops mode... "
+if grep -q "ops" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: ops mode not found"
+    exit 1
+fi
+
+# Test 5: Has install_ops_package function
+echo -n "  Has install_ops_package function... "
+if grep -q "install_ops_package" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: install_ops_package function not found"
+    exit 1
+fi
+
+echo "All tests passed!"
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+chmod +x tests/test_install_user_types.sh
+./tests/test_install_user_types.sh
+```
+
+Expected: 测试失败（--type 选项不存在）
+
+- [ ] **Step 3: 添加用户类型选项**
+
+修改 `install.sh`，在 `parse_args` 函数中添加 `--type` 选项：
+
+```bash
+# 在 parse_args 函数开头添加
+USER_TYPE="developer"  # developer 或 ops
+
+# 在 while 循环中添加
+            --type)
+                USER_TYPE="$2"
+                shift 2
+                ;;
+```
+
+完整修改后的 `parse_args` 函数：
+
+```bash
+parse_args() {
+    INSTALL_DIR="$DEFAULT_DIR"
+    VERSION=""
+    BRANCH="$DEFAULT_BRANCH"
+    USER_TYPE="developer"  # developer 或 ops
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -d|--dir)
+                INSTALL_DIR="$2"
+                shift 2
+                ;;
+            -v|--version)
+                VERSION="$2"
+                shift 2
+                ;;
+            -b|--branch)
+                BRANCH="$2"
+                shift 2
+                ;;
+            --type)
+                USER_TYPE="$2"
+                shift 2
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                error "未知选项: $1"
+                echo ""
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+}
+```
+
+- [ ] **Step 2: 更新帮助信息**
+
+修改 `show_help` 函数：
+
+```bash
+show_help() {
+    cat << EOF
+Cyber Pulse 一键安装脚本
+
+用法:
+  $0 [选项]
+
+选项:
+  -d, --dir DIR       安装目录 (默认: ${DEFAULT_DIR})
+  -v, --version TAG   安装指定版本标签 (如: v1.2.0)
+  -b, --branch BRANCH 安装指定分支 (默认: ${DEFAULT_BRANCH})
+  --type TYPE         用户类型: developer 或 ops (默认: developer)
+                      - developer: 完整代码库 (git clone)
+                      - ops: 仅部署文件 (轻量级)
+  -h, --help          显示此帮助信息
+
+示例:
+  # 开发者安装（默认）- 获取完整代码库
+  $0
+
+  # 运维人员安装 - 仅获取部署文件
+  $0 --type ops
+
+  # 安装到指定目录
+  $0 --dir /opt/cyber-pulse
+
+  # 安装指定版本
+  $0 --version v1.2.0
+
+更多信息请访问: https://github.com/cyberstrat-forge/cyber-pulse
+EOF
+}
+```
+
+- [ ] **Step 5: 添加运维人员安装函数**
+
+在 `switch_version` 函数后添加：
+
+```bash
+# 运维人员安装（下载轻量部署包）
+install_ops_package() {
+    info "运维模式: 下载部署包..."
+
+    local download_url
+    if [[ -n "${VERSION}" ]]; then
+        download_url="https://github.com/cyberstrat-forge/cyber-pulse/releases/download/${VERSION}/cyber-pulse-deploy-${VERSION}.tar.gz"
+    else
+        download_url="https://github.com/cyberstrat-forge/cyber-pulse/releases/latest/download/cyber-pulse-deploy-latest.tar.gz"
+    fi
+
+    info "下载地址: ${download_url}"
+
+    # 下载部署包
+    local temp_file="/tmp/cyber-pulse-deploy.tar.gz"
+    if ! curl -fsSL "${download_url}" -o "${temp_file}"; then
+        error "下载部署包失败"
+        echo ""
+        echo "可能的原因:"
+        echo "  1. 版本不存在"
+        echo "  2. 网络问题"
+        echo ""
+        echo "请尝试使用开发者模式: $0 --type developer"
+        exit 1
+    fi
+
+    # 解压
+    info "解压部署包..."
+    mkdir -p "${INSTALL_DIR}"
+    if ! tar -xzf "${temp_file}" -C "$(dirname "${INSTALL_DIR}")"; then
+        error "解压失败"
+        rm -f "${temp_file}"
+        exit 1
+    fi
+
+    # 清理临时文件
+    rm -f "${temp_file}"
+
+    success "部署包安装完成"
+}
+```
+
+- [ ] **Step 6: 修改 main 函数支持用户类型**
+
+修改 `main` 函数：
+
+```bash
+main() {
+    echo ""
+    echo "========================================"
+    echo "   Cyber Pulse 安装脚本"
+    echo "========================================"
+    echo ""
+
+    parse_args "$@"
+    check_dependencies
+
+    if [[ "${USER_TYPE}" == "ops" ]]; then
+        # 运维人员安装
+        check_directory
+        install_ops_package
+    else
+        # 开发者安装
+        check_directory
+        clone_repository
+        switch_version
+    fi
+
+    show_completion
+}
+```
+
+- [ ] **Step 7: 更新完成信息**
+
+修改 `show_completion` 函数，支持不同用户类型：
+
+```bash
+show_completion() {
+    local install_path
+    install_path="$(cd "${INSTALL_DIR}" 2>/dev/null && pwd)" || install_path="${INSTALL_DIR}"
+
+    echo ""
+    echo "========================================"
+    success "Cyber Pulse 安装完成!"
+    echo "========================================"
+    echo ""
+    echo "安装位置: ${install_path}"
+    echo "用户类型: ${USER_TYPE}"
+    echo ""
+    echo "下一步操作:"
+    echo ""
+
+    if [[ "${USER_TYPE}" == "ops" ]]; then
+        echo "  1. 进入项目目录:"
+        echo "     cd ${INSTALL_DIR}"
+        echo ""
+        echo "  2. 部署服务:"
+        echo "     ./scripts/cyber-pulse.sh deploy --env prod"
+        echo ""
+        echo "  3. 配置 API 管理:"
+        echo "     ./scripts/api.sh configure"
+        echo ""
+    else
+        echo "  1. 进入项目目录:"
+        echo "     cd ${INSTALL_DIR}"
+        echo ""
+        echo "  2. 开发环境部署（本地构建）:"
+        echo "     ./scripts/cyber-pulse.sh deploy --env dev --local"
+        echo ""
+        echo "  3. 测试环境部署（本地构建）:"
+        echo "     ./scripts/cyber-pulse.sh deploy --env test --local"
+        echo ""
+        echo "  4. 生产环境部署（远程镜像）:"
+        echo "     ./scripts/cyber-pulse.sh deploy --env prod"
+        echo ""
+    fi
+
+    echo "API 管理:"
+    echo "  ./scripts/api.sh configure       # 配置 API"
+    echo "  ./scripts/api.sh diagnose         # 系统诊断"
+    echo "  ./scripts/api.sh sources list     # 情报源列表"
+    echo ""
+    echo "详细文档: https://github.com/cyberstrat-forge/cyber-pulse#readme"
+    echo ""
+}
+```
+
+- [ ] **Step 8: 运行测试验证通过**
+
+```bash
+./tests/test_install_user_types.sh
+```
+
+Expected: 所有测试通过
+
+- [ ] **Step 9: 提交**
+
+```bash
+git add install.sh tests/test_install_user_types.sh
+git commit -m "feat(install): add user type separation support
+
+- Add --type option (developer/ops)
+- developer: full git clone (default)
+- ops: lightweight deployment package download
+- Update help and completion messages for both user types
+- Add shell tests for user type options"
+```
+
+---
+
+## Task 11: api.sh 高级 Sources 命令
+
+**Depends on:** Task 6 (api.sh 基础命令), Task 10 (install.sh 用户分离)
+
+**Files:**
+- Modify: `scripts/api.sh`
+- Test: Shell 脚本功能验证
+
+**背景:** 设计文档列出 sources 高级命令（test, schedule, import, export, defaults），需要添加到 api.sh。这些命令依赖对应的 API 端点实现。
+
+- [ ] **Step 1: 编写高级命令测试**
+
+更新测试脚本 `tests/test_api_sh.sh`，添加高级命令测试：
+
+```bash
+# 在 tests/test_api_sh.sh 末尾添加
+
+# Test 9: Has sources test command
+echo -n "  Has sources test command... "
+if grep -q "cmd_sources_test" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: sources test command not found"
+    exit 1
+fi
+
+# Test 10: Has sources schedule command
+echo -n "  Has sources schedule command... "
+if grep -q "cmd_sources_schedule\|cmd_sources_unschedule" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: sources schedule commands not found"
+    exit 1
+fi
+
+# Test 11: Has sources import/export commands
+echo -n "  Has sources import/export commands... "
+if grep -q "cmd_sources_import\|cmd_sources_export" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: sources import/export commands not found"
+    exit 1
+fi
+
+# Test 12: Has sources defaults commands
+echo -n "  Has sources defaults commands... "
+if grep -q "cmd_sources_defaults\|cmd_sources_set_defaults" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL: sources defaults commands not found"
+    exit 1
+fi
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+```bash
+./tests/test_api_sh.sh
+```
+
+Expected: 高级命令测试失败
+
+- [ ] **Step 3: 更新 cmd_sources case 语句**
+
+修改 `cmd_sources` 函数，添加新命令：
+
+```bash
+cmd_sources() {
+    local subcommand="${1:-list}"
+    shift || true
+
+    case "$subcommand" in
+        list)           cmd_sources_list "$@" ;;
+        get)            cmd_sources_get "$@" ;;
+        create)         cmd_sources_create "$@" ;;
+        update)         cmd_sources_update "$@" ;;
+        delete)         cmd_sources_delete "$@" ;;
+        test)           cmd_sources_test "$@" ;;
+        schedule)       cmd_sources_schedule "$@" ;;
+        unschedule)     cmd_sources_unschedule "$@" ;;
+        import)         cmd_sources_import "$@" ;;
+        export)         cmd_sources_export "$@" ;;
+        defaults)       cmd_sources_defaults "$@" ;;
+        set-defaults)   cmd_sources_set_defaults "$@" ;;
+        *)
+            print_error "Unknown sources subcommand: $subcommand"
+            print_sources_help
+            exit 1
+            ;;
+    esac
+}
+```
+
+- [ ] **Step 4: 添加 test 命令**
+
+在 `cmd_sources_delete` 函数后添加：
+
+```bash
+cmd_sources_test() {
+    local source_id="${1:-}"
+
+    if [[ -z "$source_id" ]]; then
+        die "Usage: api.sh sources test <source_id>"
+    fi
+
+    print_info "Testing source: $source_id"
+
+    local response
+    response=$(api_post "/api/v1/admin/sources/${source_id}/test")
+    check_api_error "$response"
+
+    local test_result
+    test_result=$(echo "$response" | jq -r '.test_result')
+
+    if [[ "$test_result" == "success" ]]; then
+        print_success "Source test passed"
+        echo ""
+        echo "$response" | jq '{
+            source_id,
+            test_result,
+            response_time_ms,
+            items_found,
+            last_modified
+        }'
+    else
+        print_error "Source test failed"
+        echo ""
+        echo "$response" | jq '{
+            source_id,
+            test_result,
+            error_type,
+            error_message,
+            suggestion
+        }'
+    fi
+}
+```
+
+- [ ] **Step 5: 添加 schedule/unschedule 命令**
+
+```bash
+cmd_sources_schedule() {
+    local source_id="${1:-}"
+    local interval=""
+
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --interval)  interval="$2"; shift 2 ;;
+            *)           shift ;;
+        esac
+    done
+
+    if [[ -z "$source_id" ]]; then
+        die "Usage: api.sh sources schedule <source_id> --interval SECONDS"
+    fi
+
+    if [[ -z "$interval" ]]; then
+        die "Please specify --interval SECONDS (minimum 300)"
+    fi
+
+    local data="{\"interval\": ${interval}}"
+
+    local response
+    response=$(api_post "/api/v1/admin/sources/${source_id}/schedule" "$data")
+    check_api_error "$response"
+
+    print_success "Schedule set for $source_id"
+    echo "$response" | jq .
+}
+
+cmd_sources_unschedule() {
+    local source_id="${1:-}"
+
+    if [[ -z "$source_id" ]]; then
+        die "Usage: api.sh sources unschedule <source_id>"
+    fi
+
+    local response
+    response=$(api_delete "/api/v1/admin/sources/${source_id}/schedule")
+    check_api_error "$response"
+
+    print_success "Schedule removed for $source_id"
+    echo "$response" | jq .
+}
+```
+
+- [ ] **Step 6: 添加 import/export 命令**
+
+```bash
+cmd_sources_import() {
+    local file=""
+    local skip_invalid="false"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --file)         file="$2"; shift 2 ;;
+            --skip-invalid) skip_invalid="true"; shift ;;
+            *)              shift ;;
+        esac
+    done
+
+    if [[ -z "$file" ]]; then
+        die "Usage: api.sh sources import --file FILE.opml [--skip-invalid]"
+    fi
+
+    if [[ ! -f "$file" ]]; then
+        die "File not found: $file"
+    fi
+
+    print_info "Importing sources from: $file"
+
+    # 使用 curl 上传文件
+    local response
+    response=$(curl -s -X POST \
+        -H "Authorization: Bearer $admin_key" \
+        -F "file=@${file}" \
+        -F "skip_invalid=${skip_invalid}" \
+        "${api_url}/api/v1/admin/sources/import")
+
+    check_api_error "$response"
+
+    local job_id
+    job_id=$(echo "$response" | jq -r '.job_id')
+
+    print_success "Import job created: $job_id"
+    echo ""
+    echo "Check job status with:"
+    echo "  ./scripts/api.sh jobs get $job_id"
+}
+
+cmd_sources_export() {
+    local output_file="${1:-sources-export.yaml}"
+
+    print_info "Exporting sources..."
+
+    local response
+    response=$(api_get "/api/v1/admin/sources/export")
+    check_api_error "$response"
+
+    echo "$response" > "$output_file"
+    print_success "Sources exported to: $output_file"
+}
+```
+
+- [ ] **Step 7: 添加 defaults/set-defaults 命令**
+
+```bash
+cmd_sources_defaults() {
+    local response
+    response=$(api_get "/api/v1/admin/sources/defaults")
+    check_api_error "$response"
+
+    echo "Default fetch interval settings:"
+    echo "$response" | jq .
+}
+
+cmd_sources_set_defaults() {
+    local interval=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --interval)  interval="$2"; shift 2 ;;
+            *)           shift ;;
+        esac
+    done
+
+    if [[ -z "$interval" ]]; then
+        die "Usage: api.sh sources set-defaults --interval SECONDS"
+    fi
+
+    local data="{\"default_fetch_interval\": ${interval}}"
+
+    local response
+    response=$(api_request "PATCH" "/api/v1/admin/sources/defaults" "$data")
+    check_api_error "$response"
+
+    print_success "Default fetch interval updated"
+    echo "$response" | jq .
+}
+```
+
+- [ ] **Step 8: 更新 print_sources_help**
+
+```bash
+print_sources_help() {
+    echo ""
+    echo "Sources commands:"
+    echo "  list [--status STATUS] [--tier TIER] [--scheduled BOOL]"
+    echo "  get <source_id>"
+    echo "  create --name NAME --type TYPE --url URL [--tier TIER]"
+    echo "  update <source_id> [--name NAME] [--url URL] [--tier TIER] [--status STATUS]"
+    echo "  delete <source_id>"
+    echo ""
+    echo "  test <source_id>                          测试源连接"
+    echo "  schedule <source_id> --interval SECONDS   设置采集调度"
+    echo "  unschedule <source_id>                    取消采集调度"
+    echo ""
+    echo "  import --file FILE.opml [--skip-invalid]  批量导入"
+    echo "  export [OUTPUT_FILE]                      导出源配置"
+    echo ""
+    echo "  defaults                                  查看默认配置"
+    echo "  set-defaults --interval SECONDS           设置默认采集间隔"
+}
+```
+
+- [ ] **Step 9: 更新 show_help 中的 sources 部分**
+
+修改 `show_help` 函数中的 sources 部分：
+
+```bash
+    echo "  sources <cmd>          情报源管理"
+    echo "    list                 列出情报源"
+    echo "    get <id>             获取情报源详情"
+    echo "    create               创建情报源"
+    echo "    update <id>          更新情报源"
+    echo "    delete <id>          删除情报源"
+    echo "    test <id>            测试连接"
+    echo "    schedule <id>        设置调度"
+    echo "    unschedule <id>      取消调度"
+    echo "    import --file FILE   批量导入"
+    echo "    export               导出配置"
+    echo "    defaults             默认配置"
+```
+
+- [ ] **Step 10: 运行测试验证通过**
+
+```bash
+./tests/test_api_sh.sh
+```
+
+Expected: 所有测试通过
+
+- [ ] **Step 11: 提交**
+
+```bash
+git add scripts/api.sh tests/test_api_sh.sh
+git commit -m "feat(scripts): add advanced sources commands to api.sh
+
+Add sources commands:
+- test <id>: Test source connectivity
+- schedule/unschedule <id>: Manage collection schedule
+- import --file FILE: OPML batch import
+- export: Export source configuration
+- defaults/set-defaults: Manage default settings
+
+These commands require corresponding API endpoints to be implemented.
+
+Update shell tests with advanced command verification"
+```
+
+---
+
+## Task 12: 完整验证测试
+
+**Depends on:** Task 1-11 (所有前置任务完成)
+
+- [ ] **Step 1: 验证 CLI 完全移除**
+
+```bash
+# 检查 CLI 目录不存在
+ls src/cyberpulse/cli/ 2>/dev/null && echo "FAIL" || echo "PASS"
+
+# 检查 pyproject.toml 中无 CLI 入口
+grep "cyberpulse.cli" pyproject.toml && echo "FAIL" || echo "PASS"
+
+# 检查 CLI 依赖已移除
+grep -E "typer|rich|prompt-toolkit" pyproject.toml && echo "FAIL" || echo "PASS"
+```
+
+Expected: 全部 PASS
+
+- [ ] **Step 2: 验证 api.sh 所有命令**
+
+```bash
+# 检查脚本存在且可执行
+test -x scripts/api.sh && echo "PASS" || echo "FAIL"
+
+# 检查帮助命令
+./scripts/api.sh help | grep -q "configure" && echo "PASS" || echo "FAIL"
+
+# 检查高级命令存在
+./scripts/api.sh help | grep -q "schedule" && echo "PASS" || echo "FAIL"
+./scripts/api.sh help | grep -q "import" && echo "PASS" || echo "FAIL"
+```
+
+Expected: 全部 PASS
+
+- [ ] **Step 3: 验证构建脚本**
+
+```bash
+# 检查构建脚本存在
+test -x scripts/build-deploy-package.sh && echo "PASS" || echo "FAIL"
+
+# 检查构建脚本语法
+bash -n scripts/build-deploy-package.sh && echo "PASS" || echo "FAIL"
+```
+
+Expected: 全部 PASS
+
+- [ ] **Step 4: 验证安装脚本更新**
+
+```bash
+# 检查 --type 选项
+grep -q "\-\-type" install.sh && echo "PASS" || echo "FAIL"
+
+# 检查 ops 相关函数
+grep -q "install_ops_package" install.sh && echo "PASS" || echo "FAIL"
+```
+
+Expected: 全部 PASS
+
+- [ ] **Step 5: 运行测试**
+
+```bash
+uv run pytest tests/ -v --tb=short
+```
+
+Expected: 所有测试通过
+
+- [ ] **Step 6: 提交最终验证**
 
 ```bash
 git add -A
@@ -1766,12 +3351,16 @@ git status
 
 ## 验证清单（设计文档对照）
 
-| 设计文档要求 | 实现任务 | 状态 |
-|-------------|---------|------|
-| CLI 完全移除 | Task 1 | 完成 |
-| Admin Key 数据库存储 | Task 2, 3 | 完成 |
-| Admin Key 首次部署输出 | Task 2 | 完成 |
-| Admin reset 命令 | Task 5 | 完成 |
-| api.sh 脚本 | Task 6 | 完成 |
-| generate-env.sh 移除 ADMIN_API_KEY | Task 4 | 完成 |
-| 文档更新 | Task 7 | 完成 |
+| 设计文档要求 | 实现任务 | TDD 测试 | 状态 |
+|-------------|---------|---------|------|
+| CLI 完全移除 | Task 1 | tests/test_cli_removal.py | ✅ |
+| Admin Key 数据库存储 | Task 2, 3 | tests/test_startup.py, tests/test_api_auth.py | ✅ |
+| Admin Key 首次部署输出 | Task 2 | tests/test_startup.py | ✅ |
+| Admin reset 命令 | Task 5 | tests/test_admin_reset.sh | ✅ |
+| api.sh 基本命令 | Task 6 | tests/test_api_sh.sh | ✅ |
+| api.sh 高级命令 | Task 11 | tests/test_api_sh.sh (扩展) | ✅ |
+| generate-env.sh 移除 ADMIN_API_KEY | Task 4 | tests/test_generate_env.sh | ✅ |
+| 文档更新 | Task 7 | 文档验证 | ✅ |
+| build-deploy-package.sh | Task 9 | tests/test_build_deploy_package.sh | ✅ |
+| install.sh 用户分离 | Task 10 | tests/test_install_user_types.sh | ✅ |
+| 完整验证测试 | Task 12 | 所有测试 + 集成验证 | ✅ |

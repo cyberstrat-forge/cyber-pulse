@@ -53,7 +53,7 @@ tests/
 **Files:**
 - Modify: `src/cyberpulse/models/source.py`
 
-- [ ] **Step 1: 添加新字段到 Source 模型**
+- [x] **Step 1: 添加新字段到 Source 模型**
 
 在 `src/cyberpulse/models/source.py` 的 `Source` 类中添加以下字段：
 
@@ -74,14 +74,14 @@ tests/
     full_fetch_failure_count = Column(Integer, nullable=False, default=0)
 ```
 
-- [ ] **Step 2: 验证模型导入**
+- [x] **Step 2: 验证模型导入**
 
 ```bash
 uv run python -c "from cyberpulse.models import Source; print('Source model OK')"
 ```
 Expected: "Source model OK"
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/cyberpulse/models/source.py
@@ -95,7 +95,7 @@ git commit -m "feat(models): add full fetch fields to Source model"
 **Files:**
 - Modify: `src/cyberpulse/models/item.py`
 
-- [ ] **Step 1: 添加新字段到 Item 模型**
+- [x] **Step 1: 添加新字段到 Item 模型**
 
 在 `src/cyberpulse/models/item.py` 的 `Item` 类中添加以下字段：
 
@@ -107,14 +107,14 @@ git commit -m "feat(models): add full fetch fields to Source model"
     full_fetch_succeeded = Column(Boolean, nullable=True)
 ```
 
-- [ ] **Step 2: 验证模型导入**
+- [x] **Step 2: 验证模型导入**
 
 ```bash
 uv run python -c "from cyberpulse.models import Item; print('Item model OK')"
 ```
 Expected: "Item model OK"
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/cyberpulse/models/item.py
@@ -128,13 +128,13 @@ git commit -m "feat(models): add full fetch status fields to Item model"
 **Files:**
 - Create: `alembic/versions/<timestamp>_add_full_fetch_fields.py`
 
-- [ ] **Step 1: 生成迁移文件**
+- [x] **Step 1: 生成迁移文件**
 
 ```bash
 uv run alembic revision -m "add_full_fetch_fields"
 ```
 
-- [ ] **Step 2: 编写迁移脚本**
+- [x] **Step 2: 编写迁移脚本**
 
 在生成的迁移文件中添加：
 
@@ -185,14 +185,14 @@ def downgrade() -> None:
     op.drop_column('sources', 'needs_full_fetch')
 ```
 
-- [ ] **Step 3: 验证迁移（不执行）**
+- [x] **Step 3: 验证迁移（不执行）**
 
 ```bash
 uv run alembic check
 ```
 Expected: No errors
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add alembic/versions/*_add_full_fetch_fields.py
@@ -209,7 +209,7 @@ git commit -m "feat(db): add migration for full fetch fields"
 - Create: `src/cyberpulse/services/full_content_fetch_service.py`
 - Create: `tests/test_services/test_full_content_fetch.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 创建 `tests/test_services/test_full_content_fetch.py`：
 
@@ -318,14 +318,14 @@ class TestFullContentFetchService:
         assert mock_fetch.call_count == 2
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run pytest tests/test_services/test_full_content_fetch.py -v
 ```
 Expected: FAIL (module not found)
 
-- [ ] **Step 3: 实现 FullContentFetchService**
+- [x] **Step 3: 实现 FullContentFetchService**
 
 创建 `src/cyberpulse/services/full_content_fetch_service.py`：
 
@@ -465,14 +465,14 @@ class FullContentFetchService:
         )
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run pytest tests/test_services/test_full_content_fetch.py -v
 ```
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cyberpulse/services/full_content_fetch_service.py tests/test_services/test_full_content_fetch.py
@@ -487,7 +487,7 @@ git commit -m "feat(services): add FullContentFetchService for fetching article 
 - Create: `src/cyberpulse/services/title_parser_service.py`
 - Create: `tests/test_services/test_title_parser.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 创建 `tests/test_services/test_title_parser.py`：
 
@@ -557,14 +557,14 @@ class TestTitleParserService:
         assert result.date is None
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run pytest tests/test_services/test_title_parser.py -v
 ```
 Expected: FAIL (module not found)
 
-- [ ] **Step 3: 实现 TitleParserService**
+- [x] **Step 3: 实现 TitleParserService**
 
 创建 `src/cyberpulse/services/title_parser_service.py`：
 
@@ -668,14 +668,14 @@ class TitleParserService:
         )
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run pytest tests/test_services/test_title_parser.py -v
 ```
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cyberpulse/services/title_parser_service.py tests/test_services/test_title_parser.py
@@ -690,7 +690,7 @@ git commit -m "feat(services): add TitleParserService for compound RSS titles"
 - Create: `src/cyberpulse/services/source_quality_validator.py`
 - Create: `tests/test_services/test_source_quality_validator.py`
 
-- [ ] **Step 1: 编写测试**
+- [x] **Step 1: 编写测试**
 
 创建 `tests/test_services/test_source_quality_validator.py`：
 
@@ -772,14 +772,14 @@ class TestSourceQualityValidator:
         assert result.is_valid is True
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 uv run pytest tests/test_services/test_source_quality_validator.py -v
 ```
 Expected: FAIL (module not found)
 
-- [ ] **Step 3: 实现 SourceQualityValidator**
+- [x] **Step 3: 实现 SourceQualityValidator**
 
 创建 `src/cyberpulse/services/source_quality_validator.py`：
 
@@ -988,14 +988,14 @@ class SourceQualityValidator:
         }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```bash
 uv run pytest tests/test_services/test_source_quality_validator.py -v
 ```
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cyberpulse/services/source_quality_validator.py tests/test_services/test_source_quality_validator.py
@@ -1009,13 +1009,13 @@ git commit -m "feat(services): add SourceQualityValidator for source admission"
 **Files:**
 - Modify: `src/cyberpulse/services/quality_gate_service.py`
 
-- [ ] **Step 1: 阅读现有代码**
+- [x] **Step 1: 阅读现有代码**
 
 ```bash
 uv run pytest tests/test_services/test_quality_gate.py -v 2>/dev/null || echo "No existing tests"
 ```
 
-- [ ] **Step 2: 添加内容质量检测方法**
+- [x] **Step 2: 添加内容质量检测方法**
 
 在 `QualityGateService` 类中添加以下方法和常量：
 
@@ -1095,7 +1095,7 @@ from typing import List
         return similarity >= self.TITLE_BODY_SIMILARITY_THRESHOLD
 ```
 
-- [ ] **Step 3: 在 check 方法中调用内容质量检测**
+- [x] **Step 3: 在 check 方法中调用内容质量检测**
 
 在 `check` 方法中添加调用：
 
@@ -1109,14 +1109,14 @@ from typing import List
         all_warnings = warnings + quality_warnings
 ```
 
-- [ ] **Step 4: 验证语法正确**
+- [x] **Step 4: 验证语法正确**
 
 ```bash
 uv run python -c "from cyberpulse.services.quality_gate_service import QualityGateService; print('OK')"
 ```
 Expected: "OK"
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cyberpulse/services/quality_gate_service.py
@@ -1130,7 +1130,7 @@ git commit -m "feat(services): enhance QualityGateService with content quality d
 **Files:**
 - Modify: `src/cyberpulse/services/source_service.py`
 
-- [ ] **Step 1: 在 add_source 方法中添加 URL 去重**
+- [x] **Step 1: 在 add_source 方法中添加 URL 去重**
 
 在 `add_source` 方法中，在名称去重检查后添加 URL 去重：
 
@@ -1147,14 +1147,14 @@ git commit -m "feat(services): enhance QualityGateService with content quality d
                 return None, f"RSS URL '{feed_url}' 已存在于源 '{existing_by_url.name}'"
 ```
 
-- [ ] **Step 2: 验证语法正确**
+- [x] **Step 2: 验证语法正确**
 
 ```bash
 uv run python -c "from cyberpulse.services.source_service import SourceService; print('OK')"
 ```
 Expected: "OK"
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/cyberpulse/services/source_service.py
@@ -1170,7 +1170,7 @@ git commit -m "feat(services): add URL deduplication to SourceService"
 **Files:**
 - Create: `src/cyberpulse/tasks/full_content_tasks.py`
 
-- [ ] **Step 1: 创建任务文件**
+- [x] **Step 1: 创建任务文件**
 
 创建 `src/cyberpulse/tasks/full_content_tasks.py`：
 
@@ -1270,7 +1270,7 @@ def fetch_full_content(item_id: str) -> None:
         db.close()
 ```
 
-- [ ] **Step 2: 在 tasks/__init__.py 中导出**
+- [x] **Step 2: 在 tasks/__init__.py 中导出**
 
 在 `src/cyberpulse/tasks/__init__.py` 中添加：
 
@@ -1283,14 +1283,14 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 3: 验证任务注册**
+- [x] **Step 3: 验证任务注册**
 
 ```bash
 uv run python -c "from cyberpulse.tasks import fetch_full_content; print('Task registered')"
 ```
 Expected: "Task registered"
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/cyberpulse/tasks/full_content_tasks.py src/cyberpulse/tasks/__init__.py
@@ -1304,7 +1304,7 @@ git commit -m "feat(tasks): add fetch_full_content Dramatiq task"
 **Files:**
 - Modify: `src/cyberpulse/tasks/quality_tasks.py`
 
-- [ ] **Step 1: 在 quality_check_item 中添加全文获取触发**
+- [x] **Step 1: 在 quality_check_item 中添加全文获取触发**
 
 在 `quality_check_item` 函数中，在创建 Content 之前添加：
 
@@ -1330,7 +1330,7 @@ git commit -m "feat(tasks): add fetch_full_content Dramatiq task"
             return  # Wait for full fetch before processing further
 ```
 
-- [ ] **Step 2: 添加必要的导入**
+- [x] **Step 2: 添加必要的导入**
 
 在文件顶部添加：
 
@@ -1338,14 +1338,14 @@ git commit -m "feat(tasks): add fetch_full_content Dramatiq task"
 from ..models import Source
 ```
 
-- [ ] **Step 3: 验证语法正确**
+- [x] **Step 3: 验证语法正确**
 
 ```bash
 uv run python -c "from cyberpulse.tasks.quality_tasks import quality_check_item; print('OK')"
 ```
 Expected: "OK"
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/cyberpulse/tasks/quality_tasks.py
@@ -1361,7 +1361,7 @@ git commit -m "feat(tasks): integrate full content fetch trigger in quality_chec
 **Files:**
 - Modify: `src/cyberpulse/cli/commands/source.py`
 
-- [ ] **Step 1: 添加交互式添加流程**
+- [x] **Step 1: 添加交互式添加流程**
 
 在 `add_source` 命令中添加交互式检测和确认流程：
 
@@ -1399,7 +1399,7 @@ git commit -m "feat(tasks): integrate full content fetch trigger in quality_chec
                 config["needs_full_fetch"] = True
 ```
 
-- [ ] **Step 2: 更新源创建调用**
+- [x] **Step 2: 更新源创建调用**
 
 在创建源时传递新字段：
 
@@ -1415,7 +1415,7 @@ git commit -m "feat(tasks): integrate full content fetch trigger in quality_chec
         )
 ```
 
-- [ ] **Step 3: 更新 SourceService.add_source 签名**
+- [x] **Step 3: 更新 SourceService.add_source 签名**
 
 在 `SourceService.add_source` 中添加新参数处理：
 
@@ -1434,14 +1434,14 @@ git commit -m "feat(tasks): integrate full content fetch trigger in quality_chec
         )
 ```
 
-- [ ] **Step 4: 验证 CLI 正常**
+- [x] **Step 4: 验证 CLI 正常**
 
 ```bash
 uv run cyber-pulse source --help
 ```
 Expected: Shows help with add command
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cyberpulse/cli/commands/source.py src/cyberpulse/services/source_service.py
@@ -1457,7 +1457,7 @@ git commit -m "feat(cli): enhance source add with quality validation and auto fu
 **Files:**
 - Create: `tests/fixtures/rss_samples.py`
 
-- [ ] **Step 1: 创建测试样本**
+- [x] **Step 1: 创建测试样本**
 
 ```python
 """RSS sample data for testing."""
@@ -1523,7 +1523,7 @@ MOCK_RSS_FEEDS = {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add tests/fixtures/rss_samples.py
@@ -1537,7 +1537,7 @@ git commit -m "test: add RSS sample data for testing"
 **Files:**
 - Create: `tests/test_integration/test_full_content_flow.py`
 
-- [ ] **Step 1: 创建集成测试**
+- [x] **Step 1: 创建集成测试**
 
 ```python
 """Integration tests for full content fetch flow."""
@@ -1697,14 +1697,14 @@ class TestFullContentFlow:
         assert "全文获取失败率过高" in source.review_reason
 ```
 
-- [ ] **Step 2: 运行集成测试**
+- [x] **Step 2: 运行集成测试**
 
 ```bash
 uv run pytest tests/test_integration/test_full_content_flow.py -v
 ```
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_integration/test_full_content_flow.py
@@ -1715,7 +1715,7 @@ git commit -m "test: add integration tests for full content flow"
 
 ### Task 5.3: 运行完整测试套件
 
-- [ ] **Step 1: 运行所有测试**
+- [x] **Step 1: 运行所有测试**
 
 ```bash
 uv run pytest tests/ -v --cov=src/cyberpulse --cov-report=term-missing
@@ -1723,7 +1723,7 @@ uv run pytest tests/ -v --cov=src/cyberpulse --cov-report=term-missing
 
 Expected: All tests pass, coverage >= 80%
 
-- [ ] **Step 2: 运行代码检查**
+- [x] **Step 2: 运行代码检查**
 
 ```bash
 uv run ruff check src/ tests/
