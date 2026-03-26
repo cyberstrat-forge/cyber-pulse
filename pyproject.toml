@@ -38,6 +38,7 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "python-multipart>=0.0.6",
     "passlib[bcrypt]>=1.7.4",
+    "beautifulsoup4>=4.14.3",
 ]
 
 [project.optional-dependencies]
@@ -92,3 +93,15 @@ venv = ".venv"
 typeCheckingMode = "basic"
 reportMissingImports = true
 reportMissingTypeStubs = false
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic migration files use module-level variables that appear unused
+"alembic/versions/*.py" = ["F841"]

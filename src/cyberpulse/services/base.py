@@ -3,7 +3,8 @@ Base service class with common utilities.
 """
 import ipaddress
 import logging
-from typing import Optional, Dict, Any, Tuple
+import socket
+from typing import Any
 from urllib.parse import urlparse
 
 from sqlalchemy.exc import IntegrityError
@@ -78,17 +79,19 @@ def validate_url_for_ssrf(url: str, allow_localhost: bool = False) -> str:
         # Check if hostname is already an IP address
         try:
             ip = ipaddress.ip_address(hostname)
+        except ValueError:
+            # Not an IP address, continue with DNS resolution
+            pass
+        else:
+            # hostname is a valid IP - check if it's private
             _check_ip_not_private(ip, allow_localhost)
             return url
-        except ValueError:
-            pass  # Not an IP address, continue with DNS resolution
 
         # DNS resolution with protection against DNS rebinding
-        import socket
         # Get all IP addresses for the hostname
         addr_info = socket.getaddrinfo(hostname, parsed.port or 80)
 
-        for family, _, _, _, sockaddr in addr_info:
+        for _, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0]
             try:
                 ip = ipaddress.ip_address(ip_str)
@@ -98,9 +101,12 @@ def validate_url_for_ssrf(url: str, allow_localhost: bool = False) -> str:
 
     except socket.gaierror as e:
         raise SSRFError(f"Failed to resolve hostname: {hostname}") from e
-    except (socket.timeout, socket.herror, OSError) as e:
+    except (TimeoutError, socket.herror, OSError) as e:
         # Network/DNS errors - fail closed for security
         raise SSRFError(f"DNS resolution error for {hostname}: {e}") from e
+    except SSRFError:
+        # Let SSRFError propagate up without wrapping
+        raise
     except Exception as e:
         # Unexpected errors - fail closed to prevent SSRF bypass
         logger.error(f"Unexpected error during SSRF validation for {url}: {e}")
@@ -127,8 +133,8 @@ class BaseService:
         self.db = db
 
     def get_or_create(
-        self, model, defaults: Optional[Dict[str, Any]] = None, **kwargs
-    ) -> Tuple[Any, bool]:
+        self, model, defaults: dict[str, Any] | None = None, **kwargs
+    ) -> tuple[Any, bool]:
         """Get or create a record.
 
         Args:

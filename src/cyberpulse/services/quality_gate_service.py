@@ -73,6 +73,15 @@ class QualityGateService:
         "合作",
     ]
 
+    # Content quality thresholds
+    TITLE_BODY_SIMILARITY_THRESHOLD = 0.95  # If title-body similarity >= this, content is suspect
+    MIN_BODY_LENGTH = 50  # Minimum body length for valid content
+
+    # Title date pattern (e.g., "Dec 18, 2024" or "Jan 15, 2024")
+    TITLE_DATE_PATTERN = re.compile(
+        r"\b[A-Z][a-z]{2}\s+\d{1,2},?\s+\d{4}\b"
+    )
+
     def check(
         self,
         item,
@@ -354,3 +363,83 @@ class QualityGateService:
 
         # Cap at 1.0
         return min(ratio, 1.0)
+
+    def _validate_content_quality(
+        self, title: str, body: str
+    ) -> tuple[bool, Optional[str]]:
+        """Validate content quality beyond structural checks.
+
+        Checks for:
+        - Title-body similarity (if title is same as body, content is suspect)
+        - Minimum body length
+        - Title containing only a date (common in malformed RSS feeds)
+
+        Args:
+            title: Item title
+            body: Normalized body text
+
+        Returns:
+            Tuple of (is_valid, rejection_reason)
+        """
+        if not body or len(body.strip()) < self.MIN_BODY_LENGTH:
+            return False, "Body content below minimum length"
+
+        # Check if title and body are essentially the same
+        if self._is_title_body_same(title, body):
+            return False, "Title and body are identical or near-identical"
+
+        # Check if title is just a date (malformed RSS)
+        if title:
+            clean_title = self.TITLE_DATE_PATTERN.sub("", title).strip()
+            if not clean_title:
+                return False, "Title contains only date information"
+
+        return True, None
+
+    def _is_title_body_same(self, title: str, body: str) -> bool:
+        """Check if title and body are essentially the same content.
+
+        Uses a simple similarity check: if one contains the other at high
+        percentage, they're considered the same.
+
+        Args:
+            title: Item title
+            body: Normalized body text
+
+        Returns:
+            True if title and body are near-identical
+        """
+        if not title or not body:
+            return False
+
+        # Normalize both for comparison
+        title_norm = title.lower().strip()
+        body_norm = body.lower().strip()
+
+        # Exact match
+        if title_norm == body_norm:
+            return True
+
+        # Check if body starts with title (common in malformed feeds)
+        if body_norm.startswith(title_norm):
+            remaining = body_norm[len(title_norm):].strip()
+            # If remaining content is minimal (just a few chars), treat as same
+            if len(remaining) < 5:
+                return True
+
+        # Calculate Jaccard similarity for word sets
+        title_words = set(title_norm.split())
+        body_words = set(body_norm.split())
+
+        if not title_words or not body_words:
+            return False
+
+        intersection = len(title_words & body_words)
+        union = len(title_words | body_words)
+
+        if union == 0:
+            return False
+
+        similarity = intersection / union
+
+        return similarity >= self.TITLE_BODY_SIMILARITY_THRESHOLD

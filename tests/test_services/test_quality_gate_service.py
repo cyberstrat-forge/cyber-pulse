@@ -515,3 +515,94 @@ class TestIntegration:
 
         assert result.decision == QualityDecision.REJECT
         assert result.rejection_reason is not None
+
+
+class TestValidateContentQuality:
+    """Tests for _validate_content_quality method."""
+
+    def test_validate_content_quality_valid(self, quality_gate_service):
+        """Test content quality validation passes for valid content."""
+        title = "This is a good article title"
+        body = "This is the article body with enough content to pass the minimum length requirement."
+
+        is_valid, reason = quality_gate_service._validate_content_quality(title, body)
+
+        assert is_valid is True
+        assert reason is None
+
+    def test_validate_content_quality_short_body(self, quality_gate_service):
+        """Test content quality validation fails for short body."""
+        title = "Test Title"
+        body = "Too short"
+
+        is_valid, reason = quality_gate_service._validate_content_quality(title, body)
+
+        assert is_valid is False
+        assert "minimum length" in reason.lower()
+
+    def test_validate_content_quality_title_body_same(self, quality_gate_service):
+        """Test content quality validation fails when title equals body."""
+        title = "This is the content that is long enough to pass minimum length"
+        body = "This is the content that is long enough to pass minimum length"
+
+        is_valid, reason = quality_gate_service._validate_content_quality(title, body)
+
+        assert is_valid is False
+        assert "identical" in reason.lower()
+
+    def test_validate_content_quality_title_only_date(self, quality_gate_service):
+        """Test content quality validation fails when title is only a date."""
+        title = "Dec 18, 2024"
+        body = "This is the article body with enough content to pass validation."
+
+        is_valid, reason = quality_gate_service._validate_content_quality(title, body)
+
+        assert is_valid is False
+        assert "date" in reason.lower()
+
+
+class TestIsTitleBodySame:
+    """Tests for _is_title_body_same method."""
+
+    def test_exact_match(self, quality_gate_service):
+        """Test exact title-body match detected."""
+        title = "This is the title"
+        body = "This is the title"
+
+        assert quality_gate_service._is_title_body_same(title, body) is True
+
+    def test_case_insensitive_match(self, quality_gate_service):
+        """Test case-insensitive match detection."""
+        title = "This Is The Title"
+        body = "this is the title"
+
+        assert quality_gate_service._is_title_body_same(title, body) is True
+
+    def test_body_starts_with_title(self, quality_gate_service):
+        """Test detection when body starts with title."""
+        title = "Breaking News"
+        body = "Breaking News additional text"
+
+        assert quality_gate_service._is_title_body_same(title, body) is False
+
+    def test_different_content(self, quality_gate_service):
+        """Test different content is not detected as same."""
+        title = "Article Title Here"
+        body = "This is completely different content from the title text."
+
+        assert quality_gate_service._is_title_body_same(title, body) is False
+
+    def test_high_similarity(self, quality_gate_service):
+        """Test high similarity detected (Jaccard similarity)."""
+        # Using words that heavily overlap
+        title = "The quick brown fox jumps over the lazy dog"
+        body = "The quick brown fox jumps over the lazy dog cat"
+
+        # High word overlap - should be detected
+        assert quality_gate_service._is_title_body_same(title, body) is True
+
+    def test_empty_inputs(self, quality_gate_service):
+        """Test empty inputs handled gracefully."""
+        assert quality_gate_service._is_title_body_same("", "body") is False
+        assert quality_gate_service._is_title_body_same("title", "") is False
+        assert quality_gate_service._is_title_body_same("", "") is False

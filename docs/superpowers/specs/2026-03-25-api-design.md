@@ -1,0 +1,1528 @@
+# Design: API 整体设计
+
+**Date**: 2026-03-25
+**Status**: Approved
+
+---
+
+## 概述
+
+本文档定义 cyber-pulse 系统的完整 API 架构，包括业务 API 和管理 API。
+
+**设计原则**：
+- 统一通过 API 管理，废弃 CLI
+- 权限分级：业务 API（read）vs 管理 API（admin）
+- 容器环境友好，支持远程管理
+
+---
+
+## 配置管理
+
+### 配置分工
+
+| 类别 | 配置项 | 设置方式 | API 可管理 |
+|------|--------|---------|-----------|
+| **基础设施** | `database_url`, `redis_url`, `dramatiq_broker_url` | 环境变量 | ❌ |
+| **服务绑定** | `api_host`, `api_port` | 环境变量 | ❌ |
+| **安全** | `secret_key` | 环境变量 | ❌ |
+| **环境** | `environment` | 环境变量 | ❌ |
+| **管理员认证** | `admin_api_key` | 环境变量 | ✅（通过 rotate） |
+| **业务默认值** | `default_fetch_interval` | API（`/sources/defaults`） | ✅ |
+
+### 说明
+
+**环境变量（部署时设置）**：
+- 通过 `.env` 文件或容器环境变量配置
+- 修改后需重启服务
+- 不提供 API 管理
+
+**API 运行时管理**：
+- 业务相关的默认配置
+- 存储在数据库 `settings` 表
+- 修改后立即生效，无需重启
+
+---
+
+## API 架构总览
+
+```
+/api/v1/
+│
+├── /items                       # 业务 API（read 权限）
+│   └── GET /                    # 拉取情报
+│
+└── /admin                       # 管理 API（admin 权限）
+    ├── /diagnose                # 系统状态总览
+    ├── /sources                 # 情报源管理
+    ├── /jobs                    # 任务管理
+    ├── /clients                 # 客户端管理
+    └── /logs                    # 日志管理
+```
+
+---
+
+## 权限模型
+
+| 权限 | 可访问 API | 用户 |
+|------|-----------|------|
+| `read` | 业务 API（Items） | 下游情报分析系统 |
+| `admin` | 管理 API | 系统管理员 |
+
+**认证方式**：所有 API 请求需要在请求头中包含 API Key：
+
+```
+Authorization: Bearer cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### 认证实现
+
+**验证方式**：FastAPI Dependency 注入
+
+```python
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+security = HTTPBearer()
+
+async def get_current_client(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> Client:
+    api_key = credentials.credentials
+    client = await validate_api_key(api_key)
+    if not client:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired API key"
+        )
+    return client
+```
+
+**权限检查**：路由级别装饰器
+
+```python
+def require_permission(permission: str):
+    async def checker(client: Client = Depends(get_current_client)):
+        if permission not in client.permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission '{permission}' required"
+            )
+        return client
+    return Depends(checker)
+```
+
+**认证错误响应**：
+
+| 状态码 | 场景 | 响应 |
+|--------|------|------|
+| 401 | API Key 无效/过期 | `{"detail": "Invalid or expired API key"}` |
+| 403 | 权限不足 | `{"detail": "Permission 'admin' required"}` |
+
+### 管理员认证
+
+**问题**：管理 API 需要 admin 权限的 API Key，但 API Key 通过管理 API 创建，形成鸡蛋问题。
+
+**解决方案**：环境变量引导
+
+#### 环境变量配置
+
+新增 `ADMIN_API_KEY` 环境变量：
+
+```env
+# .env
+ADMIN_API_KEY=cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**生成规则**：
+- 首次部署：`generate-env.sh` 自动生成 32 字符安全随机 Key
+- 重新部署：保留现有 `ADMIN_API_KEY`（类似数据库密码的处理）
+
+#### API 启动初始化
+
+```python
+# src/cyberpulse/api/startup.py
+async def ensure_admin_client():
+    """确保管理员账户存在"""
+    admin = await client_service.get_by_permission("admin")
+    if not admin:
+        admin_key = os.getenv("ADMIN_API_KEY")
+        if not admin_key:
+            admin_key = f"cp_live_{secrets.token_urlsafe(24)}"
+        await client_service.create(
+            name="Administrator",
+            permissions=["admin", "read"],
+            api_key=admin_key
+        )
+```
+
+**初始化逻辑**：
+- 容器启动时检测数据库是否存在 admin 权限的 Client
+- 不存在 → 用 `ADMIN_API_KEY` 创建管理员
+- 存在 → 跳过初始化
+
+#### 部署脚本扩展
+
+新增 `admin` 子命令：
+
+```bash
+# 查看管理员 API Key
+./scripts/cyber-pulse.sh admin show-key
+→ 输出: cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# 重新生成管理员 API Key
+./scripts/cyber-pulse.sh admin rotate-key
+→ 旧 Key 立即失效，新 Key 显示一次
+```
+
+**实现方式**：通过调用 API 完成
+
+```bash
+# show-key: 调用 Client API 获取管理员信息
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+     http://localhost:8000/api/v1/admin/clients?permission=admin
+
+# rotate-key: 调用 rotate 端点
+curl -X POST -H "Authorization: Bearer $ADMIN_API_KEY" \
+     http://localhost:8000/api/v1/admin/clients/{admin_id}/rotate
+```
+
+#### 部署到首次访问工作流
+
+```
+1. 部署
+   ./scripts/cyber-pulse.sh deploy --env prod
+   → generate-env.sh 生成 ADMIN_API_KEY
+   → 启动容器，运行迁移
+
+2. API 启动初始化
+   → 检测无 admin Client
+   → 用 ADMIN_API_KEY 创建管理员
+
+3. 部署完成提示
+   管理员 API Key: cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ⚠ 请妥善保存
+
+4. 首次访问
+   curl -H "Authorization: Bearer cp_live_xxx" \
+        http://localhost:8000/api/v1/admin/diagnose
+
+5. 创建下游客户端
+   curl -X POST -H "Authorization: Bearer cp_live_xxx" \
+        -d '{"name": "分析系统", "permissions": ["read"]}' \
+        http://localhost:8000/api/v1/admin/clients
+
+6. 忘记 Key
+   ./scripts/cyber-pulse.sh admin show-key
+   → 输出完整 Key
+
+7. 更换 Key
+   ./scripts/cyber-pulse.sh admin rotate-key
+   → 旧 Key 失效，新 Key 显示
+```
+
+#### Key 存储说明
+
+当前版本：**可恢复存储**（明文/可逆加密）
+
+- 理由：单机版，管理员有服务器访问权限
+- 方便管理：忘记时可找回
+- 后续可升级为哈希存储（需在 rotate 时重新设置）
+
+---
+
+## 业务 API
+
+### Items API
+
+**端点**：`GET /api/v1/items`
+
+**权限**：read
+
+**用途**：下游情报分析系统拉取情报数据
+
+#### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `cursor` | string | - | 增量游标（item_id） |
+| `since` | datetime | - | 时间范围起始（published_at >= since） |
+| `until` | datetime | - | 时间范围结束（published_at < until） |
+| `from` | string | `latest` | 起始位置：`latest` 或 `beginning` |
+| `limit` | int | 50 | 每页数量，最大 100 |
+
+**参数互斥规则**：
+- `cursor` 与 `from` 互斥，同时提供返回 400 错误
+- `cursor` 与时间范围参数（`since`/`until`）可组合使用
+
+#### 游标格式与校验
+
+**格式**：`item_{YYYYMMDDHHMMSS}_{uuid8}`
+
+**正则**：`^item_\d{14}_[a-f0-9]{8}$`
+
+**校验逻辑**：
+- 有效游标：正常查询
+- 无效游标：返回 400 错误
+
+```json
+{
+  "detail": "Invalid cursor format: invalid_cursor"
+}
+```
+
+#### 拉取模式
+
+| 模式 | 参数 | 行为 |
+|------|------|------|
+| 首次拉取 | 无参数 / `from=latest` | 返回最近 N 条（默认） |
+| 增量拉取 | `cursor={item_id}` | 从指定位置继续 |
+| 时间范围拉取 | `since` / `since` + `until` | 按 published_at 筛选 |
+| 全量拉取 | `from=beginning` | 从最早开始 |
+
+#### 响应字段
+
+**Item 字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 情报唯一标识（item_id） |
+| `title` | string | 标题 |
+| `author` | string | 作者（可能为空） |
+| `published_at` | datetime | 原始发布时间 |
+| `body` | string | 正文（Markdown 格式） |
+| `url` | string | 原始文章链接 |
+| `completeness_score` | float | 内容完整性评分 (0-1) |
+| `tags` | string[] | 标签列表（可能为空） |
+| `fetched_at` | datetime | 采集时间 |
+| `source` | object | 情报源信息（嵌套对象） |
+
+**嵌套 source 对象字段**：
+
+| 字段 | 说明 | 对应 Source API 字段 |
+|------|------|---------------------|
+| `source_id` | 来源 ID | `source_id` |
+| `source_name` | 来源名称 | `name` |
+| `source_url` | RSS URL | `config.feed_url` |
+| `source_tier` | 来源等级 | `tier` |
+| `source_score` | 质量评分 | `score` |
+
+**命名约定**：嵌套对象使用 `source_` 前缀，避免与外层字段冲突。
+
+#### 响应示例
+
+```json
+{
+  "data": [
+    {
+      "id": "item_20260325143052_a1b2c3d4",
+      "title": "Critical Vulnerability Discovered",
+      "author": "Security Research Team",
+      "published_at": "2026-03-25T10:00:00Z",
+      "body": "A critical vulnerability has been discovered...",
+      "url": "https://example.com/security/critical-vulnerability",
+      "completeness_score": 0.85,
+      "tags": ["vulnerability", "security"],
+      "fetched_at": "2026-03-25T14:30:52Z",
+      "source": {
+        "source_id": "src_a1b2c3d4",
+        "source_name": "Security Weekly",
+        "source_url": "https://securityweekly.com/feed/",
+        "source_tier": "T1",
+        "source_score": 75.0
+      }
+    }
+  ],
+  "next_cursor": "item_20260325140000_xyz789",
+  "has_more": true,
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+```
+
+#### completeness_score 计算方式
+
+**查询时计算**，不存储到数据库。基于 Item 已有的三个质量指标：
+
+```
+completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
+```
+
+| 子指标 | 数据库字段 | 计算方式 | 权重 |
+|--------|------------|---------|------|
+| `meta_completeness` | `items.meta_completeness` | author、tags、published_at 是否存在 | 0.4 |
+| `content_completeness` | `items.content_completeness` | 正文长度（≥500=1.0, ≥200=0.7, ≥50=0.4, <50=0.2） | 0.4 |
+| `noise_ratio` | `items.noise_ratio` | HTML 标签和广告标记占比（取反） | 0.2 |
+
+详细计算逻辑见 [RSS Content Quality Fix](./2026-03-25-rss-content-quality-fix-design.md)。
+
+---
+
+## 管理 API
+
+### Source API
+
+**基础路径**：`/api/v1/admin/sources`
+
+#### 端点列表
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | 源列表 |
+| `/` | POST | 单个添加 |
+| `/{id}` | GET | 源详情 |
+| `/{id}` | PUT | 更新源 |
+| `/{id}` | DELETE | 删除源 |
+| `/{id}/test` | POST | 测试连接 |
+| `/{id}/schedule` | POST | 设置调度 |
+| `/{id}/schedule` | DELETE | 取消调度 |
+| `/import` | POST | 批量导入 |
+| `/export` | GET | 导出源 |
+| `/defaults` | GET | 获取默认配置 |
+| `/defaults` | PATCH | 更新默认配置 |
+
+#### 源列表
+
+```
+GET /api/v1/admin/sources?status=active&tier=T1
+```
+
+**查询参数**：
+
+| 参数 | 说明 |
+|------|------|
+| `status` | 状态：`active`、`frozen`、`pending_review` |
+| `tier` | 等级：`T0`、`T1`、`T2`、`T3` |
+| `scheduled` | 是否已调度：`true`、`false` |
+
+**说明**：返回全部匹配结果，不分页。单机版源数量有限（通常 < 200），无需分页。
+
+**响应**：
+
+```json
+{
+  "data": [
+    {
+      "source_id": "src_a1b2c3d4",
+      "name": "Example Blog",
+      "tier": "T1",
+      "score": 75.0,
+      "status": "active",
+      "schedule_interval": 3600,
+      "next_ingest_at": "2026-03-25T11:00:00Z",
+      "last_ingested_at": "2026-03-25T10:00:00Z",
+      "last_ingest_result": "success",
+      "total_items": 1250,
+      "items_last_7d": 42,
+      "consecutive_failures": 0,
+      "last_error_message": null
+    }
+  ],
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+```
+
+**字段说明**：
+
+| 字段 | 用途 |
+|------|------|
+| `last_ingest_result` | 快速判断最近采集状态 |
+| `total_items` | 评估源的历史价值 |
+| `items_last_7d` | 判断源是否活跃 |
+| `consecutive_failures` | 发现持续失败的源 |
+| `last_error_message` | 错误摘要，快速定位问题 |
+
+#### 源详情
+
+```
+GET /api/v1/admin/sources/{id}
+```
+
+**响应**：与单个添加响应格式相同（见下文）。
+
+#### 测试连接
+
+```
+POST /api/v1/admin/sources/{id}/test
+```
+
+**响应**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "test_result": "success",
+  "response_time_ms": 234,
+  "items_found": 15,
+  "last_modified": "2026-03-25T10:00:00Z",
+  "warnings": []
+}
+```
+
+**失败响应**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "test_result": "failed",
+  "error_type": "connection",
+  "error_message": "Connection timeout after 30s",
+  "suggestion": "检查网络连接或增加超时时间"
+}
+```
+
+#### 单个添加
+
+```
+POST /api/v1/admin/sources
+{
+  "url": "https://example.com",       # feed_url 或 site_url
+  "name": "Example Blog",             # 可选，不填则自动检测
+  "tier": "T1",                       # 可选，不填则自动建议
+  "needs_full_fetch": true,           # 可选，不填则自动判断
+  "force": false                      # 强制添加，跳过质量验证
+}
+```
+
+**处理流程**：
+
+```
+1. URL 去重检测 ──→ 已存在则返回错误
+2. RSS 自动发现（如果是 site_url）
+3. 处理重定向，获取最终 feed_url
+4. 自动检测源信息（name, tier, needs_full_fetch）
+5. 质量验证 ──→ 不通过且 force=false 则返回错误
+6. 创建源
+```
+
+**响应示例**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "name": "Example Blog",
+  "config": { "feed_url": "https://new-domain.com/feed.xml" },
+  "tier": "T1",
+  "score": 75.0,
+  "status": "active",
+  "needs_full_fetch": true,
+  "full_fetch_threshold": 0.7,
+  "content_type": "summary",
+  "avg_content_length": 150,
+  "consecutive_failures": 0,
+  "last_error_at": null,
+  "last_error_message": null,
+  "last_job_id": null,
+  "schedule_interval": null,
+  "next_ingest_at": null,
+  "last_ingested_at": null,
+  "last_ingest_result": null,
+  "total_items": 0,
+  "items_last_7d": 0,
+  "warnings": [
+    "URL permanently redirected: https://old-domain.com/feed.xml → https://new-domain.com/feed.xml"
+  ],
+  "created_at": "2026-03-25T10:00:00Z",
+  "updated_at": "2026-03-25T10:00:00Z"
+}
+```
+
+**有错误时的响应示例**：
+
+```json
+{
+  "source_id": "src_b2c3d4e5",
+  "name": "Problematic Feed",
+  "config": { "feed_url": "https://problematic.com/feed.xml" },
+  "tier": "T2",
+  "score": 45.0,
+  "status": "active",
+  "needs_full_fetch": false,
+  "full_fetch_threshold": 0.7,
+  "content_type": "full",
+  "avg_content_length": 800,
+  "consecutive_failures": 3,
+  "last_error_at": "2026-03-25T09:30:00Z",
+  "last_error_message": "Connection timeout after 30s",
+  "last_job_id": "job_xyz789",
+  "schedule_interval": 3600,
+  "next_ingest_at": "2026-03-25T11:00:00Z",
+  "last_ingested_at": "2026-03-25T08:00:00Z",
+  "last_ingest_result": "failed",
+  "total_items": 320,
+  "items_last_7d": 0,
+  "warnings": [],
+  "created_at": "2026-03-01T10:00:00Z",
+  "updated_at": "2026-03-25T09:30:00Z"
+}
+```
+
+**错误排查工作流**：
+
+```
+管理员查看源列表 → 发现 consecutive_failures > 0 或 last_error_message 不为空
+→ 记录 last_job_id → 调用 GET /admin/jobs/{job_id} 获取完整错误详情
+→ 根据错误类型决定修复方案
+```
+
+#### 批量导入
+
+```
+POST /api/v1/admin/sources/import
+Content-Type: multipart/form-data
+
+file: subscriptions.opml
+force: false
+skip_invalid: true
+```
+
+**响应**：
+
+```json
+{
+  "job_id": "job_abc123",
+  "status": "pending",
+  "message": "Import job created, check status at /api/v1/admin/jobs/job_abc123"
+}
+```
+
+**后续查看**：
+- 任务状态：`GET /api/v1/admin/jobs/{job_id}`
+- 导入的源：`GET /api/v1/admin/sources`
+
+#### 调度设置
+
+```
+POST /api/v1/admin/sources/{id}/schedule
+{
+  "interval": 3600
+}
+```
+
+**说明**：设置源采集间隔，调度信息存储在 Source 模型中。
+
+**字段说明**：
+- `interval`: 采集间隔秒数，最小 300（5分钟），无上限
+
+**响应**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "schedule_interval": 3600,
+  "next_ingest_at": "2026-03-25T11:00:00Z",
+  "message": "Schedule updated"
+}
+```
+
+**调度机制**：
+- 设置 `schedule_interval` 后，系统自动计算 `next_ingest_at`
+- Scheduler 进程定期扫描 `next_ingest_at` 到期的源
+- 到期后创建 Job 并触发 Dramatiq 采集任务
+
+```
+DELETE /api/v1/admin/sources/{id}/schedule  # 取消调度
+```
+
+**响应**：
+
+```json
+{
+  "source_id": "src_a1b2c3d4",
+  "schedule_interval": null,
+  "next_ingest_at": null,
+  "message": "Schedule removed"
+}
+```
+
+#### 默认配置
+
+**用途**：管理新添加源的默认采集间隔。
+
+```
+GET /api/v1/admin/sources/defaults
+```
+
+**响应**：
+
+```json
+{
+  "default_fetch_interval": 3600,
+  "updated_at": "2026-03-25T10:00:00Z"
+}
+```
+
+```
+PATCH /api/v1/admin/sources/defaults
+{
+  "default_fetch_interval": 7200
+}
+```
+
+**响应**：
+
+```json
+{
+  "default_fetch_interval": 7200,
+  "updated_at": "2026-03-25T15:00:00Z"
+}
+```
+
+**说明**：
+- `default_fetch_interval`：新添加源未指定 interval 时使用的默认值（秒）
+- 最小值：300（5分钟）
+- 修改默认值不影响已调度的源
+
+---
+
+### Job API
+
+**基础路径**：`/api/v1/admin/jobs`
+
+#### 任务管理架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  触发入口                                                        │
+│                                                                  │
+│  API 手动触发：                                                   │
+│  - POST /admin/jobs (采集) → 创建 Job → Dramatiq 任务            │
+│  - POST /admin/sources/import → 创建 Job → Dramatiq 任务         │
+│                                                                  │
+│  Scheduler 定时触发（独立进程）：                                  │
+│  - 扫描 next_ingest_at 到期的源 → 创建 Job → Dramatiq 任务        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Dramatiq Worker                                                │
+│  - 异步执行任务                                                  │
+│  - 重试、失败处理                                                │
+│  - 更新 Job 状态和结果                                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**调度存储**：Source 模型字段（`schedule_interval`、`next_ingest_at`）
+
+**执行追踪**：Job 模型
+
+#### 任务类型
+
+| 类型 | 说明 | 触发方式 |
+|------|------|---------|
+| `ingest` | 采集任务（单个源） | API 手动 / Scheduler 定时 |
+| `import` | 导入任务（批量添加源） | API 手动 |
+
+#### 端点列表
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | 任务列表 |
+| `/` | POST | 手动运行采集任务 |
+| `/{id}` | GET | 任务详情 |
+
+#### 任务列表
+
+```
+GET /api/v1/admin/jobs?type=ingest&status=failed&source_id=src_xxx&limit=50
+```
+
+**查询参数**：
+
+| 参数 | 说明 |
+|------|------|
+| `type` | 任务类型：`ingest` 或 `import` |
+| `status` | 状态：`pending`、`running`、`completed`、`failed` |
+| `source_id` | 按 source 过滤（仅 ingest 类型） |
+| `since` | 创建时间起始 |
+| `limit` | 每页数量，默认 50 |
+
+**响应**：
+
+```json
+{
+  "data": [
+    {
+      "job_id": "job_abc123",
+      "type": "ingest",
+      "status": "completed",
+      "source_id": "src_xxx",
+      "source_name": "Example Blog",
+      "created_at": "2026-03-25T10:00:00Z",
+      "started_at": "2026-03-25T10:00:01Z",
+      "completed_at": "2026-03-25T10:01:00Z",
+      "duration_seconds": 59,
+      "result": {
+        "items_fetched": 15,
+        "items_created": 12,
+        "items_rejected": 3
+      }
+    }
+  ],
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+```
+
+#### 手动运行采集
+
+```
+POST /api/v1/admin/jobs
+{
+  "source_id": "src_xxx"
+}
+```
+
+**响应**：
+
+```json
+{
+  "job_id": "job_xyz789",
+  "type": "ingest",
+  "status": "pending",
+  "source_id": "src_xxx",
+  "source_name": "Example Blog",
+  "message": "Job created and queued"
+}
+```
+
+#### 任务详情
+
+```
+GET /api/v1/admin/jobs/{id}
+```
+
+**ingest 类型响应**：
+
+```json
+{
+  "job_id": "job_abc123",
+  "type": "ingest",
+  "status": "completed",
+  "source_id": "src_xxx",
+  "source_name": "Example Blog",
+  "created_at": "2026-03-25T10:00:00Z",
+  "started_at": "2026-03-25T10:00:01Z",
+  "completed_at": "2026-03-25T10:01:00Z",
+  "duration_seconds": 59,
+  "retry_count": 0,
+  "result": {
+    "items_fetched": 15,
+    "items_created": 12,
+    "items_rejected": 3
+  }
+}
+```
+
+**ingest 类型失败响应**：
+
+```json
+{
+  "job_id": "job_def456",
+  "type": "ingest",
+  "status": "failed",
+  "source_id": "src_xxx",
+  "source_name": "Example Blog",
+  "created_at": "2026-03-25T10:00:00Z",
+  "started_at": "2026-03-25T10:00:01Z",
+  "completed_at": "2026-03-25T10:00:35Z",
+  "retry_count": 3,
+  "error": {
+    "type": "connection_timeout",
+    "message": "Connection timeout after 30s",
+    "suggestion": "检查网络连接或增加超时时间"
+  }
+}
+```
+
+**import 类型响应**：
+
+```json
+{
+  "job_id": "job_xyz789",
+  "type": "import",
+  "status": "completed",
+  "file_name": "subscriptions.opml",
+  "created_at": "2026-03-25T10:00:00Z",
+  "started_at": "2026-03-25T10:00:01Z",
+  "completed_at": "2026-03-25T10:05:00Z",
+  "duration_seconds": 299,
+  "result": {
+    "total": 50,
+    "imported": 42,
+    "skipped": 5,
+    "failed": 3
+  },
+  "failed_sources": [
+    {
+      "url": "https://low-quality.com/feed.xml",
+      "reason": "Content completeness too low (0.25 < 0.4)"
+    },
+    {
+      "url": "https://no-rss.com",
+      "reason": "RSS feed not found"
+    }
+  ]
+}
+```
+
+#### 任务状态值
+
+| 状态 | 说明 |
+|------|------|
+| `pending` | 等待执行（在队列中） |
+| `running` | 执行中 |
+| `completed` | 成功完成 |
+| `failed` | 执行失败（重试耗尽） |
+
+---
+
+## 数据模型
+
+### 数据模型变更摘要
+
+| 变更 | 说明 |
+|------|------|
+| 移除 contents 表 | Content 去重层简化，Item 即为最终情报实体 |
+| 移除 items.content_id | Item 不再关联 Content |
+| 新增 items.normalized_title | 标准化标题 |
+| 新增 items.normalized_body | 标准化正文（Markdown 格式） |
+| API 路径变更 | `/api/v1/contents` → `/api/v1/items` |
+
+### Item 模型
+
+**数据库表**：`items`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `item_id` | VARCHAR(64) | 主键，格式：`item_{YYYYMMDDHHMMSS}_{uuid8}` |
+| `source_id` | VARCHAR(64) | 关联源，外键 |
+| `external_id` | VARCHAR(255) | 外部标识（RSS guid） |
+| `url` | VARCHAR(1024) | 原始文章链接 |
+| `title` | VARCHAR(1024) | 原始标题 |
+| `raw_content` | TEXT | 原始内容 |
+| `normalized_title` | VARCHAR(1024) | 标准化标题（新增） |
+| `normalized_body` | TEXT | 标准化正文（新增） |
+| `published_at` | TIMESTAMP | 发布时间 |
+| `fetched_at` | TIMESTAMP | 采集时间 |
+| `content_hash` | VARCHAR(64) | 内容哈希 |
+| `status` | VARCHAR(20) | 状态：NEW、NORMALIZED、MAPPED、REJECTED |
+| `raw_metadata` | JSONB | 元数据（author、tags 等） |
+| `meta_completeness` | FLOAT | 元数据完整度 |
+| `content_completeness` | FLOAT | 内容完整度 |
+| `noise_ratio` | FLOAT | 噪声比 |
+
+**索引**：
+- `source_id`, `published_at`, `fetched_at`, `url`
+
+**字段映射（数据库 → API）**：
+
+| API 字段 | 数据库字段 | 说明 |
+|----------|------------|------|
+| `id` | `item_id` | 直接映射 |
+| `title` | `normalized_title` | 标准化标题 |
+| `author` | `raw_metadata->>'author'` | JSONB 提取 |
+| `published_at` | `published_at` | 直接映射 |
+| `body` | `normalized_body` | 标准化正文 |
+| `url` | `url` | 直接映射 |
+| `completeness_score` | 计算字段 | 查询时计算 |
+| `tags` | `raw_metadata->>'tags'` | JSONB 提取 |
+| `fetched_at` | `fetched_at` | 直接映射 |
+
+### Source 模型扩展字段
+
+**源治理字段**（已存在于模型）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `pending_review` | BOOLEAN | 是否需要人工审查 |
+| `review_reason` | TEXT | 审查原因说明 |
+
+**调度字段**（新增）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `schedule_interval` | INTEGER | 采集间隔秒数，null 表示未调度 |
+| `next_ingest_at` | TIMESTAMP | 下次采集时间 |
+| `last_ingested_at` | TIMESTAMP | 上次采集时间 |
+
+**错误追踪字段**（来自 RSS Ingestion Error Fix，新增）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `consecutive_failures` | INTEGER | 连续失败次数 |
+| `last_error_at` | TIMESTAMP | 最后错误时间 |
+| `last_error_message` | VARCHAR(255) | 最后错误摘要（如 "Connection timeout after 30s"） |
+| `last_job_id` | VARCHAR(64) | 最后执行的 Job ID，用于深入排查 |
+
+**采集统计字段**（部分已有，部分新增）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `total_items` | INTEGER | 累计采集情报数（已有） |
+| `items_last_7d` | INTEGER | 近 7 天采集数（新增） |
+| `last_ingest_result` | VARCHAR(20) | 最近采集结果：`success`、`partial`、`failed`（新增） |
+
+**全文获取字段**（来自 RSS Content Quality Fix，新增）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `needs_full_fetch` | BOOLEAN | 是否需要全文获取 |
+| `full_fetch_threshold` | FLOAT | 触发全文获取的完整度阈值 |
+| `content_type` | VARCHAR(20) | 内容类型：full、summary、mixed |
+| `avg_content_length` | INTEGER | 平均内容长度 |
+| `full_fetch_success_count` | INTEGER | 全文获取成功次数 |
+| `full_fetch_failure_count` | INTEGER | 全文获取失败次数 |
+
+---
+
+### Job 模型
+
+**数据库表**：`jobs`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `job_id` | VARCHAR(64) | 主键，格式：`job_{uuid}` |
+| `type` | VARCHAR(20) | 任务类型：`ingest` 或 `import` |
+| `status` | VARCHAR(20) | 状态：`pending`、`running`、`completed`、`failed` |
+| `source_id` | VARCHAR(64) | 关联源（ingest 类型），外键 |
+| `file_name` | VARCHAR(255) | 导入文件名（import 类型） |
+| `result` | JSONB | 执行结果 |
+| `error_type` | VARCHAR(50) | 错误类型（失败时） |
+| `error_message` | TEXT | 错误信息（失败时） |
+| `retry_count` | INTEGER | 重试次数，默认 0 |
+| `created_at` | TIMESTAMP | 创建时间 |
+| `started_at` | TIMESTAMP | 开始执行时间 |
+| `completed_at` | TIMESTAMP | 完成时间 |
+
+**索引**：
+- `type`, `status`, `source_id`, `created_at`
+
+**清理策略**：
+
+| 保留规则 | 说明 |
+|---------|------|
+| 30 天内 | 全部保留 |
+| 30 天外 `completed` | 自动清理 |
+| 30 天外 `failed` | 保留（便于复盘） |
+
+**实现**：Scheduler 定时任务每天凌晨执行清理。
+
+### Settings 模型
+
+**数据库表**：`settings`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `key` | VARCHAR(64) | 主键 |
+| `value` | TEXT | 配置值 |
+| `updated_at` | TIMESTAMP | 更新时间 |
+
+**初始化**：数据库迁移脚本写入默认值：
+
+```sql
+INSERT INTO settings (key, value, updated_at)
+VALUES ('default_fetch_interval', '3600', NOW())
+ON CONFLICT (key) DO NOTHING;
+```
+
+**初始数据**：
+
+| key | value |
+|-----|-------|
+| `default_fetch_interval` | `3600` |
+
+---
+
+### Client API
+
+**基础路径**：`/api/v1/admin/clients`
+
+#### 端点列表
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | 客户端列表 |
+| `/` | POST | 创建客户端 |
+| `/{id}` | GET | 客户端详情 |
+| `/{id}` | PUT | 更新客户端 |
+| `/{id}` | DELETE | 删除客户端 |
+| `/{id}/rotate` | POST | 重新生成 API Key |
+
+#### 客户端列表
+
+```
+GET /api/v1/admin/clients?limit=50
+```
+
+**响应**：
+
+```json
+{
+  "data": [
+    {
+      "client_id": "cli_a1b2c3d4e5f6g7h8",
+      "name": "分析系统",
+      "description": "下游分析系统",
+      "permissions": ["read"],
+      "expires_at": "2026-12-31T23:59:59Z",
+      "last_used_at": "2026-03-25T10:00:00Z",
+      "created_at": "2026-03-01T10:00:00Z"
+    }
+  ],
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+```
+
+#### 创建客户端
+
+```
+POST /api/v1/admin/clients
+{
+  "name": "分析系统",
+  "description": "下游分析系统",
+  "permissions": ["read"],
+  "expires_at": "2026-12-31T23:59:59Z"
+}
+```
+
+**响应**：
+
+```json
+{
+  "client_id": "cli_a1b2c3d4e5f6g7h8",
+  "name": "分析系统",
+  "description": "下游分析系统",
+  "api_key": "cp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "permissions": ["read"],
+  "expires_at": "2026-12-31T23:59:59Z",
+  "created_at": "2026-03-25T10:00:00Z"
+}
+```
+
+**说明**：`api_key` 仅创建时返回一次，请妥善保存。
+
+#### 更新客户端
+
+```
+PUT /api/v1/admin/clients/{id}
+{
+  "name": "分析系统 v2",
+  "description": "更新后的描述",
+  "expires_at": "2027-12-31T23:59:59Z"
+}
+```
+
+**响应**：
+
+```json
+{
+  "client_id": "cli_a1b2c3d4e5f6g7h8",
+  "name": "分析系统 v2",
+  "description": "更新后的描述",
+  "permissions": ["read"],
+  "expires_at": "2027-12-31T23:59:59Z",
+  "created_at": "2026-03-25T10:00:00Z"
+}
+```
+
+**说明**：不可修改 `permissions`。
+
+#### 重新生成 API Key
+
+```
+POST /api/v1/admin/clients/{id}/rotate
+```
+
+**响应**：
+
+```json
+{
+  "client_id": "cli_a1b2c3d4e5f6g7h8",
+  "api_key": "cp_live_yyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+  "message": "API Key rotated, old key is now invalid"
+}
+```
+
+**说明**：旧 API Key 立即失效，新 Key 仅返回一次。
+
+#### 删除客户端
+
+```
+DELETE /api/v1/admin/clients/{id}
+```
+
+**响应**：
+
+```json
+{
+  "message": "Client deleted"
+}
+```
+
+**说明**：物理删除，API Key 立即失效。
+
+---
+
+### Log API
+
+**基础路径**：`/api/v1/admin/logs`
+
+**用途**：故障排查，查询错误日志定位问题。
+
+#### 查询日志
+
+```
+GET /api/v1/admin/logs
+```
+
+**查询参数**：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `level` | `error` | 日志级别：`error`、`warning`、`info` |
+| `source_id` | - | 按源筛选 |
+| `since` | - | 时间范围起始 |
+| `limit` | 50 | 每页数量 |
+
+**示例**：
+
+```
+GET /api/v1/admin/logs                                    # 最近错误日志（默认）
+GET /api/v1/admin/logs?source_id=src_xxx&since=24h       # 指定源的错误日志
+GET /api/v1/admin/logs?level=warning                     # 警告日志
+```
+
+**错误类型枚举**：
+
+| error_type | 说明 |
+|------------|------|
+| `connection` | 网络连接错误 |
+| `timeout` | 请求超时 |
+| `http_403` | 访问被拒绝 |
+| `http_404` | 资源不存在 |
+| `http_429` | 请求频率限制 |
+| `http_5xx` | 服务器错误 |
+| `parse_error` | RSS 解析失败 |
+| `ssl_error` | SSL 证书错误 |
+
+**响应**：
+
+```json
+{
+  "data": [
+    {
+      "timestamp": "2026-03-25T10:00:00Z",
+      "level": "ERROR",
+      "module": "connector.rss",
+      "source_id": "src_xxx",
+      "source_name": "Example Blog",
+      "error_type": "connection",
+      "message": "HTTP 403 Forbidden",
+      "retry_count": 3,
+      "suggestion": "检查网站反爬策略"
+    }
+  ],
+  "count": 1,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+```
+
+---
+
+### Diagnose API
+
+**基础路径**：`/api/v1/admin/diagnose`
+
+**用途**：系统监控入口，快速了解系统运行状况。
+
+#### 系统诊断
+
+```
+GET /api/v1/admin/diagnose
+```
+
+**响应**：
+
+```json
+{
+  "status": "healthy",
+  "version": "1.3.0",
+  "components": {
+    "database": "connected",
+    "redis": "connected",
+    "scheduler": "active"
+  },
+  "statistics": {
+    "sources": {
+      "active": 120,
+      "frozen": 15,
+      "pending_review": 5
+    },
+    "jobs": {
+      "pending": 3,
+      "running": 1,
+      "failed_24h": 12
+    },
+    "items": {
+      "total": 5420,
+      "last_24h": 156
+    },
+    "errors": {
+      "total_24h": 280,
+      "by_type": {
+        "connection": 120,
+        "http_403": 80,
+        "timeout": 50,
+        "parse_error": 30
+      },
+      "top_sources": [
+        { "source_id": "src_xxx", "source_name": "Example Blog", "error_count": 15 }
+      ]
+    }
+  },
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+```
+
+**status 取值**：
+- `healthy` - 所有组件正常，近期无严重错误
+- `degraded` - 部分组件异常或错误率偏高
+- `unhealthy` - 关键组件异常
+
+**使用场景**：
+- 日常巡检入口
+- 发现 `pending_review > 0` → 进入源健康检查流程
+- 发现 `failed_24h` 偏高 → 进入故障排查流程
+
+---
+
+## 统一响应格式
+
+### 成功响应
+
+```json
+// 列表
+{
+  "data": [...],
+  "count": 50,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+
+// 分页列表（带游标）
+{
+  "data": [...],
+  "next_cursor": "item_20260325140000_xyz789",
+  "has_more": true,
+  "count": 50,
+  "server_timestamp": "2026-03-25T15:00:00Z"
+}
+
+// 单条
+{
+  "source_id": "src_xxx",
+  ...
+}
+```
+
+### 错误响应
+
+```json
+{
+  "detail": "错误描述",
+  "code": "ERROR_CODE"
+}
+```
+
+### HTTP 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 | 成功 |
+| 400 | 请求参数错误 |
+| 401 | 未认证 |
+| 403 | 权限不足 |
+| 404 | 资源不存在 |
+| 422 | 请求格式错误 |
+| 500 | 服务器内部错误 |
+
+---
+
+## 调度机制设计
+
+### Scheduler 工作流程
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Scheduler 进程（独立）                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  每 60 秒执行一次：                                              │
+│  1. 查询 Source 表中 next_ingest_at <= NOW() 的源                │
+│  2. 对每个到期源：                                               │
+│     a. 创建 Job 记录（type=ingest, status=pending）             │
+│     b. 调用 Dramatiq ingest_source.send(source_id)             │
+│     c. 更新 next_ingest_at = NOW() + schedule_interval          │
+│  3. 记录调度日志                                                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 调度状态管理
+
+**设置调度**：
+```python
+# POST /api/v1/admin/sources/{id}/schedule
+source.schedule_interval = interval
+source.next_ingest_at = datetime.now(timezone.utc) + timedelta(seconds=interval)
+```
+
+**取消调度**：
+```python
+# DELETE /api/v1/admin/sources/{id}/schedule
+source.schedule_interval = None
+source.next_ingest_at = None
+```
+
+**采集完成后更新**：
+```python
+# 在 ingest_source 任务完成后
+source.last_ingested_at = datetime.now(timezone.utc)
+if source.schedule_interval:
+    source.next_ingest_at = datetime.now(timezone.utc) + timedelta(seconds=source.schedule_interval)
+```
+
+### Scheduler 实现要点
+
+1. **进程管理**：Scheduler 作为独立进程运行，与 API/Worker 分离
+2. **锁机制**：使用 Redis 分布式锁防止多实例重复调度
+3. **错误处理**：调度失败记录日志，不阻塞其他源的调度
+4. **动态加载**：支持运行时修改 schedule_interval，下次调度生效
+
+---
+
+## Log API 日志解析实现
+
+### 日志文件位置
+
+默认路径：`/var/log/cyber-pulse/app.log`
+
+可通过环境变量 `LOG_FILE_PATH` 配置。
+
+### 日志格式
+
+使用 JSON 格式，便于解析：
+
+```json
+{"timestamp": "2026-03-25T10:00:00Z", "level": "ERROR", "module": "connector.rss", "source_id": "src_xxx", "message": "HTTP 403 Forbidden", "error_type": "http_403", "retry_count": 3}
+```
+
+### 解析逻辑
+
+```python
+class LogParser:
+    """日志解析器"""
+
+    ERROR_TYPE_PATTERNS = {
+        "connection": [r"ConnectError", r"Connection refused", r"Name resolution failed"],
+        "timeout": [r"Timeout", r"timed out"],
+        "http_403": [r"HTTP 403", r"Forbidden"],
+        "http_404": [r"HTTP 404", r"Not Found"],
+        "http_429": [r"HTTP 429", r"Too Many Requests"],
+        "http_5xx": [r"HTTP 5\d{2}"],
+        "parse_error": [r"ParseError", r"Invalid RSS", r"Malformed"],
+        "ssl_error": [r"SSL", r"certificate"],
+    }
+
+    def parse_line(self, line: str) -> Optional[LogEntry]:
+        """解析单行日志"""
+        try:
+            data = json.loads(line)
+            # 自动分类错误类型
+            if "error_type" not in data and data.get("level") == "ERROR":
+                data["error_type"] = self._classify_error(data.get("message", ""))
+            return LogEntry(**data)
+        except json.JSONDecodeError:
+            return None
+
+    def _classify_error(self, message: str) -> str:
+        """根据消息内容分类错误类型"""
+        message_lower = message.lower()
+        for error_type, patterns in self.ERROR_TYPE_PATTERNS.items():
+            for pattern in patterns:
+                if re.search(pattern, message, re.I):
+                    return error_type
+        return "unknown"
+```
+
+### 错误建议映射
+
+```python
+ERROR_SUGGESTIONS = {
+    "connection": "检查网络连接或源服务器状态",
+    "timeout": "增加请求超时时间或检查网络延迟",
+    "http_403": "检查网站反爬策略，可能需要添加 User-Agent 或 IP 白名单",
+    "http_404": "RSS 地址已失效，尝试自动发现新地址",
+    "http_429": "降低采集频率，添加请求间隔",
+    "http_5xx": "源服务器异常，稍后重试",
+    "parse_error": "RSS 格式异常，检查源内容",
+    "ssl_error": "检查 SSL 证书配置",
+}
+```
+
+---
+
+## completeness_score 计算逻辑
+
+### 计算公式
+
+```
+completeness_score = meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
+```
+
+### 子指标定义
+
+| 子指标 | 数据库字段 | 计算方式 |
+|--------|------------|---------|
+| `meta_completeness` | `items.meta_completeness` | author、tags、published_at 是否存在 |
+| `content_completeness` | `items.content_completeness` | 正文长度（≥500=1.0, ≥200=0.7, ≥50=0.4, <50=0.2） |
+| `noise_ratio` | `items.noise_ratio` | HTML 标签和广告标记占比 |
+
+### API 实现示例
+
+```python
+def calculate_completeness_score(item: Item) -> float:
+    """计算内容完整性评分"""
+    meta = item.meta_completeness or 0.0
+    content = item.content_completeness or 0.0
+    noise = item.noise_ratio or 0.0
+
+    return round(meta * 0.4 + content * 0.4 + (1 - noise) * 0.2, 2)
+```
+
+### 默认值处理
+
+- 如果 `meta_completeness` 为 NULL，使用 0.0
+- 如果 `content_completeness` 为 NULL，使用 0.0
+- 如果 `noise_ratio` 为 NULL，使用 0.0
+
+---
+
+## 关联设计
+
+- [API Unicode Encoding Fix](./2026-03-25-api-unicode-encoding-design.md)
+- [RSS Ingestion Error Fix](./2026-03-25-rss-ingestion-error-fix-design.md)
+- [RSS Content Quality Fix](./2026-03-25-rss-content-quality-fix-design.md)
+
+---
+
+## 关联 Issue
+
+- #39: API 中文 Unicode 转义
+- #44: API 返回字段与文档描述不一致
+- #47: API 参数/分页问题
+- #42: Worker 大量 RSS 采集错误
+- #41: RSS 采集内容不完整
+- #46: 部分 RSS 源只提供标题链接
+- #43: 缺少源健康状态监控 API

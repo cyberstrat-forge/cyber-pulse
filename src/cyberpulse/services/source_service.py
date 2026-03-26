@@ -28,6 +28,48 @@ class SourceService(BaseService):
         SourceTier.T3: 20.0,
     }
 
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL for comparison.
+
+        Removes trailing slashes, converts to lowercase, and removes
+        common variations to enable URL deduplication.
+
+        Note: Converts https:// to http:// for deduplication purposes.
+        Most RSS feeds are accessible via both http and https, and treating
+        them as the same prevents duplicate source entries. If a source
+        genuinely has different content on http vs https, the feed_url
+        can be manually verified.
+
+        Args:
+            url: URL to normalize
+
+        Returns:
+            Normalized URL string
+        """
+        if not url:
+            return ""
+
+        # Convert to lowercase
+        normalized = url.lower().strip()
+
+        # Remove trailing slash
+        if normalized.endswith("/"):
+            normalized = normalized[:-1]
+
+        # Normalize protocol to http for deduplication
+        # (Most RSS feeds are accessible via both http and https)
+        if normalized.startswith("https://"):
+            normalized = "http://" + normalized[8:]
+        elif normalized.startswith("www."):
+            normalized = "http://" + normalized[4:]
+
+        # Remove common URL parameters that don't affect content
+        # (keep the path but remove tracking params like ?utm_source=...)
+        if "?" in normalized:
+            normalized = normalized.split("?")[0]
+
+        return normalized
+
     def _get_tier_for_score(self, score: float) -> SourceTier:
         """Determine the appropriate tier for a given score.
 
@@ -96,6 +138,22 @@ class SourceService(BaseService):
         existing = self.db.query(Source).filter(Source.name == name).first()
         if existing:
             return None, f"Source with name '{name}' already exists"
+
+        # Check for duplicate URL in config (for RSS and web_scraper types)
+        if config and connector_type in ("rss", "web_scraper"):
+            feed_url = config.get("feed_url") or config.get("url")
+            if feed_url:
+                # Check for existing source with same URL
+                existing_url = (
+                    self.db.query(Source)
+                    .filter(Source.connector_type == connector_type)
+                    .filter(Source.status != SourceStatus.REMOVED)
+                    .all()
+                )
+                for src in existing_url:
+                    src_url = src.config.get("feed_url") or src.config.get("url") if src.config else None
+                    if src_url and self._normalize_url(src_url) == self._normalize_url(feed_url):
+                        return None, f"Source with URL '{feed_url}' already exists as '{src.name}'"
 
         # Determine tier and score based on what was provided
         if score is not None and tier is None:

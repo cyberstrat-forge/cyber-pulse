@@ -345,7 +345,7 @@ class TestUpdateItemStatus:
         published_at = datetime.now(timezone.utc) - timedelta(hours=1)
         content_hash = make_content_hash("content")
 
-        statuses = ["new", "normalized", "mapped", "rejected"]
+        statuses = ["NEW", "NORMALIZED", "MAPPED", "REJECTED"]
 
         for status in statuses:
             item = item_service.create_item(

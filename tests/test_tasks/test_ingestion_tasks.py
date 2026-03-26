@@ -21,6 +21,7 @@ def test_source():
         status=SourceStatus.ACTIVE,
         config={"feed_url": "https://example.com/feed.xml"},
         total_items=0,
+        consecutive_failures=0,
     )
     return source
 
@@ -291,7 +292,7 @@ class TestIntegrityErrorHandling:
 
                     # First call raises IntegrityError, second succeeds
                     mock_item = MagicMock()
-                    mock_item.status.value = "new"
+                    mock_item.status.value = "NEW"
                     mock_item.item_id = "item_001"
                     mock_item_service.create_item.side_effect = [
                         IntegrityError("statement", {}, None),
