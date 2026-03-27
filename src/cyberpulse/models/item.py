@@ -64,7 +64,6 @@ class Item(Base, TimestampMixin):
     content_completeness = Column(Float, nullable=True)
     noise_ratio = Column(Float, nullable=True)
     word_count = Column(Integer, nullable=True)
-    language = Column(String(10), nullable=True)
 
     # Full content fetch status
     full_fetch_attempted = Column(Boolean, nullable=False, default=False)

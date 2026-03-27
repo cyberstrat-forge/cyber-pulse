@@ -27,10 +27,7 @@ CURSOR_PATTERN = re.compile(r"^item_\d{14}_[a-f0-9]{8}$")
 def validate_cursor(cursor: str) -> None:
     """Validate cursor format."""
     if not CURSOR_PATTERN.match(cursor):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid cursor format: {cursor}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid cursor format: {cursor}")
 
 
 def calculate_completeness_score(item: Item) -> float:
@@ -47,7 +44,9 @@ async def list_items(
     cursor: str | None = Query(None, description="Pagination cursor"),
     since: datetime | None = Query(None, description="Start time"),
     until: datetime | None = Query(None, description="End time"),
-    from_param: str | None = Query(None, alias="from", description="Start position: latest or beginning"),
+    from_param: str | None = Query(
+        None, alias="from", description="Start position: latest or beginning"
+    ),
     limit: int = Query(50, ge=1, le=100, description="Page size"),
     db: Session = Depends(get_db),
     _client: ApiClient = Depends(require_permissions(["read"])),
@@ -60,8 +59,7 @@ async def list_items(
     # Validate cursor and from are not both provided
     if cursor and from_param:
         raise HTTPException(
-            status_code=400,
-            detail="Cannot specify both cursor and from parameters"
+            status_code=400, detail="Cannot specify both cursor and from parameters"
         )
 
     # Validate cursor format
@@ -83,8 +81,7 @@ async def list_items(
         cursor_item = db.query(Item).filter(Item.item_id == cursor).first()
         if not cursor_item:
             raise HTTPException(
-                status_code=404,
-                detail=f"Cursor item not found: {cursor}"
+                status_code=404, detail=f"Cursor item not found: {cursor}"
             )
         query = query.filter(Item.fetched_at < cursor_item.fetched_at)
     elif from_param == "beginning":
@@ -119,22 +116,23 @@ async def list_items(
                 source_score=source.score,
             )
 
-        data.append(ItemResponse(
-            id=item.item_id,
-            title=item.normalized_title or item.title,
-            author=item.raw_metadata.get("author") if item.raw_metadata else None,
-            published_at=item.published_at,
-            body=item.normalized_body,
-            url=item.url,
-            completeness_score=calculate_completeness_score(item),
-            tags=item.raw_metadata.get("tags", []) if item.raw_metadata else [],
-            language=item.language,
-            word_count=item.word_count,
-            fetched_at=item.fetched_at,
-            source=source_info,
-            full_fetch_attempted=item.full_fetch_attempted,
-            full_fetch_succeeded=item.full_fetch_succeeded,
-        ))
+        data.append(
+            ItemResponse(
+                id=item.item_id,
+                title=item.normalized_title or item.title,
+                author=item.raw_metadata.get("author") if item.raw_metadata else None,
+                published_at=item.published_at,
+                body=item.normalized_body,
+                url=item.url,
+                completeness_score=calculate_completeness_score(item),
+                tags=item.raw_metadata.get("tags", []) if item.raw_metadata else [],
+                word_count=item.word_count,
+                fetched_at=item.fetched_at,
+                source=source_info,
+                full_fetch_attempted=item.full_fetch_attempted,
+                full_fetch_succeeded=item.full_fetch_succeeded,
+            )
+        )
 
     next_cursor = None
     if has_more and items:

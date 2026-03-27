@@ -20,7 +20,6 @@ def quality_check_item(
     normalized_title: str,
     normalized_body: str,
     canonical_hash: str,
-    language: str | None = None,
     word_count: int = 0,
     extraction_method: str = "trafilatura",
 ) -> None:
@@ -37,7 +36,6 @@ def quality_check_item(
         normalized_title: Normalized title from normalization.
         normalized_body: Normalized body from normalization.
         canonical_hash: Hash for deduplication.
-        language: Detected language code.
         word_count: Word count of normalized body.
         extraction_method: Method used for extraction.
     """
@@ -56,7 +54,6 @@ def quality_check_item(
             normalized_title=normalized_title,
             normalized_body=normalized_body,
             canonical_hash=canonical_hash,
-            language=language,
             word_count=word_count,
             extraction_method=extraction_method,
         )
@@ -109,22 +106,22 @@ def _handle_pass(
         normalization_result: Normalization result with content.
         quality_result: Quality check result with metrics.
     """
-    quality_service = QualityGateService()
-
     # Determine if we should trigger full content fetch
     # Based on content_completeness score, not _validate_content_quality
     source = getattr(item, "source", None)
     needs_full_fetch = False
 
     content_completeness = quality_result.metrics.get("content_completeness", 0)
-    full_fetch_threshold = source.full_fetch_threshold if source else 0.7
+    full_fetch_threshold = getattr(source, "full_fetch_threshold", None) or 0.7
 
     if content_completeness < full_fetch_threshold and item.url:
         # Content is summary-only or incomplete, check if source allows full fetch
         if source and source.needs_full_fetch:
             needs_full_fetch = True
             logger.info(
-                f"Item {item.item_id} needs full fetch: content_completeness={content_completeness:.2f} < threshold={full_fetch_threshold:.2f}"
+                f"Item {item.item_id} needs full fetch: "
+                f"content_completeness={content_completeness:.2f} < "
+                f"threshold={full_fetch_threshold:.2f}"
             )
 
     # Update item with normalized content and quality metrics
@@ -132,7 +129,6 @@ def _handle_pass(
     item.normalized_title = normalization_result.normalized_title
     item.normalized_body = normalization_result.normalized_body
     item.canonical_hash = normalization_result.canonical_hash
-    item.language = normalization_result.language
     item.word_count = normalization_result.word_count
     item.meta_completeness = quality_result.metrics.get("meta_completeness")
     item.content_completeness = quality_result.metrics.get("content_completeness")
@@ -174,9 +170,7 @@ def _handle_reject(db, item: Item, quality_result) -> None:
     item.raw_metadata["rejection_reason"] = quality_result.rejection_reason
     item.raw_metadata["quality_warnings"] = quality_result.warnings
 
-    logger.warning(
-        f"Item {item.item_id} rejected: {quality_result.rejection_reason}"
-    )
+    logger.warning(f"Item {item.item_id} rejected: {quality_result.rejection_reason}")
 
 
 @dramatiq.actor(max_retries=3)
@@ -257,10 +251,14 @@ def fetch_full_content(item_id: str) -> None:
             # Update source statistics
             source = db.query(Source).filter(Source.source_id == item.source_id).first()
             if source:
-                source.full_fetch_success_count = (source.full_fetch_success_count or 0) + 1
+                source.full_fetch_success_count = (
+                    source.full_fetch_success_count or 0
+                ) + 1
 
             db.commit()
-            logger.info(f"Full content fetched for item {item_id}: {len(result.content)} chars")
+            logger.info(
+                f"Full content fetched for item {item_id}: {len(result.content)} chars"
+            )
 
             # Re-queue normalization with new content
             normalize_actor = broker.get_actor("normalize_item")
@@ -271,13 +269,19 @@ def fetch_full_content(item_id: str) -> None:
             # Update source statistics
             source = db.query(Source).filter(Source.source_id == item.source_id).first()
             if source:
-                source.full_fetch_failure_count = (source.full_fetch_failure_count or 0) + 1
+                source.full_fetch_failure_count = (
+                    source.full_fetch_failure_count or 0
+                ) + 1
 
             db.commit()
-            logger.warning(f"Failed to fetch full content for item {item_id}: {result.error}")
+            logger.warning(
+                f"Failed to fetch full content for item {item_id}: {result.error}"
+            )
 
     except Exception as e:
-        logger.error(f"Full content fetch failed for item {item_id}: {e}", exc_info=True)
+        logger.error(
+            f"Full content fetch failed for item {item_id}: {e}", exc_info=True
+        )
         db.rollback()
         raise
     finally:

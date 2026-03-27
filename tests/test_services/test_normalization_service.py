@@ -215,90 +215,6 @@ class TestCanonicalHash:
         assert hash1 == hash2
 
 
-class TestLanguageDetection:
-    """Tests for _detect_language method."""
-
-    def test_detect_english_content(self, normalization_service):
-        """Test detecting English content."""
-        content = """
-        This is a longer piece of English text. It contains multiple sentences
-        and should be detected as English language content. The detection
-        should work reliably for longer texts.
-        """
-
-        language = normalization_service._detect_language(content)
-
-        # trafilatura should detect English, or None if detection fails
-        assert language in ("en", None)
-
-    def test_detect_chinese_content(self, normalization_service):
-        """Test detecting Chinese content."""
-        content = """
-        这是一段中文文本。包含多个句子，
-        应该被检测为中文内容。语言检测对于较长的文本应该可靠工作。
-        """
-
-        language = normalization_service._detect_language(content)
-
-        assert language == "zh"
-
-    def test_detect_japanese_content(self, normalization_service):
-        """Test detecting Japanese content (Hiragana/Katakana)."""
-        # Pure Japanese kana without kanji
-        content = """
-        これはにほんごのてきすとです。
-        ふくすうのぶんがふくまれており、
-        にほんごとしてけんしゅつされるべきです。
-        """
-
-        language = normalization_service._detect_language(content)
-
-        assert language == "ja"
-
-    def test_detect_russian_content(self, normalization_service):
-        """Test detecting Russian content (Cyrillic)."""
-        content = """
-        Это текст на русском языке. Он содержит несколько предложений
-        и должен быть определён как русский язык.
-        """
-
-        language = normalization_service._detect_language(content)
-
-        assert language == "ru"
-
-    def test_detect_short_content(self, normalization_service):
-        """Test language detection with short content."""
-        content = "Short"
-
-        language = normalization_service._detect_language(content)
-
-        # Short content may not be reliably detected
-        assert language is None
-
-    def test_detect_empty_content(self, normalization_service):
-        """Test language detection with empty content."""
-        language = normalization_service._detect_language("")
-
-        assert language is None
-
-    def test_detect_unknown_content_returns_none(self, normalization_service):
-        """Test that unknown language content returns None instead of guessing."""
-        # Content with mixed scripts that doesn't clearly match any language
-        content = "12345678901234567890 mixed content here"
-
-        language = normalization_service._detect_language(content)
-
-        # Should return None instead of defaulting to "en"
-        # (unless trafilatura happens to detect something)
-        # The key is: no false positive default to "en"
-        if language is None:
-            # Expected - no detection
-            pass
-        else:
-            # If trafilatura detected something, that's fine
-            assert language in ("en", "es", "fr", "de", "pt", "it")
-
-
 class TestCleanHtml:
     """Tests for _clean_html method."""
 
@@ -431,7 +347,6 @@ class TestNormalizationResult:
             normalized_title="Test Title",
             normalized_body="Test body content",
             canonical_hash="abc123def456",
-            language="en",
             word_count=3,
             extraction_method="trafilatura",
         )
@@ -439,22 +354,8 @@ class TestNormalizationResult:
         assert result.normalized_title == "Test Title"
         assert result.normalized_body == "Test body content"
         assert result.canonical_hash == "abc123def456"
-        assert result.language == "en"
         assert result.word_count == 3
         assert result.extraction_method == "trafilatura"
-
-    def test_result_optional_language(self):
-        """Test NormalizationResult with None language."""
-        result = NormalizationResult(
-            normalized_title="Test",
-            normalized_body="Body",
-            canonical_hash="hash",
-            language=None,
-            word_count=1,
-            extraction_method="raw",
-        )
-
-        assert result.language is None
 
 
 class TestIntegration:

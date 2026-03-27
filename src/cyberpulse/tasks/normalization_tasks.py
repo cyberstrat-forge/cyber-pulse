@@ -57,9 +57,7 @@ def normalize_item(item_id: str) -> None:
         )
 
         logger.debug(
-            f"Normalization complete for {item_id}: "
-            f"word_count={result.word_count}, "
-            f"language={result.language}"
+            f"Normalization complete for {item_id}: word_count={result.word_count}"
         )
 
         # Get source name for title parsing (if available)
@@ -90,7 +88,6 @@ def normalize_item(item_id: str) -> None:
         item.normalized_body = result.normalized_body  # type: ignore[assignment]
         item.canonical_hash = result.canonical_hash  # type: ignore[assignment]
         item.word_count = result.word_count  # type: ignore[assignment]
-        item.language = result.language  # type: ignore[assignment]
 
         # Update status to NORMALIZED
         item.status = ItemStatus.NORMALIZED  # type: ignore[assignment]
@@ -108,7 +105,6 @@ def normalize_item(item_id: str) -> None:
             normalized_title=normalized_title,
             normalized_body=result.normalized_body,
             canonical_hash=result.canonical_hash,
-            language=result.language,
             word_count=result.word_count,
             extraction_method=result.extraction_method,
         )
@@ -179,7 +175,6 @@ def normalize_item_with_result(item_id: str) -> dict:
         item.normalized_body = result.normalized_body  # type: ignore[assignment]
         item.canonical_hash = result.canonical_hash  # type: ignore[assignment]
         item.word_count = result.word_count  # type: ignore[assignment]
-        item.language = result.language  # type: ignore[assignment]
         item.status = ItemStatus.NORMALIZED  # type: ignore[assignment]
 
         db.commit()
@@ -189,7 +184,6 @@ def normalize_item_with_result(item_id: str) -> dict:
             "normalized_title": normalized_title,
             "normalized_body": result.normalized_body,
             "canonical_hash": result.canonical_hash,
-            "language": result.language,
             "word_count": result.word_count,
             "extraction_method": result.extraction_method,
         }

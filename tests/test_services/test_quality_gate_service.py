@@ -39,7 +39,6 @@ def valid_normalization_result():
         normalized_title="This is a valid title",
         normalized_body="This is the normalized body content with enough text to be meaningful.",
         canonical_hash="abc123def456",
-        language="en",
         word_count=10,
         extraction_method="trafilatura",
     )

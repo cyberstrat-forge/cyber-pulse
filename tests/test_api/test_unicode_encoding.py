@@ -82,7 +82,6 @@ class TestUnicodeEncoding:
             normalized_title="测试标题",
             normalized_body="这是一段中文内容，用于测试 Unicode 编码。",
             canonical_hash="hash_unicode_test",
-            language="zh",
             word_count=15,
             published_at=now - timedelta(hours=1),
             fetched_at=now,
