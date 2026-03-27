@@ -175,6 +175,11 @@ class TestE2EDataFlow:
         assert "noise_ratio" in quality_result.metrics
 
         # Update item status to NORMALIZED with normalized fields
+        item.normalized_title = normalization_result.normalized_title
+        item.normalized_body = normalization_result.normalized_body
+        item.canonical_hash = normalization_result.canonical_hash
+        item.word_count = normalization_result.word_count
+        item.language = normalization_result.language
         item_service.update_item_status(
             item.item_id,
             "NORMALIZED",

@@ -343,7 +343,6 @@ class SourceScoreService(BaseService):
                 "quality": components.quality,
                 "strategic_value": components.strategic_value,
             },
-            "is_in_observation": source.is_in_observation,
         }
 
     def get_score_components(self, source_id: str) -> ScoreComponents:
