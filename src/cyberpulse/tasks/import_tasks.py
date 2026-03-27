@@ -3,11 +3,10 @@
 import logging
 from datetime import UTC, datetime
 
-import dramatiq
-
 from ..database import SessionLocal
 from ..models import Job, JobStatus, SourceTier
 from ..services.source_service import SourceService
+from .worker import dramatiq
 
 logger = logging.getLogger(__name__)
 
