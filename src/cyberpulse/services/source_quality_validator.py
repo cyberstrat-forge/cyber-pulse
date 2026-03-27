@@ -7,6 +7,8 @@ from typing import Any
 import feedparser
 import httpx
 
+from .base import SSRFError, validate_url_for_ssrf
+
 logger = logging.getLogger(__name__)
 
 
@@ -133,6 +135,13 @@ class SourceQualityValidator:
         Returns:
             List of sample items with content.
         """
+        # SSRF protection: validate URL before fetching
+        try:
+            validate_url_for_ssrf(feed_url)
+        except SSRFError as e:
+            logger.error(f"SSRF validation failed for {feed_url}: {e}")
+            return []
+
         try:
             async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT) as client:
                 response = await client.get(feed_url, follow_redirects=True)

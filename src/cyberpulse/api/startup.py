@@ -64,7 +64,7 @@ def ensure_admin_client() -> None:
         print(f"\n{'='*60}")
         print("Admin client created successfully.")
         print(f"{'='*60}")
-        print(f"\n  Admin API Key: {plain_key}\n")
+        print(f"\n  Admin API Key: {plain_key}\n")  # nosec B105: intentional display for initial setup
         print("  IMPORTANT: This key is shown ONCE. Save it securely now!")
         print("  If lost, use './scripts/cyber-pulse.sh admin reset' to generate a new key.")
         print(f"\n{'='*60}\n")
