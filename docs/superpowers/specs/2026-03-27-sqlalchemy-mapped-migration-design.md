@@ -151,7 +151,29 @@ source: Mapped["Source | None"] = relationship(back_populates="jobs")
 - 多对一：`Mapped["Model | None"]`（可空外键）
 - 字符串引用避免循环导入
 
-### 7. TimestampMixin
+### 7. 复合索引 (`__table_args__`)
+
+```python
+# Before (无变化)
+__table_args__ = (
+    Index("ix_items_source_published", "source_id", "published_at"),
+    Index("ix_items_source_url", "source_id", "url", unique=True),
+)
+
+# After (保持不变)
+__table_args__ = (
+    Index("ix_items_source_published", "source_id", "published_at"),
+    Index("ix_items_source_url", "source_id", "url", unique=True),
+)
+```
+
+**规则**: `__table_args__` 与 `Column` 定义无关，迁移时保持不变。
+
+**受影响模型**:
+- `Item`: 2 个复合索引
+- `Content`: 1 个复合索引
+
+### 8. TimestampMixin
 
 ```python
 # Before
@@ -169,7 +191,7 @@ class TimestampMixin:
 - 无需 `nullable=False`，有默认值即非空
 - 保留 `func.now()` 和 `onupdate`
 
-### 8. 枚举类升级
+### 9. 枚举类升级
 
 ```python
 # Before
@@ -190,6 +212,42 @@ class ItemStatus(StrEnum):
 **规则**:
 - Python 3.11+ 支持 `StrEnum`，语义更清晰
 - 无需 `(str, Enum)` 多重继承
+- 统一导入风格：所有枚举使用 `from enum import StrEnum`
+
+**当前不一致情况**:
+- `source.py`, `job.py`: `from enum import Enum as PyEnum`
+- `item.py`, `content.py`, `api_client.py`: `from enum import Enum`
+- 迁移后统一为 `StrEnum`
+
+### 10. 可空 JSONB 字段
+
+```python
+# Before (无默认值)
+result = Column(JSONB, nullable=True)
+
+# After
+result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+```
+
+**规则**: 可空 JSONB 无默认值时，类型为 `Mapped[dict[str, Any] | None]`。
+
+**受影响字段**: `Job.result`
+
+### 11. Settings 模型
+
+```python
+# Before
+class Settings(Base, TimestampMixin):
+    __tablename__ = "settings"
+    key = Column(String(64), primary_key=True)
+    value = Column(Text, nullable=True)
+
+# After
+class Settings(Base, TimestampMixin):
+    __tablename__ = "settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text)
+```
 
 ---
 
@@ -199,18 +257,16 @@ class ItemStatus(StrEnum):
 
 按复杂度递增，每个步骤后验证：
 
-| Step | 组件 | 字段数 | 难度 | 预计时间 |
-|------|------|--------|------|----------|
-| 1 | `TimestampMixin` | 2 | 低 | 5 min |
-| 2 | `Settings` | 2 | 低 | 5 min |
-| 3 | `ApiClient` | 8 | 低 | 10 min |
-| 4 | `Content` | 8 | 低 | 10 min |
-| 5 | `Item` | 14 | 中 | 15 min |
-| 6 | `Job` | 11 | 中 | 15 min |
-| 7 | `Source` | 26 + 1 relationship | 高 | 20 min |
-| 8 | 枚举类升级 (6个) | - | 低 | 10 min |
-
-**总预计时间**: 1.5 小时
+| Step | 组件 | 字段数 | 特殊处理 | 难度 |
+|------|------|--------|---------|------|
+| 1 | `TimestampMixin` | 2 | func.now() | 低 |
+| 2 | `Settings` | 2 | 主键 + 可空 | 低 |
+| 3 | `ApiClient` | 8 | 枚举 + JSONB(list) | 低 |
+| 4 | `Content` | 8 + 1复合索引 | 枚举 | 低 |
+| 5 | `Item` | 14 + 2复合索引 | 枚举 + 外键(2) + JSONB | 中 |
+| 6 | `Job` | 11 | 枚举(2) + 外键 + JSONB + relationship | 中 |
+| 7 | `Source` | 26 + 1 relationship | 枚举(2) + JSONB | 高 |
+| 8 | 枚举类升级 (6个) | - | StrEnum | 低 |
 
 ### 验证检查点
 
@@ -281,12 +337,13 @@ uv run ruff check src/ tests/
 
 ### 剩余问题（后续 Issue 处理）
 
-| 问题 | 文件位置 |
-|------|---------|
-| `normalized_title/normalized_body` 缺失 | `api/routers/items.py:124,127` |
-| `rss_connector.fetch` 返回类型不兼容 | `services/rss_connector.py:66` |
-| `datetime` 重复 `tzinfo` 参数 | `services/rss_connector.py:233` |
-| `avg_content_length` float vs int | `services/source_quality_validator.py:99` |
+| 问题 | 文件位置 | 说明 |
+|------|---------|------|
+| `item.normalized_title` 属性不存在 | `api/routers/items.py:124` | Item 模型无此字段，Content 模型有。需确认是引用错误还是需添加字段 |
+| `item.normalized_body` 属性不存在 | `api/routers/items.py:127` | 同上 |
+| `rss_connector.fetch` 返回类型不兼容 | `services/rss_connector.py:66` | 方法签名与基类不匹配 |
+| `datetime` 重复 `tzinfo` 参数 | `services/rss_connector.py:233` | 参数传递错误 |
+| `avg_content_length` float vs int | `services/source_quality_validator.py:99` | 类型不匹配 |
 
 ---
 
