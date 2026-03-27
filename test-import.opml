@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Cyber Pulse Test Sources</title>
+    <dateCreated>Fri, 27 Mar 2026 05:30:00 GMT</dateCreated>
+  </head>
+  <body>
+    <!-- AI Research -->
+    <outline text="Anthropic Research" title="Anthropic Research" type="rss"
+             xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml"
+             tier="T0"/>
+    <outline text="OpenAI Blog" title="OpenAI Blog" type="rss"
+             xmlUrl="https://blog.openai.com/rss/"
+             tier="T0"/>
+
+    <!-- Cybersecurity Authority -->
+    <outline text="MITRE ATT&amp;CK" title="MITRE ATT&amp;CK" type="rss"
+             xmlUrl="https://medium.com/feed/mitre-attack"
+             tier="T0"/>
+    <outline text="Cloud Security Alliance" title="Cloud Security Alliance" type="rss"
+             xmlUrl="https://cloudsecurityalliance.org/feed/"
+             tier="T0"/>
+
+    <!-- Cybersecurity News -->
+    <outline text="The Hacker News" title="The Hacker News" type="rss"
+             xmlUrl="http://thehackernews.com/feeds/posts/default"
+             tier="T0"/>
+    <outline text="Krebs on Security" title="Krebs on Security" type="rss"
+             xmlUrl="https://krebsonsecurity.com/feed/"
+             tier="T1"/>
+
+    <!-- Security Research -->
+    <outline text="Project Zero" title="Project Zero" type="rss"
+             xmlUrl="http://googleprojectzero.blogspot.com/feeds/posts/default"
+             tier="T1"/>
+    <outline text="Unit 42" title="Unit 42" type="rss"
+             xmlUrl="http://feeds.feedburner.com/Unit42"
+             tier="T1"/>
+  </body>
+</opml>
