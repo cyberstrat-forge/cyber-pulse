@@ -24,7 +24,6 @@ class ItemResponse(BaseModel):
     url: str | None = None
     completeness_score: float | None = Field(None, ge=0, le=1)
     tags: list[str] = Field(default_factory=list)
-    language: str | None = Field(None, description="Detected language code (ISO 639-1)")
     word_count: int | None = Field(None, description="Word count of normalized body")
     fetched_at: datetime | None = None
     source: SourceInItem | None = None
