@@ -118,23 +118,22 @@ async def list_items(
                 source_score=source.score,
             )
 
-        data.append(
-            ItemResponse(
-                id=item.item_id,
-                title=item.normalized_title or item.title,
-                author=item.raw_metadata.get("author") if item.raw_metadata else None,
-                published_at=item.published_at,
-                body=item.normalized_body,
-                url=item.url,
-                completeness_score=calculate_completeness_score(item),
-                tags=item.raw_metadata.get("tags", []) if item.raw_metadata else [],
-                word_count=item.word_count,
-                fetched_at=item.fetched_at,
-                source=source_info,
-                full_fetch_attempted=item.full_fetch_attempted,
-                full_fetch_succeeded=item.full_fetch_succeeded,
-            )
-        )
+data.append(ItemResponse(
+            id=item.item_id,
+            title=item.normalized_title or item.title,
+            author=item.raw_metadata.get("author") if item.raw_metadata else None,
+            published_at=item.published_at,
+            body=item.normalized_body,
+            url=item.url,
+            completeness_score=calculate_completeness_score(item),
+            tags=item.raw_metadata.get("tags", []) if item.raw_metadata else [],
+            language=item.language,
+            word_count=item.word_count,
+            fetched_at=item.fetched_at,
+            source=source_info,
+            full_fetch_attempted=item.full_fetch_attempted,
+            full_fetch_succeeded=item.full_fetch_succeeded,
+        ))
 
     next_cursor = None
     if has_more and items:

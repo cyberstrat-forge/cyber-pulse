@@ -39,8 +39,6 @@ class SourceBase(BaseModel):
 class SourceCreate(SourceBase):
     """Schema for creating a new source."""
 
-    needs_full_fetch: bool | None = Field(None, description="Whether full text fetch is needed for summary-only content")
-
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -48,9 +46,8 @@ class SourceCreate(SourceBase):
                 "connector_type": "rss",
                 "tier": "T1",
                 "score": 70.0,
-                "needs_full_fetch": True,
                 "config": {
-                    "feed_url": "https://example.com/feed.xml",
+                    "url": "https://example.com/feed.xml",
                     "categories": ["security"]
                 }
             }
@@ -70,15 +67,13 @@ class SourceUpdate(BaseModel):
     review_reason: str | None = Field(None, description="Reason for review")
     schedule_interval: int | None = Field(None, description="Ingest interval in seconds", ge=300)
     config: dict[str, Any] | None = Field(None, description="Connector configuration")
-    needs_full_fetch: bool | None = Field(None, description="Whether full text fetch is needed for summary-only content")
 
     model_config = {
         "json_schema_extra": {
             "example": {
                 "tier": "T0",
                 "score": 85.0,
-                "schedule_interval": 1800,
-                "needs_full_fetch": True
+                "schedule_interval": 1800
             }
         }
     }

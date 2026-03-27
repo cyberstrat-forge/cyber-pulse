@@ -17,6 +17,7 @@ class NormalizationResult:
     normalized_title: str
     normalized_body: str  # Markdown format
     canonical_hash: str  # For deduplication
+    language: str | None
     word_count: int
     extraction_method: str  # "trafilatura" | "raw"
 
@@ -59,7 +60,12 @@ class NormalizationService:
         markdown_body, extraction_method = self._extract_markdown(raw_content, url)
 
         # Calculate canonical hash for deduplication
-        canonical_hash = self._calculate_canonical_hash(normalized_title, markdown_body)
+        canonical_hash = self._calculate_canonical_hash(
+            normalized_title, markdown_body
+        )
+
+        # Detect language
+        language = self._detect_language(markdown_body)
 
         # Count words
         word_count = self._count_words(markdown_body)
@@ -68,11 +74,14 @@ class NormalizationService:
             normalized_title=normalized_title,
             normalized_body=markdown_body,
             canonical_hash=canonical_hash,
+            language=language,
             word_count=word_count,
             extraction_method=extraction_method,
         )
 
-    def _extract_markdown(self, raw_content: str, url: str | None) -> tuple[str, str]:
+    def _extract_markdown(
+        self, raw_content: str, url: str | None
+    ) -> tuple[str, str]:
         """Extract content as markdown using trafilatura.
 
         Single call to trafilatura with markdown output format.
@@ -178,6 +187,76 @@ class NormalizationService:
         hash_value = hashlib.md5(content_to_hash.encode("utf-8")).hexdigest()
 
         return hash_value
+
+    def _detect_language(self, content: str) -> str | None:
+        """Detect content language.
+
+        Uses trafilatura's built-in language detection with fallback
+        to character-based heuristics for common languages.
+
+        Args:
+            content: Text content to analyze
+
+        Returns:
+            ISO 639-1 language code (e.g., 'en', 'zh', 'ja', 'ru') or None
+            if detection fails. Returns None instead of guessing to avoid
+            misclassification for multi-language intelligence sources.
+        """
+        if not content or len(content.strip()) < 20:
+            # Need sufficient content for language detection
+            return None
+
+        try:
+            # Use trafilatura's language detection
+            from trafilatura import bare_extraction
+
+            # Create a simple HTML wrapper for detection
+            html_wrapper = f"<html><body>{content}</body></html>"
+            result = bare_extraction(
+                html_wrapper,
+                only_with_metadata=False,
+            )
+
+            if result and hasattr(result, "language") and result.language:
+                return result.language
+
+        except Exception as e:
+            # Language detection via trafilatura failed, use heuristic fallback
+            logger.debug(f"Trafilatura language detection failed: {e}")
+
+        # Fallback: character-based detection for common languages
+        total_chars = len(content.strip())
+        if total_chars == 0:
+            return None
+
+        # Chinese (CJK Unified Ideographs)
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", content))
+        if chinese_chars / total_chars > 0.2:
+            return "zh"
+
+        # Japanese (Hiragana and Katakana)
+        japanese_chars = len(re.findall(r"[\u3040-\u309f\u30a0-\u30ff]", content))
+        if japanese_chars / total_chars > 0.1:
+            return "ja"
+
+        # Korean (Hangul)
+        korean_chars = len(re.findall(r"[\uac00-\ud7af]", content))
+        if korean_chars / total_chars > 0.1:
+            return "ko"
+
+        # Russian (Cyrillic)
+        cyrillic_chars = len(re.findall(r"[\u0400-\u04ff]", content))
+        if cyrillic_chars / total_chars > 0.2:
+            return "ru"
+
+        # Arabic
+        arabic_chars = len(re.findall(r"[\u0600-\u06ff]", content))
+        if arabic_chars / total_chars > 0.2:
+            return "ar"
+
+        # Cannot reliably detect - return None instead of guessing
+        # Downstream systems can handle unknown language appropriately
+        return None
 
     def _count_words(self, content: str) -> int:
         """Count words in content.

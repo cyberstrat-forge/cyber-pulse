@@ -66,45 +66,6 @@ def validate_source_id(source_id: str) -> None:
         )
 
 
-def _normalize_url(url: str) -> str:
-    """Normalize URL for comparison.
-
-    Removes trailing slashes, converts to lowercase, and removes
-    common variations to enable URL deduplication.
-
-    Note: Converts https:// to http:// for deduplication purposes.
-    Most RSS feeds are accessible via both http and https, and treating
-    them as the same prevents duplicate source entries.
-
-    Args:
-        url: URL to normalize
-
-    Returns:
-        Normalized URL string
-    """
-    if not url:
-        return ""
-
-    # Convert to lowercase
-    normalized = url.lower().strip()
-
-    # Remove trailing slash
-    if normalized.endswith("/"):
-        normalized = normalized[:-1]
-
-    # Normalize protocol to http for deduplication
-    if normalized.startswith("https://"):
-        normalized = "http://" + normalized[8:]
-    elif normalized.startswith("www."):
-        normalized = "http://" + normalized[4:]
-
-    # Remove common URL parameters that don't affect content
-    if "?" in normalized:
-        normalized = normalized.split("?")[0]
-
-    return normalized
-
-
 def validate_tier(tier: str) -> SourceTier:
     """Validate and convert tier string to enum."""
     try:
@@ -173,17 +134,13 @@ def build_source_response(source: Source) -> SourceResponse:
 
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
-    status: str | None = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED (default: exclude REMOVED)"),
+    status: str | None = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED"),
     tier: str | None = Query(None, description="Filter by tier: T0, T1, T2, T3"),
     scheduled: bool | None = Query(None, description="Filter by scheduled status"),
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> SourceListResponse:
-    """List all sources with optional filtering.
-
-    By default, excludes REMOVED sources. Use status=REMOVED to list removed sources,
-    or status=ACTIVE,FROZEN,REMOVED for specific filtering.
-    """
+    """List all sources with optional filtering."""
     logger.debug(f"Listing sources: status={status}, tier={tier}, scheduled={scheduled}")
 
     query = db.query(Source)
@@ -191,9 +148,6 @@ async def list_sources(
     if status:
         status_enum = validate_status(status)
         query = query.filter(Source.status == status_enum)
-    else:
-        # Default: exclude REMOVED status
-        query = query.filter(Source.status != SourceStatus.REMOVED)
 
     if tier:
         tier_enum = validate_tier(tier)
@@ -232,29 +186,6 @@ async def create_source(
             status_code=409,
             detail=f"Source with name '{source.name}' already exists"
         )
-
-    # Check for duplicate URL (for RSS and web_scraper types)
-    if source.connector_type in ("rss", "web_scraper") and source.config:
-        feed_url = source.config.get("feed_url") or source.config.get("url")
-        if feed_url:
-            existing_sources = (
-                db.query(Source)
-                .filter(
-                    Source.connector_type == source.connector_type,
-                    Source.status != SourceStatus.REMOVED
-                )
-                .all()
-            )
-            for existing in existing_sources:
-                existing_url = (
-                    existing.config.get("feed_url") or existing.config.get("url")
-                    if existing.config else None
-                )
-                if existing_url and _normalize_url(existing_url) == _normalize_url(feed_url):
-                    raise HTTPException(
-                        status_code=409,
-                        detail=f"Source with URL '{feed_url}' already exists as '{existing.name}'"
-                    )
 
     # Create source
     tier_enum = validate_tier(source.tier) if source.tier else SourceTier.T2
@@ -312,7 +243,6 @@ async def create_source(
         review_reason=review_reason,
         content_type=content_type,
         avg_content_length=avg_content_length,
-        needs_full_fetch=source.needs_full_fetch or False,
     )
 
     db.add(new_source)
@@ -446,15 +376,6 @@ async def import_sources(
 
     logger.info(f"Created import job {job.job_id} with {len(feeds)} feeds")
 
-    # Trigger import task
-    try:
-        from ....tasks.import_tasks import process_import_job
-
-        process_import_job.send(job.job_id)
-        logger.info(f"Triggered process_import_job for job {job.job_id}")
-    except (OSError, ConnectionError) as e:
-        logger.error(f"Failed to trigger import job {job.job_id}: {e}")
-
     return ImportResponse(
         job_id=job.job_id,
         status="pending",
@@ -570,10 +491,6 @@ async def update_source(
         source.status = validate_status(update.status)
     if update.config is not None:
         source.config = update.config
-    if update.needs_full_fetch is not None:
-        source.needs_full_fetch = update.needs_full_fetch
-    if update.schedule_interval is not None:
-        source.schedule_interval = update.schedule_interval
 
     db.commit()
     db.refresh(source)

@@ -179,6 +179,7 @@ class TestE2EDataFlow:
         item.normalized_body = normalization_result.normalized_body
         item.canonical_hash = normalization_result.canonical_hash
         item.word_count = normalization_result.word_count
+        item.language = normalization_result.language
         item_service.update_item_status(
             item.item_id,
             "NORMALIZED",
@@ -195,6 +196,7 @@ class TestE2EDataFlow:
         assert item.normalized_body == normalization_result.normalized_body
         assert item.canonical_hash == normalization_result.canonical_hash
         assert item.word_count == normalization_result.word_count
+        assert item.language == normalization_result.language
 
         # Step 6: Verify source statistics updated
         # Note: In current implementation, source statistics are not auto-updated
@@ -252,6 +254,7 @@ class TestE2EDataFlow:
         item1.normalized_body = norm_result1.normalized_body
         item1.canonical_hash = norm_result1.canonical_hash
         item1.word_count = norm_result1.word_count
+        item1.language = norm_result1.language
         db_session.commit()
 
         original_canonical_hash = norm_result1.canonical_hash
@@ -283,6 +286,7 @@ class TestE2EDataFlow:
         item2.normalized_body = norm_result2.normalized_body
         item2.canonical_hash = norm_result2.canonical_hash
         item2.word_count = norm_result2.word_count
+        item2.language = norm_result2.language
         db_session.commit()
 
         # Both items should have the same canonical_hash
@@ -434,6 +438,7 @@ class TestAPIDataRetrieval:
         item.normalized_body = norm_result.normalized_body
         item.canonical_hash = norm_result.canonical_hash
         item.word_count = norm_result.word_count
+        item.language = norm_result.language
         db_session.commit()
 
         # Step 5: Verify item has normalized fields
@@ -442,3 +447,4 @@ class TestAPIDataRetrieval:
         assert item.normalized_body == norm_result.normalized_body
         assert item.canonical_hash == norm_result.canonical_hash
         assert item.word_count == norm_result.word_count
+        assert item.language == norm_result.language
