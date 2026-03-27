@@ -243,6 +243,7 @@ async def create_source(
         review_reason=review_reason,
         content_type=content_type,
         avg_content_length=avg_content_length,
+        needs_full_fetch=source.needs_full_fetch or False,
     )
 
     db.add(new_source)
@@ -491,6 +492,10 @@ async def update_source(
         source.status = validate_status(update.status)
     if update.config is not None:
         source.config = update.config
+    if update.needs_full_fetch is not None:
+        source.needs_full_fetch = update.needs_full_fetch
+    if update.schedule_interval is not None:
+        source.schedule_interval = update.schedule_interval
 
     db.commit()
     db.refresh(source)

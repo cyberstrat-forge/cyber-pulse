@@ -111,22 +111,20 @@ def _handle_pass(
     """
     quality_service = QualityGateService()
 
-    # Check if content needs full fetch
-    content_validity, content_reason = quality_service._validate_content_quality(
-        normalization_result.normalized_title,
-        normalization_result.normalized_body,
-    )
-
     # Determine if we should trigger full content fetch
+    # Based on content_completeness score, not _validate_content_quality
     source = getattr(item, "source", None)
     needs_full_fetch = False
 
-    if not content_validity and item.url:
-        # Content quality is low, check if source allows full fetch
+    content_completeness = quality_result.metrics.get("content_completeness", 0)
+    full_fetch_threshold = source.full_fetch_threshold if source else 0.7
+
+    if content_completeness < full_fetch_threshold and item.url:
+        # Content is summary-only or incomplete, check if source allows full fetch
         if source and source.needs_full_fetch:
             needs_full_fetch = True
             logger.info(
-                f"Item {item.item_id} needs full fetch: {content_reason}"
+                f"Item {item.item_id} needs full fetch: content_completeness={content_completeness:.2f} < threshold={full_fetch_threshold:.2f}"
             )
 
     # Update item with normalized content and quality metrics
