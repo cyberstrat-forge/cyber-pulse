@@ -63,16 +63,34 @@ def check_scheduler() -> str:
     return "active"
 
 
-def get_source_statistics(db: Session) -> dict[str, int]:
+def get_source_statistics(db: Session) -> dict[str, Any]:
     """Get source statistics."""
     active = db.query(Source).filter(Source.status == SourceStatus.ACTIVE).count()
     frozen = db.query(Source).filter(Source.status == SourceStatus.FROZEN).count()
     pending_review = db.query(Source).filter(Source.pending_review.is_(True)).count()
 
+    # Get unhealthy sources (consecutive_failures >= 3)
+    unhealthy_sources_query = db.query(Source).filter(
+        Source.consecutive_failures >= 3
+    ).all()
+
+    unhealthy_sources = [
+        {
+            "source_id": s.source_id,
+            "source_name": s.name,
+            "consecutive_failures": s.consecutive_failures,
+            "last_error_message": s.last_error_message,
+            "last_error_at": s.last_error_at.isoformat() if s.last_error_at else None,
+        }
+        for s in unhealthy_sources_query
+    ]
+
     return {
         "active": active,
         "frozen": frozen,
         "pending_review": pending_review,
+        "unhealthy": len(unhealthy_sources),
+        "unhealthy_sources": unhealthy_sources,
     }
 
 
@@ -151,7 +169,7 @@ def get_error_statistics(db: Session) -> dict[str, Any]:
     return {
         "total_24h": len(failed_jobs),
         "by_type": by_type,
-        "top_sources": top_sources,
+        "top_error_sources": top_sources,
     }
 
 
@@ -166,8 +184,14 @@ def determine_overall_status(components: dict[str, str], stats: dict[str, Any]) 
     if error_stats.get("total_24h", 0) > 100:
         return "degraded"
 
-    # Check for many pending_review sources
+    # Check for many unhealthy sources
     source_stats = stats.get("sources", {})
+    if source_stats.get("unhealthy", 0) > 10:
+        return "unhealthy"
+    if source_stats.get("unhealthy", 0) > 5:
+        return "degraded"
+
+    # Check for many pending_review sources
     if source_stats.get("pending_review", 0) > 10:
         return "degraded"
 

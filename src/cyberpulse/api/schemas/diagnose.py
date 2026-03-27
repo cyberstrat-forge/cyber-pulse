@@ -13,12 +13,24 @@ class ComponentStatus(BaseModel):
     message: str | None = None
 
 
+class UnhealthySource(BaseModel):
+    """Source with consecutive failures."""
+
+    source_id: str
+    source_name: str
+    consecutive_failures: int
+    last_error_message: str | None = None
+    last_error_at: datetime | None = None
+
+
 class SourceStatistics(BaseModel):
     """Source statistics."""
 
     active: int = 0
     frozen: int = 0
     pending_review: int = 0
+    unhealthy: int = 0
+    unhealthy_sources: list[dict[str, Any]] = []
 
 
 class JobStatistics(BaseModel):
@@ -56,7 +68,7 @@ class ErrorStatistics(BaseModel):
 
     total_24h: int = 0
     by_type: list[dict[str, Any]] = []
-    top_sources: list[dict[str, Any]] = []
+    top_error_sources: list[dict[str, Any]] = []
 
 
 class DiagnoseResponse(BaseModel):
