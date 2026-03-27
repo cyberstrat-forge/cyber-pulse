@@ -48,6 +48,7 @@ async def create_client(
         name=client.name,
         permissions=client.permissions,
         description=client.description,
+        expires_at=client.expires_at,
     )
 
     logger.info(f"Created API client: client_id={new_client.client_id}")
