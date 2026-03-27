@@ -86,7 +86,66 @@ fetch_interval: Mapped[int | None] = mapped_column()
 - `Mapped[T | None]` 表示可空，无需 `nullable=True`
 - 大文本字段保留 `Text` 参数
 
-### 3. 枚举字段
+### 3. Boolean 字段
+
+```python
+# Before - 非空 Boolean
+is_in_observation = Column(Boolean, nullable=False, default=False)
+pending_review = Column(Boolean, nullable=False, default=False)
+
+# After - 非空 Boolean
+is_in_observation: Mapped[bool] = mapped_column(default=False)
+pending_review: Mapped[bool] = mapped_column(default=False)
+
+# Before - 可空 Boolean
+full_fetch_succeeded = Column(Boolean, nullable=True)
+
+# After - 可空 Boolean
+full_fetch_succeeded: Mapped[bool | None] = mapped_column()
+```
+
+**规则**:
+- 非空 Boolean 有默认值：`Mapped[bool]` + `default=...`
+- 可空 Boolean：`Mapped[bool | None]`
+
+**受影响字段**: `Source.is_in_observation`, `Source.pending_review`, `Source.needs_full_fetch`, `Item.full_fetch_attempted`, `Item.full_fetch_succeeded`
+
+### 4. Float 字段
+
+```python
+# Before - 非空 Float
+score = Column(Float, nullable=False, default=50.0)
+
+# After - 非空 Float
+score: Mapped[float] = mapped_column(default=50.0)
+
+# Before - 可空 Float 有默认值
+full_fetch_threshold = Column(Float, nullable=True, default=0.7)
+quality_score = Column(Float, nullable=True, default=50.0)
+
+# After - 可空 Float 有默认值
+full_fetch_threshold: Mapped[float | None] = mapped_column(default=0.7)
+quality_score: Mapped[float | None] = mapped_column(default=50.0)
+
+# Before - 可空 Float 无默认值
+meta_completeness = Column(Float, nullable=True)
+content_completeness = Column(Float, nullable=True)
+noise_ratio = Column(Float, nullable=True)
+
+# After - 可空 Float 无默认值
+meta_completeness: Mapped[float | None] = mapped_column()
+content_completeness: Mapped[float | None] = mapped_column()
+noise_ratio: Mapped[float | None] = mapped_column()
+```
+
+**规则**:
+- 非空：`Mapped[float]` + `default=...`
+- 可空有默认值：`Mapped[float | None]` + `default=...`
+- 可空无默认值：`Mapped[float | None]`
+
+**受影响字段**: `Source.score`, `Source.full_fetch_threshold`, `Source.quality_score`, `Item.meta_completeness`, `Item.content_completeness`, `Item.noise_ratio`
+
+### 5. 枚举字段
 
 ```python
 # Before
@@ -102,7 +161,7 @@ status: Mapped[SourceStatus] = mapped_column(default=SourceStatus.ACTIVE)
 - 无需 `Enum()` 包装，由 `Mapped[EnumType]` 自动推断
 - 无需 `nullable=False`，有默认值即非空
 
-### 4. 外键字段
+### 6. 外键字段
 
 ```python
 # Before
@@ -118,7 +177,9 @@ content_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("contents.
 - 可空外键：`Mapped[str | None]`
 - 保留 `ForeignKey()` 和索引参数
 
-### 5. JSONB 字段
+**注意**: Item.source_id 是非空外键，Item.content_id 是可空外键。
+
+### 7. JSONB 字段
 
 ```python
 # Before
@@ -134,7 +195,7 @@ permissions: Mapped[list[str]] = mapped_column(JSONB, default=list)
 - 使用精确的类型注解：`dict[str, Any]` 或 `list[str]`
 - 保留 `JSONB` 参数和默认值
 
-### 6. Relationship 字段
+### 8. Relationship 字段
 
 ```python
 # Before
@@ -151,7 +212,7 @@ source: Mapped["Source | None"] = relationship(back_populates="jobs")
 - 多对一：`Mapped["Model | None"]`（可空外键）
 - 字符串引用避免循环导入
 
-### 7. 复合索引 (`__table_args__`)
+### 9. 复合索引 (`__table_args__`)
 
 ```python
 # Before (无变化)
@@ -173,7 +234,7 @@ __table_args__ = (
 - `Item`: 2 个复合索引
 - `Content`: 1 个复合索引
 
-### 8. TimestampMixin
+### 10. TimestampMixin
 
 ```python
 # Before
@@ -191,7 +252,7 @@ class TimestampMixin:
 - 无需 `nullable=False`，有默认值即非空
 - 保留 `func.now()` 和 `onupdate`
 
-### 9. 枚举类升级
+### 11. 枚举类升级
 
 ```python
 # Before
@@ -219,7 +280,7 @@ class ItemStatus(StrEnum):
 - `item.py`, `content.py`, `api_client.py`: `from enum import Enum`
 - 迁移后统一为 `StrEnum`
 
-### 10. 可空 JSONB 字段
+### 12. 可空 JSONB 字段
 
 ```python
 # Before (无默认值)
@@ -233,7 +294,7 @@ result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 **受影响字段**: `Job.result`
 
-### 11. Settings 模型
+### 13. Settings 模型
 
 ```python
 # Before
@@ -263,9 +324,9 @@ class Settings(Base, TimestampMixin):
 | 2 | `Settings` | 2 | 主键 + 可空 | 低 |
 | 3 | `ApiClient` | 8 | 枚举 + JSONB(list) | 低 |
 | 4 | `Content` | 8 + 1复合索引 | 枚举 | 低 |
-| 5 | `Item` | 14 + 2复合索引 | 枚举 + 外键(2) + JSONB | 中 |
+| 5 | `Item` | 17 + 2复合索引 | 枚举 + 外键(2) + JSONB + Boolean(2) + Float可空(3) | 中 |
 | 6 | `Job` | 11 | 枚举(2) + 外键 + JSONB + relationship | 中 |
-| 7 | `Source` | 26 + 1 relationship | 枚举(2) + JSONB | 高 |
+| 7 | `Source` | 26 + 1 relationship | 枚举(2) + JSONB + Boolean(3) + Float可空(2) | 高 |
 | 8 | 枚举类升级 (6个) | - | StrEnum | 低 |
 
 ### 验证检查点
