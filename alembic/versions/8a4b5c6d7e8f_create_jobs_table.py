@@ -21,11 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Create jobs table for tracking async task execution."""
-    # Create enum types
-    op.execute("CREATE TYPE jobtype AS ENUM ('ingest', 'import')")
-    op.execute("CREATE TYPE jobstatus AS ENUM ('pending', 'running', 'completed', 'failed')")
-
-    # Create jobs table
+    # Create jobs table (sa.Enum will auto-create the enum types)
     op.create_table(
         'jobs',
         sa.Column('job_id', sa.String(64), primary_key=True),
