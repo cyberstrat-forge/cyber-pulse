@@ -92,13 +92,15 @@ def validate_status(status: str) -> SourceStatus:
         )
 
 
-def build_source_response(source: Source) -> SourceResponse:
+def build_source_response(source: Source, extra_warnings: list[str] | None = None) -> SourceResponse:
     """Build SourceResponse from Source model."""
     warnings = []
     if source.consecutive_failures >= 3:
         warnings.append(f"连续失败 {source.consecutive_failures} 次")
     if source.status == SourceStatus.FROZEN:
         warnings.append("源已冻结")
+    if extra_warnings:
+        warnings.extend(extra_warnings)
 
     return SourceResponse(
         source_id=source.source_id,
@@ -228,7 +230,7 @@ async def create_source(
                         f"content_type={content_type}, avg_length={avg_content_length}"
                     )
             except Exception as e:
-                logger.error(f"Quality validation error for {source.name}: {e}")
+                logger.error(f"Quality validation error for {source.name}: {e}", exc_info=True)
                 # Don't fail source creation on validation error
                 pending_review = True
                 review_reason = f"Validation error: {str(e)}"
@@ -262,13 +264,15 @@ async def create_source(
     logger.info(f"Created source: {new_source.source_id}")
 
     # Trigger initial ingestion
+    warnings: list[str] = []
     try:
         ingest_source.send(new_source.source_id)
         logger.info(f"Triggered initial ingestion for source: {new_source.source_id}")
     except Exception as e:
-        logger.error(f"Failed to trigger initial ingestion: {e}")
+        logger.error(f"Failed to trigger initial ingestion: {e}", exc_info=True)
+        warnings.append("源已创建，但初始采集任务触发失败，请手动检查")
 
-    return build_source_response(new_source)
+    return build_source_response(new_source, warnings if warnings else None)
 
 
 # ============ 静态路径端点（必须在动态路径之前）============
@@ -390,7 +394,11 @@ async def import_sources(
         process_import_job.send(job.job_id)
         logger.info(f"Triggered process_import_job for job: {job.job_id}")
     except Exception as e:
-        logger.error(f"Failed to trigger import job: {e}")
+        logger.error(f"Failed to trigger import job: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Import job created but failed to trigger processing: {e}"
+        )
 
     return ImportResponse(
         job_id=job.job_id,
@@ -691,7 +699,7 @@ async def validate_source_quality(
         )
 
     except Exception as e:
-        logger.error(f"Validation error for source {source_id}: {e}")
+        logger.error(f"Validation error for source {source_id}: {e}", exc_info=True)
         return ValidationResponse(
             source_id=source_id,
             is_valid=False,

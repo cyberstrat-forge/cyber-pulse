@@ -91,20 +91,27 @@ def process_import_job(job_id: str) -> None:
 
                 if source:
                     imported += 1
-                    details.append({
-                        "url": feed_url,
-                        "title": feed_title,
-                        "status": "imported",
-                        "source_id": source.source_id,
-                    })
-                    logger.info(f"Imported source: {feed_title} ({source.source_id})")
+                    ingestion_triggered = True
+                    ingestion_error = None
 
                     # Trigger initial ingestion
                     try:
                         ingest_source.send(source.source_id)
                         logger.info(f"Triggered initial ingestion for source: {source.source_id}")
                     except Exception as e:
-                        logger.error(f"Failed to trigger initial ingestion: {e}")
+                        logger.error(f"Failed to trigger initial ingestion: {e}", exc_info=True)
+                        ingestion_triggered = False
+                        ingestion_error = str(e)
+
+                    details.append({
+                        "url": feed_url,
+                        "title": feed_title,
+                        "status": "imported",
+                        "source_id": source.source_id,
+                        "ingestion_triggered": ingestion_triggered,
+                        **({"ingestion_error": ingestion_error} if ingestion_error else {}),
+                    })
+                    logger.info(f"Imported source: {feed_title} ({source.source_id})")
                 else:
                     # Duplicate or other issue
                     skipped += 1
@@ -117,7 +124,7 @@ def process_import_job(job_id: str) -> None:
                     logger.info(f"Skipped source: {feed_title} - {message}")
 
             except Exception as e:
-                logger.error(f"Failed to import source {feed_title}: {e}")
+                logger.error(f"Failed to import source {feed_title}: {e}", exc_info=True)
                 if skip_invalid:
                     skipped += 1
                     details.append({
