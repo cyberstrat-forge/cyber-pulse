@@ -66,6 +66,45 @@ def validate_source_id(source_id: str) -> None:
         )
 
 
+def _normalize_url(url: str) -> str:
+    """Normalize URL for comparison.
+
+    Removes trailing slashes, converts to lowercase, and removes
+    common variations to enable URL deduplication.
+
+    Note: Converts https:// to http:// for deduplication purposes.
+    Most RSS feeds are accessible via both http and https, and treating
+    them as the same prevents duplicate source entries.
+
+    Args:
+        url: URL to normalize
+
+    Returns:
+        Normalized URL string
+    """
+    if not url:
+        return ""
+
+    # Convert to lowercase
+    normalized = url.lower().strip()
+
+    # Remove trailing slash
+    if normalized.endswith("/"):
+        normalized = normalized[:-1]
+
+    # Normalize protocol to http for deduplication
+    if normalized.startswith("https://"):
+        normalized = "http://" + normalized[8:]
+    elif normalized.startswith("www."):
+        normalized = "http://" + normalized[4:]
+
+    # Remove common URL parameters that don't affect content
+    if "?" in normalized:
+        normalized = normalized.split("?")[0]
+
+    return normalized
+
+
 def validate_tier(tier: str) -> SourceTier:
     """Validate and convert tier string to enum."""
     try:
@@ -186,6 +225,29 @@ async def create_source(
             status_code=409,
             detail=f"Source with name '{source.name}' already exists"
         )
+
+    # Check for duplicate URL (for RSS and web_scraper types)
+    if source.connector_type in ("rss", "web_scraper") and source.config:
+        feed_url = source.config.get("feed_url") or source.config.get("url")
+        if feed_url:
+            existing_sources = (
+                db.query(Source)
+                .filter(
+                    Source.connector_type == source.connector_type,
+                    Source.status != SourceStatus.REMOVED
+                )
+                .all()
+            )
+            for existing in existing_sources:
+                existing_url = (
+                    existing.config.get("feed_url") or existing.config.get("url")
+                    if existing.config else None
+                )
+                if existing_url and _normalize_url(existing_url) == _normalize_url(feed_url):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Source with URL '{feed_url}' already exists as '{existing.name}'"
+                    )
 
     # Create source
     tier_enum = validate_tier(source.tier) if source.tier else SourceTier.T2
