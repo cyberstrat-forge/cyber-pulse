@@ -22,11 +22,12 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Create jobs table for tracking async task execution."""
     # Create jobs table (sa.Enum will auto-create the enum types)
+    # Note: SQLAlchemy uses enum member names (PENDING, RUNNING, etc.) not values
     op.create_table(
         'jobs',
         sa.Column('job_id', sa.String(64), primary_key=True),
-        sa.Column('type', sa.Enum('ingest', 'import', name='jobtype'), nullable=False),
-        sa.Column('status', sa.Enum('pending', 'running', 'completed', 'failed', name='jobstatus'), nullable=False, server_default='pending'),
+        sa.Column('type', sa.Enum('INGEST', 'IMPORT', name='jobtype'), nullable=False),
+        sa.Column('status', sa.Enum('PENDING', 'RUNNING', 'COMPLETED', 'FAILED', name='jobstatus'), nullable=False, server_default='PENDING'),
         sa.Column('source_id', sa.String(64), sa.ForeignKey('sources.source_id'), nullable=True),
         sa.Column('file_name', sa.String(255), nullable=True),
         sa.Column('result', postgresql.JSONB, nullable=True),

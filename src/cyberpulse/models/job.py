@@ -17,16 +17,16 @@ if TYPE_CHECKING:
 
 class JobType(StrEnum):
     """Job type enumeration."""
-    INGEST = "ingest"
-    IMPORT = "import"
+    INGEST = "INGEST"
+    IMPORT = "IMPORT"
 
 
 class JobStatus(StrEnum):
     """Job status enumeration."""
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class Job(Base, TimestampMixin):
