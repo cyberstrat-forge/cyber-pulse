@@ -36,7 +36,8 @@ def calculate_completeness_score(item: Item) -> float:
     content = item.content_completeness or 0.0
     noise = item.noise_ratio or 0.0
 
-    return meta * 0.4 + content * 0.4 + (1 - noise) * 0.2
+    score = meta * 0.4 + content * 0.4 + (1 - noise) * 0.2
+    return round(score, 3)
 
 
 @router.get("/items", response_model=ItemListResponse)
