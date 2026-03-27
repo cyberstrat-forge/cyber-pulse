@@ -145,17 +145,9 @@ uv run pytest  # 覆盖率 ≥ 80%
 
 ## 文档索引
 
-### 开发文档
-- [技术规格说明书](./docs/superpowers/specs/2026-03-18-cyber-pulse-design.md)
-- [CLI 使用手册](./docs/cli-usage-manual.md)
-- [项目总结报告](./docs/2026-03-20-project-summary-report.md)
-
 ### 运维文档
-- [部署指南](./docs/deployment-guide.md) - 部署流程详解
 - [本地测试环境部署指南](./docs/local-deployment-guide.md) - Worktree 环境部署
-- [验证指南](./docs/verification-guide.md) - 端到端验证说明
-- [API 参考](./docs/api-reference.md) - API 接口文档
-- [故障排查](./docs/troubleshooting.md) - 问题诊断手册
+- [情报源配置示例](./docs/source-config-examples.md) - 情报源配置说明
 
 ### 变更记录
 - [变更日志](./CHANGELOG.md)
