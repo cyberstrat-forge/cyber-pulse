@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import feedparser
 import httpx
@@ -18,7 +18,7 @@ class SourceValidationResult:
     content_type: str  # 'article' | 'summary_only' | 'empty'
     sample_completeness: float
     avg_content_length: int
-    rejection_reason: Optional[str] = None
+    rejection_reason: str | None = None
     samples_analyzed: int = 0
 
 
@@ -39,7 +39,7 @@ class SourceQualityValidator:
 
     async def validate_source(
         self,
-        source_config: Dict[str, Any],
+        source_config: dict[str, Any],
     ) -> SourceValidationResult:
         """Validate a source's quality.
 
@@ -103,7 +103,7 @@ class SourceQualityValidator:
 
     async def validate_source_with_force(
         self,
-        source_config: Dict[str, Any],
+        source_config: dict[str, Any],
         force: bool = False,
     ) -> SourceValidationResult:
         """Validate source with option to force acceptance.
@@ -124,7 +124,7 @@ class SourceQualityValidator:
             )
         return await self.validate_source(source_config)
 
-    async def _fetch_samples(self, feed_url: str) -> List[Dict[str, Any]]:
+    async def _fetch_samples(self, feed_url: str) -> list[dict[str, Any]]:
         """Fetch sample items from RSS feed.
 
         Args:
@@ -166,7 +166,7 @@ class SourceQualityValidator:
             logger.error(f"Failed to fetch samples from {feed_url}: {e}")
             return []
 
-    def _analyze_samples(self, samples: List[Dict[str, Any]]) -> Dict[str, float]:
+    def _analyze_samples(self, samples: list[dict[str, Any]]) -> dict[str, float]:
         """Analyze sample content quality.
 
         Args:

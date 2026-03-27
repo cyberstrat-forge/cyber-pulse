@@ -59,7 +59,8 @@ PROJECT_ROOT=$(get_project_root)
 check_git_repo() {
     print_header "Git 仓库检查"
 
-    if [[ -d "$PROJECT_ROOT/.git" ]]; then
+    # 支持 worktree (.git 可以是文件或目录)
+    if [[ -d "$PROJECT_ROOT/.git" ]] || [[ -f "$PROJECT_ROOT/.git" ]]; then
         print_ok "Git 仓库存在"
 
         # 检查是否有未提交的更改（仅提示，不报错）

@@ -4,8 +4,8 @@ This module provides job scheduling functionality using APScheduler
 with PostgreSQL as the job store for persistence.
 """
 
-from .scheduler import SchedulerService, get_scheduler
 from .jobs import collect_source, run_scheduled_collection, update_source_scores
+from .scheduler import SchedulerService, get_scheduler
 
 __all__ = [
     "SchedulerService",

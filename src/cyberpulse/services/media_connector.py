@@ -2,8 +2,8 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 
@@ -86,7 +86,7 @@ class MediaAPIConnector(BaseConnector):
 
         return True
 
-    async def fetch(self) -> List[Dict[str, Any]]:
+    async def fetch(self) -> list[dict[str, Any]]:
         """Fetch items from media API.
 
         Returns:
@@ -105,7 +105,7 @@ class MediaAPIConnector(BaseConnector):
         # This shouldn't happen due to validation, but handle it gracefully
         raise ConnectorError(f"Unsupported platform: {platform}")
 
-    async def _fetch_youtube_videos(self) -> List[Dict[str, Any]]:
+    async def _fetch_youtube_videos(self) -> list[dict[str, Any]]:
         """Fetch videos from YouTube channel.
 
         Returns:
@@ -127,7 +127,7 @@ class MediaAPIConnector(BaseConnector):
             "key": api_key,
         }
 
-        all_items: List[Dict[str, Any]] = []
+        all_items: list[dict[str, Any]] = []
 
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(self.CONNECT_TIMEOUT, read=self.READ_TIMEOUT)
@@ -153,7 +153,7 @@ class MediaAPIConnector(BaseConnector):
 
         return all_items[: self.MAX_ITEMS]
 
-    def _parse_youtube_video(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_youtube_video(self, item: dict[str, Any]) -> dict[str, Any] | None:
         """Parse a YouTube video item into standardized format.
 
         Args:
@@ -188,16 +188,12 @@ class MediaAPIConnector(BaseConnector):
         # Build URL
         url = f"https://www.youtube.com/watch?v={video_id}"
 
-        # Generate content hash
-        content_hash = self.generate_content_hash(content)
-
         return {
             "external_id": video_id,
             "url": url,
             "title": title,
             "published_at": published_at,
             "content": content,
-            "content_hash": content_hash,
             "author": author,
             "tags": tags,
         }
@@ -230,8 +226,8 @@ class MediaAPIConnector(BaseConnector):
             return False
 
     async def _make_request_with_retry(
-        self, client: httpx.AsyncClient, url: str, params: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, client: httpx.AsyncClient, url: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
         """Make HTTP request with retry logic.
 
         Args:
@@ -245,7 +241,7 @@ class MediaAPIConnector(BaseConnector):
         Raises:
             ConnectorError: If request fails after all retries
         """
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -410,7 +406,7 @@ class MediaAPIConnector(BaseConnector):
         # Unknown error - no retry
         return False, 0
 
-    def _parse_date(self, date_value: Optional[str]) -> datetime:
+    def _parse_date(self, date_value: str | None) -> datetime:
         """Parse date from ISO 8601 format.
 
         Args:
@@ -430,8 +426,8 @@ class MediaAPIConnector(BaseConnector):
                     date_value = date_value[:-1] + "+00:00"
                 dt = datetime.fromisoformat(date_value)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt.astimezone(timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
+                return dt.astimezone(UTC)
             except ValueError:
                 pass
 

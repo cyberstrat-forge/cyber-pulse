@@ -143,7 +143,6 @@ class TestWebScraperConnectorFetchAutoMode:
         assert len(items) >= 1
         assert "content" in items[0]
         assert len(items[0]["content"]) > 0
-        assert "content_hash" in items[0]
         assert "url" in items[0]
 
     @pytest.mark.asyncio
@@ -331,7 +330,6 @@ class TestWebScraperConnectorExtractContent:
         assert len(result["content"]) > 0
         assert "url" in result
         assert result["url"] == "https://example.com/article/1"
-        assert "content_hash" in result
         assert "external_id" in result
 
     def test_extract_content_manual(self):

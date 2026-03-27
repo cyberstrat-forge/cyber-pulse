@@ -1,15 +1,12 @@
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Any
 
+from ..models import Source, SourceStatus, SourceTier
 from .base import BaseService
-from ..models import Source, SourceTier, SourceStatus
 
 
 class SourceService(BaseService):
     """Service for managing intelligence sources"""
-
-    OBSERVATION_PERIOD_DAYS = 30
 
     # Tier-score consistency per design spec:
     # T0: score >= 80, T1: 60 <= score < 80, T2: 40 <= score < 60, T3: score < 40
@@ -116,13 +113,11 @@ class SourceService(BaseService):
         self,
         name: str,
         connector_type: str,
-        tier: Optional[SourceTier] = None,
-        config: Optional[Dict[str, Any]] = None,
-        score: Optional[float] = None,
-    ) -> Tuple[Optional[Source], str]:
+        tier: SourceTier | None = None,
+        config: dict[str, Any] | None = None,
+        score: float | None = None,
+    ) -> tuple[Source | None, str]:
         """Add a new source.
-
-        New sources enter observation period by default.
 
         Args:
             name: Source name (must be unique)
@@ -168,10 +163,8 @@ class SourceService(BaseService):
             score = self.TIER_DEFAULT_SCORES[SourceTier.T2]
         # else: both provided, keep as is (user's choice)
 
-        # Create new source with observation period
+        # Create new source
         source_id = self.generate_source_id()
-        now = datetime.now(timezone.utc)
-        observation_until = now + timedelta(days=self.OBSERVATION_PERIOD_DAYS)
 
         source = Source(
             source_id=source_id,
@@ -180,8 +173,6 @@ class SourceService(BaseService):
             tier=tier,
             score=score,
             status=SourceStatus.ACTIVE,
-            is_in_observation=True,
-            observation_until=observation_until,
             config=config or {},
         )
 
@@ -193,7 +184,7 @@ class SourceService(BaseService):
 
     def update_source(
         self, source_id: str, **kwargs
-    ) -> Tuple[Optional[Source], str]:
+    ) -> tuple[Source | None, str]:
         """Update a source.
 
         Args:
@@ -230,8 +221,7 @@ class SourceService(BaseService):
         # Update allowed fields
         allowed_fields = {
             "name", "connector_type", "tier", "score", "status",
-            "is_in_observation", "observation_until", "pending_review",
-            "review_reason", "fetch_interval", "config",
+            "pending_review", "review_reason", "config",
         }
 
         for key, value in kwargs.items():
@@ -243,7 +233,7 @@ class SourceService(BaseService):
 
         return source, f"Source '{source.name}' updated successfully"
 
-    def remove_source(self, source_id: str) -> Tuple[bool, str]:
+    def remove_source(self, source_id: str) -> tuple[bool, str]:
         """Soft delete a source by setting status to REMOVED.
 
         Args:
@@ -266,11 +256,11 @@ class SourceService(BaseService):
 
     def list_sources(
         self,
-        tier: Optional[SourceTier] = None,
-        status: Optional[SourceStatus] = None,
+        tier: SourceTier | None = None,
+        status: SourceStatus | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Source]:
+    ) -> list[Source]:
         """List sources with optional filtering.
 
         Args:
@@ -292,7 +282,7 @@ class SourceService(BaseService):
 
         return query.order_by(Source.created_at.desc()).offset(offset).limit(limit).all()
 
-    def get_source_statistics(self, source_id: str) -> Optional[Dict[str, Any]]:
+    def get_source_statistics(self, source_id: str) -> dict[str, Any] | None:
         """Get statistics for a source.
 
         Args:
@@ -311,11 +301,8 @@ class SourceService(BaseService):
             "tier": source.tier.value,
             "score": source.score,
             "status": source.status.value,
-            "is_in_observation": source.is_in_observation,
-            "observation_until": source.observation_until.isoformat() if source.observation_until else None,
             "total_items": source.total_items,
-            "total_contents": source.total_contents,
-            "last_fetched_at": source.last_fetched_at.isoformat() if source.last_fetched_at else None,
+            "last_ingested_at": source.last_ingested_at.isoformat() if source.last_ingested_at else None,
             "last_scored_at": source.last_scored_at.isoformat() if source.last_scored_at else None,
             "created_at": source.created_at.isoformat() if source.created_at else None,
             "updated_at": source.updated_at.isoformat() if source.updated_at else None,

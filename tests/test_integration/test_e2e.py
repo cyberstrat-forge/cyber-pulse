@@ -2,7 +2,7 @@
 End-to-End Integration Tests for cyber-pulse.
 
 Tests the complete data flow:
-Source → Connector → Item → Normalization → Quality Gate → Content → API
+Source -> Connector -> Item -> Normalization -> Quality Gate -> API
 """
 
 import hashlib
@@ -14,18 +14,15 @@ from fastapi.testclient import TestClient
 
 from cyberpulse.api.main import app
 from cyberpulse.api.auth import get_current_client
-from cyberpulse.api.routers.content import get_db as content_get_db
 from cyberpulse.api.routers.health import get_db as health_get_db
 from cyberpulse.models import (
     ApiClient,
     ApiClientStatus,
-    Content,
     ItemStatus,
     SourceStatus,
     SourceTier,
 )
 from cyberpulse.services import (
-    ContentService,
     ItemService,
     NormalizationService,
     QualityGateService,
@@ -74,28 +71,21 @@ def quality_gate_service():
     return QualityGateService()
 
 
-@pytest.fixture
-def content_service(db_session):
-    """Create a ContentService instance."""
-    return ContentService(db_session)
-
-
 @pytest.mark.integration
 class TestE2EDataFlow:
     """
     End-to-end tests for the complete data flow.
 
-    Tests: Source → Item → Normalization → Quality Gate → Content
+    Tests: Source -> Item -> Normalization -> Quality Gate
     """
 
-    def test_rss_source_to_content_flow(
+    def test_rss_source_to_item_flow(
         self,
         db_session,
         source_service,
         item_service,
         normalization_service,
         quality_gate_service,
-        content_service,
     ):
         """
         Test complete flow for RSS source.
@@ -105,7 +95,7 @@ class TestE2EDataFlow:
         2. Create item via ItemService
         3. Normalize item via NormalizationService
         4. Quality gate check via QualityGateService
-        5. Verify content was created via ContentService
+        5. Verify item is updated with normalized fields
         6. Verify source statistics updated
         """
         # Step 1: Create source via SourceService
@@ -148,7 +138,6 @@ class TestE2EDataFlow:
             title="Important Security Update",
             raw_content=raw_content,
             published_at=published_at,
-            content_hash=hashlib.sha256(raw_content.encode()).hexdigest(),
             raw_metadata={
                 "author": "Security Team",
                 "tags": ["security", "update"],
@@ -185,7 +174,12 @@ class TestE2EDataFlow:
         assert "content_completeness" in quality_result.metrics
         assert "noise_ratio" in quality_result.metrics
 
-        # Update item status to NORMALIZED
+        # Update item status to NORMALIZED with normalized fields
+        item.normalized_title = normalization_result.normalized_title
+        item.normalized_body = normalization_result.normalized_body
+        item.canonical_hash = normalization_result.canonical_hash
+        item.word_count = normalization_result.word_count
+        item.language = normalization_result.language
         item_service.update_item_status(
             item.item_id,
             "NORMALIZED",
@@ -196,24 +190,13 @@ class TestE2EDataFlow:
             },
         )
 
-        # Step 5: Verify content was created via ContentService
-        content, is_new = content_service.create_or_get_content(
-            canonical_hash=normalization_result.canonical_hash,
-            normalized_title=normalization_result.normalized_title,
-            normalized_body=normalization_result.normalized_body,
-            item=item,
-        )
-
-        assert content is not None
-        assert is_new is True
-        assert content.content_id.startswith("cnt_")
-        assert content.canonical_hash == normalization_result.canonical_hash
-        assert content.normalized_title == normalization_result.normalized_title
-        assert content.source_count == 1
-
-        # Verify item is linked to content
+        # Step 5: Verify item was updated with normalized fields
         db_session.refresh(item)
-        assert item.content_id == content.content_id
+        assert item.normalized_title == normalization_result.normalized_title
+        assert item.normalized_body == normalization_result.normalized_body
+        assert item.canonical_hash == normalization_result.canonical_hash
+        assert item.word_count == normalization_result.word_count
+        assert item.language == normalization_result.language
 
         # Step 6: Verify source statistics updated
         # Note: In current implementation, source statistics are not auto-updated
@@ -223,19 +206,18 @@ class TestE2EDataFlow:
         assert stats["source_id"] == source.source_id
         assert stats["name"] == "E2E Test RSS Source"
 
-    def test_duplicate_content_deduplication(
+    def test_duplicate_item_deduplication(
         self,
         db_session,
         source_service,
         item_service,
         normalization_service,
         quality_gate_service,
-        content_service,
     ):
         """
-        Test that duplicate content is deduplicated.
+        Test that duplicate items are handled correctly.
 
-        When two items have the same canonical_hash, they should map to the same Content.
+        When two items have the same canonical_hash, they should both have the hash.
         """
         # Create source
         source, _ = source_service.add_source(
@@ -255,10 +237,9 @@ class TestE2EDataFlow:
             title="Deduplication Test Article",
             raw_content=raw_content,
             published_at=published_at,
-            content_hash=hashlib.sha256(b"content1").hexdigest(),
         )
 
-        # Normalize and create content for first item
+        # Normalize first item
         norm_result1 = normalization_service.normalize(
             title=item1.title,
             raw_content=item1.raw_content,
@@ -268,17 +249,17 @@ class TestE2EDataFlow:
         quality_result1 = quality_gate_service.check(item1, norm_result1)
         assert quality_result1.decision.value == "pass"
 
-        content1, is_new1 = content_service.create_or_get_content(
-            canonical_hash=norm_result1.canonical_hash,
-            normalized_title=norm_result1.normalized_title,
-            normalized_body=norm_result1.normalized_body,
-            item=item1,
-        )
+        # Update item1 with normalized fields
+        item1.normalized_title = norm_result1.normalized_title
+        item1.normalized_body = norm_result1.normalized_body
+        item1.canonical_hash = norm_result1.canonical_hash
+        item1.word_count = norm_result1.word_count
+        item1.language = norm_result1.language
+        db_session.commit()
 
-        assert is_new1 is True
-        original_content_id = content1.content_id
+        original_canonical_hash = norm_result1.canonical_hash
 
-        # Create second item with same content (should deduplicate)
+        # Create second item with same content (should have same canonical_hash)
         item2 = item_service.create_item(
             source_id=source.source_id,
             external_id="dedup-002",
@@ -286,7 +267,6 @@ class TestE2EDataFlow:
             title="Deduplication Test Article",  # Same title
             raw_content=raw_content,  # Same content
             published_at=published_at,
-            content_hash=hashlib.sha256(b"content2").hexdigest(),
         )
 
         norm_result2 = normalization_service.normalize(
@@ -298,23 +278,22 @@ class TestE2EDataFlow:
         quality_result2 = quality_gate_service.check(item2, norm_result2)
         assert quality_result2.decision.value == "pass"
 
-        # Should find existing content (same canonical_hash)
-        content2, is_new2 = content_service.create_or_get_content(
-            canonical_hash=norm_result2.canonical_hash,
-            normalized_title=norm_result2.normalized_title,
-            normalized_body=norm_result2.normalized_body,
-            item=item2,
-        )
+        # Should have same canonical_hash (content deduplication)
+        assert norm_result2.canonical_hash == original_canonical_hash
 
-        assert is_new2 is False
-        assert content2.content_id == original_content_id
-        assert content2.source_count == 2  # Incremented from 1 to 2
+        # Update item2 with normalized fields
+        item2.normalized_title = norm_result2.normalized_title
+        item2.normalized_body = norm_result2.normalized_body
+        item2.canonical_hash = norm_result2.canonical_hash
+        item2.word_count = norm_result2.word_count
+        item2.language = norm_result2.language
+        db_session.commit()
 
-        # Both items should point to same content
+        # Both items should have the same canonical_hash
         db_session.refresh(item1)
         db_session.refresh(item2)
-        assert item1.content_id == original_content_id
-        assert item2.content_id == original_content_id
+        assert item1.canonical_hash == original_canonical_hash
+        assert item2.canonical_hash == original_canonical_hash
 
     def test_quality_gate_rejection(
         self,
@@ -347,7 +326,6 @@ class TestE2EDataFlow:
             title="Bad",  # Too short (< 5 chars)
             raw_content=raw_content,
             published_at=published_at,
-            content_hash=hashlib.sha256(b"quality_fail").hexdigest(),
         )
 
         norm_result = normalization_service.normalize(
@@ -371,51 +349,6 @@ class TestAPIDataRetrieval:
 
     Tests the API layer with real database interactions.
     """
-
-    def test_content_list_endpoint(
-        self, api_client, db_session, mock_api_client
-    ):
-        """
-        Test content can be retrieved via API.
-
-        The endpoint requires authentication. Without auth, returns 401.
-        With valid auth, returns 200 with content list.
-        """
-        # Create test content
-        content = Content(
-            content_id="cnt_20260319120000_e2etest",
-            canonical_hash="e2e_test_hash_001",
-            normalized_title="E2E Test Content",
-            normalized_body="This is test content for E2E API testing.",
-            first_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            source_count=1,
-        )
-        db_session.add(content)
-        db_session.commit()
-
-        # Test without authentication - should return 401
-        app.dependency_overrides[content_get_db] = lambda: db_session
-        try:
-            response = api_client.get("/api/v1/contents")
-            assert response.status_code == 401
-        finally:
-            app.dependency_overrides.clear()
-
-        # Test with authentication - should return 200
-        app.dependency_overrides[content_get_db] = lambda: db_session
-        app.dependency_overrides[get_current_client] = lambda: mock_api_client
-        try:
-            response = api_client.get("/api/v1/contents")
-
-            assert response.status_code == 200
-            data = response.json()
-            assert "data" in data
-            assert "next_cursor" in data
-            assert "has_more" in data
-            assert "count" in data
-        finally:
-            app.dependency_overrides.clear()
 
     def test_health_endpoint(self, api_client, db_session):
         """
@@ -444,25 +377,21 @@ class TestAPIDataRetrieval:
         finally:
             app.dependency_overrides.clear()
 
-    def test_full_flow_to_api_retrieval(
+    def test_full_flow_to_item_normalization(
         self,
-        api_client,
         db_session,
-        mock_api_client,
         source_service,
         item_service,
         normalization_service,
         quality_gate_service,
-        content_service,
     ):
         """
-        Test complete flow from source creation to API retrieval.
+        Test complete flow from source creation to item normalization.
 
         This is a comprehensive E2E test that:
         1. Creates a source and item
         2. Normalizes and passes quality gate
-        3. Creates content
-        4. Verifies content is retrievable via API
+        3. Verifies item is updated with normalized fields
         """
         # Step 1: Create source and item
         source, _ = source_service.add_source(
@@ -490,7 +419,6 @@ class TestAPIDataRetrieval:
             title="Critical Security Advisory",
             raw_content=raw_content,
             published_at=published_at,
-            content_hash=hashlib.sha256(raw_content.encode()).hexdigest(),
             raw_metadata={"author": "Security Advisory Team"},
         )
 
@@ -505,38 +433,18 @@ class TestAPIDataRetrieval:
         quality_result = quality_gate_service.check(item, norm_result)
         assert quality_result.decision.value == "pass"
 
-        # Step 4: Create content
-        content, is_new = content_service.create_or_get_content(
-            canonical_hash=norm_result.canonical_hash,
-            normalized_title=norm_result.normalized_title,
-            normalized_body=norm_result.normalized_body,
-            item=item,
-        )
+        # Step 4: Update item with normalized fields
+        item.normalized_title = norm_result.normalized_title
+        item.normalized_body = norm_result.normalized_body
+        item.canonical_hash = norm_result.canonical_hash
+        item.word_count = norm_result.word_count
+        item.language = norm_result.language
+        db_session.commit()
 
-        assert is_new is True
-
-        # Step 5: Verify via API
-        app.dependency_overrides[content_get_db] = lambda: db_session
-        app.dependency_overrides[get_current_client] = lambda: mock_api_client
-        try:
-            # List content
-            response = api_client.get("/api/v1/contents")
-            assert response.status_code == 200
-
-            data = response.json()
-            assert data["count"] >= 1
-
-            # Find our created content
-            content_ids = [c["content_id"] for c in data["data"]]
-            assert content.content_id in content_ids
-
-            # Get single content
-            response = api_client.get(f"/api/v1/contents/{content.content_id}")
-            assert response.status_code == 200
-
-            content_data = response.json()
-            assert content_data["content_id"] == content.content_id
-            assert content_data["normalized_title"] == norm_result.normalized_title
-            assert content_data["source_count"] == 1
-        finally:
-            app.dependency_overrides.clear()
+        # Step 5: Verify item has normalized fields
+        db_session.refresh(item)
+        assert item.normalized_title == norm_result.normalized_title
+        assert item.normalized_body == norm_result.normalized_body
+        assert item.canonical_hash == norm_result.canonical_hash
+        assert item.word_count == norm_result.word_count
+        assert item.language == norm_result.language

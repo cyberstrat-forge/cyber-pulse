@@ -1,16 +1,18 @@
+from enum import StrEnum
 from typing import TYPE_CHECKING
-from sqlalchemy import Column, String, Integer, Float, Boolean, Text, Enum, DateTime
+
+from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
-from enum import Enum as PyEnum
+
 from ..database import Base
 from .base import TimestampMixin
 
 if TYPE_CHECKING:
-    from .job import Job
+    pass
 
 
-class SourceTier(str, PyEnum):
+class SourceTier(StrEnum):
     """Source tier levels"""
     T0 = "T0"
     T1 = "T1"
@@ -18,7 +20,7 @@ class SourceTier(str, PyEnum):
     T3 = "T3"
 
 
-class SourceStatus(str, PyEnum):
+class SourceStatus(StrEnum):
     """Source status"""
     ACTIVE = "ACTIVE"
     FROZEN = "FROZEN"
@@ -35,18 +37,13 @@ class Source(Base, TimestampMixin):
     tier = Column(Enum(SourceTier), nullable=False, default=SourceTier.T2)
     score = Column(Float, nullable=False, default=50.0)
     status = Column(Enum(SourceStatus), nullable=False, default=SourceStatus.ACTIVE)
-    is_in_observation = Column(Boolean, nullable=False, default=False)
-    observation_until = Column(DateTime, nullable=True)
     pending_review = Column(Boolean, nullable=False, default=False)
     review_reason = Column(Text, nullable=True)
-    fetch_interval = Column(Integer, nullable=True)
     config = Column(JSONB, nullable=False, default=dict)
 
     # Statistics
-    last_fetched_at = Column(DateTime, nullable=True)
     last_scored_at = Column(DateTime, nullable=True)
     total_items = Column(Integer, nullable=False, default=0)
-    total_contents = Column(Integer, nullable=False, default=0)
 
     # Failure tracking
     consecutive_failures = Column(Integer, nullable=False, default=0)

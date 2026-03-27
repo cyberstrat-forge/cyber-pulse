@@ -2,17 +2,17 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import dramatiq
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm.attributes import flag_modified
 
-from ..database import SessionLocal
 from ..config import settings
-from ..models import Source, SourceStatus
+from ..database import SessionLocal
+from ..models import Job, JobStatus, Source, SourceStatus
 from ..models.item import ItemStatus
 from ..services.connector_factory import get_connector_for_source
 from ..services.item_service import ItemService
@@ -29,8 +29,34 @@ logger = logging.getLogger(__name__)
 MAX_CONSECUTIVE_FAILURES = settings.max_consecutive_failures
 
 
+def _mark_job_failed(
+    db: "SessionLocal",
+    job_id: str,
+    error_type: str,
+    error_message: str,
+) -> None:
+    """Mark a job as failed with error details.
+
+    Args:
+        db: Database session.
+        job_id: The job ID to mark as failed.
+        error_type: Type of error (e.g., exception class name).
+        error_message: Detailed error message.
+    """
+    job = db.query(Job).filter(Job.job_id == job_id).first()
+    if job:
+        job.status = JobStatus.FAILED
+        job.error_type = error_type
+        job.error_message = error_message
+        job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+        db.commit()
+        logger.info(f"Job {job_id} marked as failed: {error_type}: {error_message}")
+    else:
+        logger.warning(f"Job {job_id} not found when trying to mark as failed")
+
+
 @dramatiq.actor(max_retries=3)
-def ingest_source(source_id: str) -> None:
+def ingest_source(source_id: str, job_id: str | None = None) -> None:
     """Ingest items from a source.
 
     This task:
@@ -43,20 +69,43 @@ def ingest_source(source_id: str) -> None:
 
     Args:
         source_id: The source ID to ingest from.
+        job_id: Optional job ID for status tracking.
     """
     db = SessionLocal()
     source = None
+    job = None
     try:
         # Get source from database
         source = db.query(Source).filter(Source.source_id == source_id).first()
         if not source:
             logger.error(f"Source not found: {source_id}")
+            if job_id:
+                _mark_job_failed(
+                    db, job_id, "SourceNotFound", f"Source not found: {source_id}"
+                )
             return
 
         # Skip frozen sources
         if source.status == SourceStatus.FROZEN:
             logger.debug(f"Skipping frozen source: {source.name}")
+            if job_id:
+                _mark_job_failed(
+                    db, job_id, "SourceFrozen", f"Source is frozen: {source.name}"
+                )
             return
+
+        # Mark job as RUNNING and update source's last_job_id
+        if job_id:
+            job = db.query(Job).filter(Job.job_id == job_id).first()
+            if job:
+                job.status = JobStatus.RUNNING
+                job.started_at = datetime.now(UTC).replace(tzinfo=None)
+                db.commit()
+                logger.info(f"Job {job_id} marked as RUNNING")
+
+        # Update source's last_job_id
+        if job_id:
+            source.last_job_id = job_id
 
         logger.info(f"Starting ingestion for source: {source.name} ({source_id})")
 
@@ -87,7 +136,12 @@ def ingest_source(source_id: str) -> None:
 
         if not items_data:
             logger.info(f"No items fetched from source: {source.name}")
-            source.last_fetched_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            source.last_ingested_at = datetime.now(UTC).replace(tzinfo=None)
+            # Mark job as COMPLETED (no items is still a successful run)
+            if job_id and job:
+                job.status = JobStatus.COMPLETED
+                job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+                job.result = {"new_items": 0, "duplicates": 0, "failed": 0}
             db.commit()
             return
 
@@ -108,7 +162,6 @@ def ingest_source(source_id: str) -> None:
                     title=item_data["title"],
                     raw_content=item_data.get("content", ""),
                     published_at=item_data["published_at"],
-                    content_hash=item_data["content_hash"],
                     raw_metadata={
                         "author": item_data.get("author", ""),
                         "tags": item_data.get("tags", []),
@@ -145,7 +198,7 @@ def ingest_source(source_id: str) -> None:
                 raise
 
         # Update source statistics
-        source.last_fetched_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        source.last_ingested_at = datetime.now(UTC).replace(tzinfo=None)
         source.total_items = (source.total_items or 0) + len(new_items)
         db.commit()
 
@@ -163,8 +216,26 @@ def ingest_source(source_id: str) -> None:
             normalize_actor.send(item.item_id)
             logger.debug(f"Queued normalization for item: {item.item_id}")
 
+        # Mark job as COMPLETED
+        if job_id and job:
+            job.status = JobStatus.COMPLETED
+            job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+            job.result = {
+                "new_items": len(new_items),
+                "duplicates": duplicate_count,
+                "failed": failed_count,
+            }
+            db.commit()
+            logger.info(f"Job {job_id} marked as COMPLETED")
+
     except Exception as e:
         logger.error(f"Ingestion failed for source {source_id}: {e}", exc_info=True)
+
+        # Mark job as FAILED
+        if job_id:
+            error_type = type(e).__name__
+            error_message = str(e)[:500]  # Truncate long error messages
+            _mark_job_failed(db, job_id, error_type, error_message)
 
         # Try RSS discovery for RSS sources
         if source and source.connector_type == "rss":
@@ -187,7 +258,7 @@ def ingest_source(source_id: str) -> None:
             db.rollback()
             # Now update failure tracking
             source.consecutive_failures = (source.consecutive_failures or 0) + 1
-            source.last_error_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            source.last_error_at = datetime.now(UTC).replace(tzinfo=None)
 
             # Check if should freeze
             if source.consecutive_failures >= settings.max_consecutive_failures:
@@ -209,7 +280,7 @@ def ingest_source(source_id: str) -> None:
         db.close()
 
 
-async def _fetch_items(connector: "BaseConnector", source_url: Optional[str] = None) -> list:
+async def _fetch_items(connector: "BaseConnector", source_url: str | None = None) -> list:
     """Fetch items from connector asynchronously.
 
     Args:
@@ -226,7 +297,7 @@ async def _fetch_items(connector: "BaseConnector", source_url: Optional[str] = N
         raise
 
 
-async def _try_discover_rss(source: Source) -> Optional[str]:
+async def _try_discover_rss(source: Source) -> str | None:
     """Try to discover new RSS URL for a source.
 
     Args:

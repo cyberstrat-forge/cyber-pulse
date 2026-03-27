@@ -129,7 +129,6 @@ class TestMediaAPIConnectorFetchYouTube:
         assert items[0]["content"] == "This is a test video description"
         assert items[0]["author"] == "Test Channel"
         assert items[0]["tags"] == ["security", "python"]
-        assert "content_hash" in items[0]
 
     @pytest.mark.asyncio
     async def test_fetch_youtube_uses_api_key_in_query(self, youtube_search_response):
@@ -468,7 +467,6 @@ class TestMediaAPIConnectorParseVideo:
         assert result["content"] == "Parse test description"
         assert result["author"] == "Parse Test Channel"
         assert result["tags"] == ["test", "parsing"]
-        assert "content_hash" in result
         assert isinstance(result["published_at"], datetime)
         assert result["published_at"].tzinfo == timezone.utc
 

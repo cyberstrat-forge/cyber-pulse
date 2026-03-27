@@ -2,17 +2,16 @@
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class ParsedTitle:
     """Result of parsing a compound title."""
 
-    category: Optional[str]
-    date: Optional[str]
+    category: str | None
+    date: str | None
     title: str
-    summary: Optional[str]
+    summary: str | None
 
 
 class TitleParserService:
@@ -43,7 +42,7 @@ class TitleParserService:
     def parse_compound_title(
         self,
         title: str,
-        source_name: Optional[str] = None,
+        source_name: str | None = None,
     ) -> ParsedTitle:
         """Parse a compound title into its components.
 

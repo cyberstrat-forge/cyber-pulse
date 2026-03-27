@@ -1,11 +1,12 @@
 """Web Scraper Connector implementation for web page scraping."""
 
 import asyncio
+import hashlib
 import logging
 import re
 import urllib.parse
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import trafilatura
@@ -78,7 +79,7 @@ class WebScraperConnector(BaseConnector):
 
         return True
 
-    async def fetch(self) -> List[Dict[str, Any]]:
+    async def fetch(self) -> list[dict[str, Any]]:
         """Scrape web pages and extract content.
 
         Returns:
@@ -92,9 +93,9 @@ class WebScraperConnector(BaseConnector):
         base_url = self.config["base_url"]
         extraction_mode = self.config.get("extraction_mode", "auto")
 
-        all_items: List[Dict[str, Any]] = []
+        all_items: list[dict[str, Any]] = []
         visited_urls: set = set()
-        urls_to_fetch: List[str] = [base_url]
+        urls_to_fetch: list[str] = [base_url]
 
         # Handle pagination if configured
         pagination_type = self.config.get("pagination_type", "none")
@@ -180,7 +181,7 @@ class WebScraperConnector(BaseConnector):
         Raises:
             ConnectorError: If fetch fails after all retries
         """
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         rate_limit_count = 0
 
         for attempt in range(self.MAX_RETRIES + 1):
@@ -250,7 +251,7 @@ class WebScraperConnector(BaseConnector):
             f"Max retries exceeded for web scraper '{url}': {last_error}"
         ) from last_error
 
-    def _build_headers(self) -> Dict[str, str]:
+    def _build_headers(self) -> dict[str, str]:
         """Build HTTP headers for requests.
 
         Returns:
@@ -271,7 +272,7 @@ class WebScraperConnector(BaseConnector):
 
         return headers
 
-    def _extract_links(self, html: str, base_url: str) -> List[str]:
+    def _extract_links(self, html: str, base_url: str) -> list[str]:
         """Extract article links from page.
 
         Args:
@@ -281,7 +282,7 @@ class WebScraperConnector(BaseConnector):
         Returns:
             List of absolute URLs
         """
-        links: List[str] = []
+        links: list[str] = []
 
         # Get link selector from config
         link_selector = self.config.get("link_selector")
@@ -336,7 +337,7 @@ class WebScraperConnector(BaseConnector):
 
     def _extract_content(
         self, html: str, url: str, extraction_mode: str = "auto"
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Extract content from article page using trafilatura.
 
         Args:
@@ -356,7 +357,7 @@ class WebScraperConnector(BaseConnector):
             logger.warning(f"Error extracting content from '{url}': {e}")
             return None
 
-    def _extract_content_auto(self, html: str, url: str) -> Optional[Dict[str, Any]]:
+    def _extract_content_auto(self, html: str, url: str) -> dict[str, Any] | None:
         """Extract content using trafilatura's auto-detection.
 
         Args:
@@ -401,21 +402,17 @@ class WebScraperConnector(BaseConnector):
         # Generate external_id from URL
         external_id = self._generate_external_id(url)
 
-        # Generate content hash
-        content_hash = self.generate_content_hash(extracted)
-
         return {
             "external_id": external_id,
             "url": url,
             "title": title,
             "published_at": published_at,
             "content": extracted,
-            "content_hash": content_hash,
             "author": author,
             "tags": [],
         }
 
-    def _extract_content_manual(self, html: str, url: str) -> Optional[Dict[str, Any]]:
+    def _extract_content_manual(self, html: str, url: str) -> dict[str, Any] | None:
         """Extract content using manual XPath/CSS selectors.
 
         Args:
@@ -484,16 +481,12 @@ class WebScraperConnector(BaseConnector):
             # Generate external_id from URL
             external_id = self._generate_external_id(url)
 
-            # Generate content hash
-            content_hash = self.generate_content_hash(content)
-
             return {
                 "external_id": external_id,
                 "url": url,
                 "title": title,
                 "published_at": published_at,
                 "content": content,
-                "content_hash": content_hash,
                 "author": author,
                 "tags": [],
             }
@@ -517,7 +510,7 @@ class WebScraperConnector(BaseConnector):
             return element.strip()
         return ""
 
-    def _parse_date(self, date_str: Optional[str]) -> datetime:
+    def _parse_date(self, date_str: str | None) -> datetime:
         """Parse date string to timezone-aware datetime.
 
         Args:
@@ -538,8 +531,8 @@ class WebScraperConnector(BaseConnector):
                 date_str = date_str[:-1] + "+00:00"
             dt = datetime.fromisoformat(date_str)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
+            return dt.astimezone(UTC)
         except ValueError:
             pass
 
@@ -558,7 +551,7 @@ class WebScraperConnector(BaseConnector):
             try:
                 dt = datetime.strptime(date_str, fmt)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
                 return dt
             except ValueError:
                 continue
@@ -578,8 +571,8 @@ class WebScraperConnector(BaseConnector):
         Returns:
             External ID string
         """
-        # Use the URL hash as external_id
-        return self.generate_content_hash(url)
+        # Use MD5 hash of URL as external_id
+        return hashlib.md5(url.encode("utf-8")).hexdigest()
 
     def _is_article_page(self, url: str, html: str) -> bool:
         """Determine if the page is an article page vs listing page.

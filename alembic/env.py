@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from cyberpulse.database import Base
 from cyberpulse.config import settings
 # Import all models so that Alembic can detect them
-from cyberpulse.models import Source, Item, Content, ApiClient  # noqa: F401
+from cyberpulse.models import Source, Item, ApiClient  # noqa: F401
 
 # this is the Alembic Config object
 config = context.config

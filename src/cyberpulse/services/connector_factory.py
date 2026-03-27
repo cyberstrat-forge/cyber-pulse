@@ -1,12 +1,12 @@
 """Connector factory for creating connector instances."""
 
-from typing import TYPE_CHECKING, Any, Dict, Type
+from typing import TYPE_CHECKING, Any
 
-from .connector_service import BaseConnector
-from .rss_connector import RSSConnector
 from .api_connector import APIConnector
-from .web_connector import WebScraperConnector
+from .connector_service import BaseConnector
 from .media_connector import MediaAPIConnector
+from .rss_connector import RSSConnector
+from .web_connector import WebScraperConnector
 
 if TYPE_CHECKING:
     from ..models.source import Source
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 # Connector type registry
 # Note: RSSConnector is already implemented from Phase 1
-CONNECTOR_REGISTRY: Dict[str, Type[BaseConnector]] = {
+CONNECTOR_REGISTRY: dict[str, type[BaseConnector]] = {
     "rss": RSSConnector,
     "api": APIConnector,
     "web": WebScraperConnector,
@@ -22,7 +22,7 @@ CONNECTOR_REGISTRY: Dict[str, Type[BaseConnector]] = {
 }
 
 
-def get_connector(connector_type: str, config: Dict[str, Any]) -> BaseConnector:
+def get_connector(connector_type: str, config: dict[str, Any]) -> BaseConnector:
     """Get appropriate connector instance for a source.
 
     Args:

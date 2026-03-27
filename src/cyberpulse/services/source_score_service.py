@@ -2,13 +2,12 @@
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Dict
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, distinct
+from sqlalchemy import distinct, func
 
+from ..models import Item, Source, SourceTier
 from .base import BaseService
-from ..models import Source, SourceTier, Item
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +119,7 @@ class SourceScoreService(BaseService):
         Returns:
             Stability score (0-1)
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         thirty_days_ago = now - timedelta(days=30)
 
         # Count distinct days with fetched items in the past 30 days
@@ -154,7 +153,7 @@ class SourceScoreService(BaseService):
         Returns:
             Activity score (0-1)
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         seven_days_ago = now - timedelta(days=7)
 
         # Count items fetched in the past 7 days
@@ -256,7 +255,7 @@ class SourceScoreService(BaseService):
         # Update source
         source.score = score  # type: ignore[assignment]
         source.tier = new_tier  # type: ignore[assignment]
-        source.last_scored_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+        source.last_scored_at = datetime.now(UTC)  # type: ignore[assignment]
 
         self.db.commit()
         self.db.refresh(source)
@@ -267,7 +266,7 @@ class SourceScoreService(BaseService):
 
         return new_tier
 
-    def check_tier_evolution(self, source_id: str) -> Dict:
+    def check_tier_evolution(self, source_id: str) -> dict:
         """Check if source should be promoted/demoted.
 
         Analyzes the source's current tier against its calculated score
@@ -344,7 +343,6 @@ class SourceScoreService(BaseService):
                 "quality": components.quality,
                 "strategic_value": components.strategic_value,
             },
-            "is_in_observation": source.is_in_observation,
         }
 
     def get_score_components(self, source_id: str) -> ScoreComponents:

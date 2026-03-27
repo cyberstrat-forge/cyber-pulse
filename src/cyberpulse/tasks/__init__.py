@@ -10,10 +10,10 @@ Components:
 - quality_tasks.py: Quality check tasks
 """
 
-from .worker import broker, dramatiq, result_backend
 from .ingestion_tasks import ingest_source
 from .normalization_tasks import normalize_item, normalize_item_with_result
 from .quality_tasks import quality_check_item, recheck_item
+from .worker import broker, dramatiq, result_backend
 
 __all__ = [
     "broker",

@@ -1,11 +1,14 @@
-from sqlalchemy import Column, String, Text, DateTime, Enum as SAEnum
+from enum import StrEnum
+
+from sqlalchemy import Column, DateTime, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
-from enum import Enum
+
 from ..database import Base
 from .base import TimestampMixin
 
 
-class ApiClientStatus(str, Enum):
+class ApiClientStatus(StrEnum):
     """API client status"""
     ACTIVE = "ACTIVE"
     SUSPENDED = "SUSPENDED"
@@ -19,7 +22,11 @@ class ApiClient(Base, TimestampMixin):
     client_id = Column(String(64), primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     api_key = Column(String(128), nullable=False, unique=True, index=True)
-    status = Column(SAEnum(ApiClientStatus, name="apiclientstatus"), nullable=False, default=ApiClientStatus.ACTIVE)
+    status = Column(
+        SAEnum(ApiClientStatus, name="apiclientstatus"),
+        nullable=False,
+        default=ApiClientStatus.ACTIVE,
+    )
     description = Column(Text, nullable=True)
     permissions = Column(JSONB, nullable=False, default=list)
     last_used_at = Column(DateTime, nullable=True)

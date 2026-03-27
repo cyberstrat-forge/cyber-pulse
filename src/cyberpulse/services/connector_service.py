@@ -1,9 +1,8 @@
 """Base connector class for data collection."""
 
-import hashlib
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Any
 
 
 class BaseConnector(ABC):
@@ -14,7 +13,7 @@ class BaseConnector(ABC):
     this base class.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """Initialize the connector with configuration.
 
         Args:
@@ -23,7 +22,7 @@ class BaseConnector(ABC):
         self.config = config
 
     @abstractmethod
-    async def fetch(self) -> List[Dict[str, Any]]:
+    async def fetch(self) -> list[dict[str, Any]]:
         """Fetch items from the source.
 
         Returns:
@@ -33,7 +32,6 @@ class BaseConnector(ABC):
                 - title: Item title
                 - published_at: Publication datetime (timezone-aware)
                 - content: Raw content
-                - content_hash: MD5 hash of content
                 - author: Author name (may be empty)
                 - tags: List of tags (may be empty)
 
@@ -55,25 +53,13 @@ class BaseConnector(ABC):
         pass
 
     @staticmethod
-    def generate_content_hash(content: str) -> str:
-        """Generate MD5 hash for content deduplication.
-
-        Args:
-            content: Content string to hash
-
-        Returns:
-            MD5 hash as hex string
-        """
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
-
-    @staticmethod
     def get_current_utc_time() -> datetime:
         """Get current UTC time.
 
         Returns:
             Current datetime with UTC timezone
         """
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 class ConnectorError(Exception):

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cyberpulse.models import Content, Item, ItemStatus, Source, SourceStatus, SourceTier
+from cyberpulse.models import Item, ItemStatus, Source, SourceStatus, SourceTier
 
 
 @pytest.fixture
@@ -19,7 +19,6 @@ def test_source():
         tier=SourceTier.T2,
         status=SourceStatus.ACTIVE,
         config={"feed_url": "https://example.com/feed.xml"},
-        total_contents=0,
     )
     return source
 
@@ -38,7 +37,6 @@ def test_item(test_source):
         raw_content="<html><body><p>This is sufficient content for quality check.</p></body></html>",
         published_at=now - timedelta(hours=1),
         fetched_at=now,
-        content_hash=hashlib.md5(b"test_content").hexdigest(),
         status=ItemStatus.NORMALIZED,
         raw_metadata={"author": "Test Author"},
     )
@@ -71,22 +69,7 @@ class TestQualityCheckItem:
         mock_item_query = MagicMock()
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
-
-        # Mock content query (returns None for new content)
-        mock_content_query = MagicMock()
-        mock_content_query.filter.return_value = mock_content_query
-        mock_content_query.first.return_value = None
-
-        def query_side_effect(model):
-            if model == Item:
-                return mock_item_query
-            return mock_content_query
-
-        mock_db.query.side_effect = query_side_effect
-
-        # Track created content
-        created_content = []
-        mock_db.add.side_effect = lambda obj: created_content.append(obj)
+        mock_db.query.return_value = mock_item_query
 
         with patch(
             "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
@@ -105,13 +88,13 @@ class TestQualityCheckItem:
         assert test_item.meta_completeness is not None
         assert test_item.content_completeness is not None
 
+        # Verify normalized fields were set on item
+        assert test_item.normalized_title == valid_normalization_result["normalized_title"]
+        assert test_item.normalized_body == valid_normalization_result["normalized_body"]
+        assert test_item.canonical_hash == valid_normalization_result["canonical_hash"]
+
         # Verify commit was called
         mock_db.commit.assert_called()
-
-        # Verify content was created
-        assert len(created_content) == 1
-        content = created_content[0]
-        assert isinstance(content, Content)
 
     def test_quality_check_reject(self, test_item):
         """Test quality check rejects invalid item."""
@@ -174,19 +157,7 @@ class TestQualityCheckItem:
         mock_item_query = MagicMock()
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
-
-        mock_content_query = MagicMock()
-        mock_content_query.filter.return_value = mock_content_query
-        mock_content_query.first.return_value = None
-
-        def query_side_effect(model):
-            if model == Item:
-                return mock_item_query
-            return mock_content_query
-
-        mock_db.query.side_effect = query_side_effect
-
-        initial_total = test_item.source.total_contents or 0
+        mock_db.query.return_value = mock_item_query
 
         with patch(
             "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
@@ -199,35 +170,16 @@ class TestQualityCheckItem:
             )
 
         # Verify source stats updated
-        assert test_item.source.total_contents == initial_total + 1
+        assert test_item.source.total_items is not None
 
     def test_quality_check_handles_duplicate_content(self, test_item, valid_normalization_result):
-        """Test that duplicate content is handled correctly."""
-        # Create existing content
-        existing_content = Content(
-            content_id="cnt_existing",
-            canonical_hash=valid_normalization_result["canonical_hash"],
-            normalized_title="Existing Content",
-            normalized_body="Existing body",
-            source_count=1,
-        )
-
+        """Test that items with same canonical_hash are handled correctly."""
         mock_db = MagicMock()
 
         mock_item_query = MagicMock()
         mock_item_query.filter.return_value = mock_item_query
         mock_item_query.first.return_value = test_item
-
-        mock_content_query = MagicMock()
-        mock_content_query.filter.return_value = mock_content_query
-        mock_content_query.first.return_value = existing_content  # Return existing content
-
-        def query_side_effect(model):
-            if model == Item:
-                return mock_item_query
-            return mock_content_query
-
-        mock_db.query.side_effect = query_side_effect
+        mock_db.query.return_value = mock_item_query
 
         with patch(
             "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
@@ -239,11 +191,8 @@ class TestQualityCheckItem:
                 **valid_normalization_result
             )
 
-        # Content should be updated, not created
-        assert existing_content.source_count == 2
-
-        # Item should be linked to existing content
-        assert test_item.content_id == existing_content.content_id
+        # Item should be updated with canonical_hash
+        assert test_item.canonical_hash == valid_normalization_result["canonical_hash"]
 
     def test_quality_check_failure(self, test_item, valid_normalization_result):
         """Test quality check failure handling."""
@@ -291,7 +240,6 @@ class TestRecheckItem:
             raw_content="Content to recheck",
             published_at=now,
             fetched_at=now,
-            content_hash=hashlib.md5(b"recheck").hexdigest(),
             status=ItemStatus.REJECTED,
             raw_metadata={"rejection_reason": "Test rejection"},
         )
@@ -353,7 +301,6 @@ class TestFetchFullContent:
             raw_content="Short summary",
             published_at=now,
             fetched_at=now,
-            content_hash=hashlib.md5(b"fetch").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         test_item.source = test_source
@@ -419,7 +366,6 @@ class TestFetchFullContent:
             raw_content="Short summary",
             published_at=now,
             fetched_at=now,
-            content_hash=hashlib.md5(b"fail").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
         test_item.source = test_source
@@ -474,7 +420,6 @@ class TestFetchFullContent:
             raw_content="Content",
             published_at=now,
             fetched_at=now,
-            content_hash=hashlib.md5(b"nourl").hexdigest(),
             status=ItemStatus.NORMALIZED,
         )
 

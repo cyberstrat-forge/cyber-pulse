@@ -3,8 +3,8 @@
 import email.utils
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import feedparser
 import httpx
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class FetchResult:
     """RSS 采集结果"""
-    items: List[Dict[str, Any]]
-    redirect_info: Optional[Dict[str, Any]] = None  # {"original_url": "...", "final_url": "...", "status_code": 301}
+    items: list[dict[str, Any]]
+    redirect_info: dict[str, Any] | None = None  # {"original_url": "...", "final_url": "...", "status_code": 301}
 
 
 class RSSConnector(BaseConnector):
@@ -165,7 +165,7 @@ class RSSConnector(BaseConnector):
 
         return FetchResult(items=items, redirect_info=redirect_info)
 
-    def _parse_entry(self, entry: Any) -> Optional[Dict[str, Any]]:
+    def _parse_entry(self, entry: Any) -> dict[str, Any] | None:
         """Parse a single RSS entry into standardized format.
 
         Args:
@@ -193,9 +193,6 @@ class RSSConnector(BaseConnector):
         # Parse published date
         published_at = self._parse_date(entry)
 
-        # Generate content hash
-        content_hash = self.generate_content_hash(content)
-
         # Get author
         author = entry.get("author", "")
 
@@ -210,7 +207,6 @@ class RSSConnector(BaseConnector):
             "title": title,
             "published_at": published_at,
             "content": content,
-            "content_hash": content_hash,
             "author": author,
             "tags": tags,
         }
@@ -230,7 +226,7 @@ class RSSConnector(BaseConnector):
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             try:
                 # feedparser returns time.struct_time
-                dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                dt = datetime(*entry.published_parsed[:6], tzinfo=UTC)
                 return dt
             except (TypeError, ValueError):
                 pass
@@ -242,7 +238,7 @@ class RSSConnector(BaseConnector):
                 # Try email.utils parsedate_to_datetime (RFC 2822 format)
                 parsed = email.utils.parsedate_to_datetime(published)
                 if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=timezone.utc)
+                    parsed = parsed.replace(tzinfo=UTC)
                 return parsed
             except (TypeError, ValueError):
                 pass

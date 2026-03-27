@@ -1,13 +1,13 @@
-from cyberpulse.models import Source, Item, Content, ApiClient
-from cyberpulse.models import SourceTier, SourceStatus, ItemStatus, ContentStatus, ApiClientStatus
+from cyberpulse.models import Source, Item, ApiClient, Job
+from cyberpulse.models import SourceTier, SourceStatus, ItemStatus, ApiClientStatus, JobStatus, JobType
 
 
 def test_models_import():
     """Test that all models can be imported"""
     assert Source is not None
     assert Item is not None
-    assert Content is not None
     assert ApiClient is not None
+    assert Job is not None
 
 
 def test_source_tier_enum():
@@ -33,17 +33,24 @@ def test_item_status_enum():
     assert ItemStatus.REJECTED == "REJECTED"
 
 
-def test_content_status_enum():
-    """Test ContentStatus enum values"""
-    assert ContentStatus.ACTIVE == "ACTIVE"
-    assert ContentStatus.ARCHIVED == "ARCHIVED"
-
-
 def test_api_client_status_enum():
     """Test ApiClientStatus enum values"""
     assert ApiClientStatus.ACTIVE == "ACTIVE"
     assert ApiClientStatus.SUSPENDED == "SUSPENDED"
     assert ApiClientStatus.REVOKED == "REVOKED"
+
+
+def test_job_status_enum():
+    """Test JobStatus enum values"""
+    assert JobStatus.PENDING == "pending"
+    assert JobStatus.RUNNING == "running"
+    assert JobStatus.COMPLETED == "completed"
+    assert JobStatus.FAILED == "failed"
+
+
+def test_job_type_enum():
+    """Test JobType enum values"""
+    assert JobType.INGEST == "ingest"
 
 
 def test_item_status_default_is_enum():
@@ -54,15 +61,6 @@ def test_item_status_default_is_enum():
     status_col = Item.__table__.c.status
     assert isinstance(status_col.type, SAEnum)
     assert status_col.type.name == "itemstatus"
-
-
-def test_content_status_default_is_enum():
-    """Test that Content.status uses ContentStatus enum"""
-    from sqlalchemy import Enum as SAEnum
-    from cyberpulse.models.content import Content
-    status_col = Content.__table__.c.status
-    assert isinstance(status_col.type, SAEnum)
-    assert status_col.type.name == "contentstatus"
 
 
 def test_api_client_status_default_is_enum():

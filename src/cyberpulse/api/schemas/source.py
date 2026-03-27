@@ -34,11 +34,6 @@ class SourceBase(BaseModel):
         default_factory=dict,
         description="Connector configuration"
     )
-    fetch_interval: int | None = Field(
-        None,
-        description="Fetch interval in seconds",
-        ge=60
-    )
 
 
 class SourceCreate(SourceBase):
@@ -54,8 +49,7 @@ class SourceCreate(SourceBase):
                 "config": {
                     "url": "https://example.com/feed.xml",
                     "categories": ["security"]
-                },
-                "fetch_interval": 3600
+                }
             }
         }
     }
@@ -69,11 +63,9 @@ class SourceUpdate(BaseModel):
     tier: str | None = Field(None, description="Source tier (T0, T1, T2, T3)")
     score: float | None = Field(None, description="Source quality score (0-100)", ge=0.0, le=100.0)
     status: str | None = Field(None, description="Source status (ACTIVE, FROZEN, REMOVED)")
-    is_in_observation: bool | None = Field(None, description="Whether source is in observation period")
-    observation_until: datetime | None = Field(None, description="Observation period end date")
     pending_review: bool | None = Field(None, description="Whether source is pending review")
     review_reason: str | None = Field(None, description="Reason for review")
-    fetch_interval: int | None = Field(None, description="Fetch interval in seconds", ge=60)
+    schedule_interval: int | None = Field(None, description="Ingest interval in seconds", ge=300)
     config: dict[str, Any] | None = Field(None, description="Connector configuration")
 
     model_config = {
@@ -81,7 +73,7 @@ class SourceUpdate(BaseModel):
             "example": {
                 "tier": "T0",
                 "score": 85.0,
-                "fetch_interval": 1800
+                "schedule_interval": 1800
             }
         }
     }
@@ -100,18 +92,13 @@ class SourceResponse(BaseModel):
     tier: str = Field(..., description="Source tier (T0, T1, T2, T3)")
     score: float = Field(..., description="Source quality score (0-100)")
     status: str = Field(..., description="Source status (ACTIVE, FROZEN, REMOVED)")
-    is_in_observation: bool = Field(..., description="Whether source is in observation period")
-    observation_until: datetime | None = Field(None, description="Observation period end date")
     pending_review: bool = Field(..., description="Whether source is pending review")
     review_reason: str | None = Field(None, description="Reason for review")
-    fetch_interval: int | None = Field(None, description="Fetch interval in seconds")
     config: dict[str, Any] = Field(..., description="Connector configuration")
 
     # Statistics
-    last_fetched_at: datetime | None = Field(None, description="Last fetch timestamp")
     last_scored_at: datetime | None = Field(None, description="Last scoring timestamp")
     total_items: int = Field(..., description="Total items collected")
-    total_contents: int = Field(..., description="Total contents produced")
 
     # Scheduling fields (from design doc)
     schedule_interval: int | None = Field(None, description="Ingest interval in seconds")
@@ -154,19 +141,14 @@ class SourceResponse(BaseModel):
                 "tier": "T1",
                 "score": 70.0,
                 "status": "ACTIVE",
-                "is_in_observation": True,
-                "observation_until": "2026-04-19T00:00:00Z",
                 "pending_review": False,
                 "review_reason": None,
-                "fetch_interval": 3600,
                 "config": {
                     "url": "https://example.com/feed.xml",
                     "categories": ["security"]
                 },
-                "last_fetched_at": "2026-03-19T10:00:00Z",
                 "last_scored_at": "2026-03-19T12:00:00Z",
                 "total_items": 150,
-                "total_contents": 120,
                 "schedule_interval": 3600,
                 "next_ingest_at": "2026-03-19T11:00:00Z",
                 "last_ingested_at": "2026-03-19T10:00:00Z",
@@ -230,16 +212,28 @@ class SourceListResponse(BaseModel):
                         "tier": "T1",
                         "score": 70.0,
                         "status": "ACTIVE",
-                        "is_in_observation": True,
-                        "observation_until": "2026-04-19T00:00:00Z",
                         "pending_review": False,
                         "review_reason": None,
-                        "fetch_interval": 3600,
                         "config": {},
-                        "last_fetched_at": None,
                         "last_scored_at": None,
                         "total_items": 0,
-                        "total_contents": 0,
+                        "schedule_interval": 3600,
+                        "next_ingest_at": None,
+                        "last_ingested_at": None,
+                        "last_ingest_result": None,
+                        "items_last_7d": 0,
+                        "consecutive_failures": 0,
+                        "last_error_at": None,
+                        "last_error_message": None,
+                        "last_job_id": None,
+                        "needs_full_fetch": False,
+                        "full_fetch_threshold": None,
+                        "content_type": None,
+                        "avg_content_length": None,
+                        "quality_score": None,
+                        "full_fetch_success_count": 0,
+                        "full_fetch_failure_count": 0,
+                        "warnings": [],
                         "created_at": "2026-03-19T08:00:00Z",
                         "updated_at": "2026-03-19T08:00:00Z"
                     }
@@ -301,3 +295,30 @@ class ImportResponse(BaseModel):
     job_id: str
     status: str = "pending"
     message: str = "Import job created"
+
+
+class ValidationResponse(BaseModel):
+    """Source quality validation response."""
+
+    source_id: str = Field(..., description="Source identifier")
+    is_valid: bool = Field(..., description="Whether source passes quality validation")
+    content_type: str = Field(
+        ...,
+        description="Content type: 'article', 'summary_only', 'empty', or 'unknown'"
+    )
+    sample_completeness: float = Field(
+        ...,
+        description="Sample completeness score (0.0-1.0)"
+    )
+    avg_content_length: int = Field(
+        ...,
+        description="Average content length in characters"
+    )
+    rejection_reason: str | None = Field(
+        None,
+        description="Reason for rejection if validation failed"
+    )
+    samples_analyzed: int = Field(
+        0,
+        description="Number of samples analyzed"
+    )

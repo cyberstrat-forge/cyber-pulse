@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from .. import __version__
 from ..config import settings
-from .routers import content, health, items
+from .routers import health, items
 from .routers.admin import (
     clients_router,
     diagnose_router,
@@ -102,7 +102,6 @@ app.include_router(health.router, tags=["health"])
 
 # Business API
 app.include_router(items.router, prefix="/api/v1", tags=["items"])
-app.include_router(content.router, prefix="/api/v1", tags=["content"])
 
 # Admin API (new endpoints)
 app.include_router(sources_router, prefix="/api/v1/admin", tags=["admin-sources"])

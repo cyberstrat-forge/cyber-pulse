@@ -5,12 +5,11 @@ using APScheduler with PostgreSQL as the job store for persistence.
 """
 
 import logging
-from typing import Optional
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobEvent
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 from ..config import settings
 
@@ -31,7 +30,7 @@ class SchedulerService:
         database_url: The database URL for the job store.
     """
 
-    def __init__(self, database_url: Optional[str] = None):
+    def __init__(self, database_url: str | None = None):
         """Initialize the scheduler service.
 
         Args:
@@ -212,7 +211,7 @@ class SchedulerService:
             for job in jobs
         ]
 
-    def get_job(self, job_id: str) -> Optional[dict]:
+    def get_job(self, job_id: str) -> dict | None:
         """Get details of a specific job.
 
         Args:
@@ -277,7 +276,7 @@ class SchedulerService:
 
 
 # Module-level scheduler instance for convenience
-_scheduler_instance: Optional[SchedulerService] = None
+_scheduler_instance: SchedulerService | None = None
 
 
 def get_scheduler() -> SchedulerService:
