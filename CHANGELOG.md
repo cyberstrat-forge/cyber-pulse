@@ -7,28 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-03-27
+
 ### Added
-- RSS auto-discovery service for finding RSS feeds from site URLs
-- Source failure tracking with `consecutive_failures` and `last_error_at` fields
-- Automatic source freezing after 5 consecutive failures
-- RSS feed URL auto-update on permanent redirect (301/308)
-- RSS discovery integration when adding sources via CLI
-- Full content fetch system for low-quality RSS content
-  - `FullContentFetchService` for fetching full article content from URLs
-  - `TitleParserService` for parsing compound RSS titles (e.g., Anthropic Research)
-  - `SourceQualityValidator` for validating source content quality before admission
-  - Content quality detection (`_validate_content_quality`, `_is_title_body_same`)
-  - URL deduplication with normalization in `SourceService`
-  - `fetch_full_content` Dramatiq task for background content retrieval
-- CLI enhancements for full content fetch settings
-  - `source update --full-fetch` and `--fetch-threshold` options
-  - `source fetch-content` command to trigger full content fetch for items
-- Source model fields: `needs_full_fetch`, `full_fetch_threshold`, `content_type`, `avg_content_length`, `quality_score`, `full_fetch_success_count`, `full_fetch_failure_count`
-- Item model fields: `full_fetch_attempted`, `full_fetch_succeeded`
+
+#### API 架构重构
+- Admin API 端点统一到 `/api/v1/admin/` 前缀
+- 新增 Jobs API：任务创建、状态查询、历史记录
+- 新增 Logs API：日志查询、过滤、导出
+- 新增 Clients API：客户端管理、权限控制
+- 新增 Diagnose API：系统诊断、健康检查
+- OPML 导入/导出支持
+
+#### 数据模型增强
+- Job 模型：任务跟踪（type, status, result, error tracking）
+- Source 模型新增字段：`consecutive_failures`, `last_error_at`, `last_error_message`, `last_job_id`
+- Source 模型全文拉取字段：`needs_full_fetch`, `full_fetch_threshold`, `content_type`, `avg_content_length`, `quality_score`
+- Item 模型全文拉取字段：`full_fetch_attempted`, `full_fetch_succeeded`
+- Item cursor 格式简化：`item_{uuid8}`（移除时间戳前缀）
+
+#### RSS 采集增强
+- 自动触发初始采集：创建源后立即启动采集任务
+- OPML 导入后自动触发采集
+- HTTP 重定向跟随（301/308）
+- 默认 User-Agent 头，避免 403 错误
+- 内容质量检测和全文拉取触发
+
+#### 部署优化
+- `api.sh` 脚本替代 CLI 工具
+- 简化部署命令：`./scripts/api.sh configure`、`./scripts/api.sh diagnose`
+- 本地测试环境部署指南
+
+### Changed
+
+- CLI 工具已移除，改用 `api.sh` 脚本
+- Unhealthy sources 现在在 diagnose 中可见
 
 ### Fixed
-- HTTP redirect handling in RSS connector (now follows redirects)
-- Missing User-Agent header causing 403 errors from some RSS feeds
+
+- CLI JSON 中文编码问题
+- IMPORT job 未触发处理的问题
+- 静默失败问题：ingestion 触发失败时添加警告
+- `api.sh jobs run` 调用正确的 API 端点
+- `api.sh sources create --url` 正确映射到 `config.feed_url`
+
+### Documentation
+
+- SQLAlchemy 2.0 Mapped 迁移设计文档
+- 全文拉取混合策略设计文档
 
 ## [1.3.0] - 2026-03-22
 
@@ -167,5 +193,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.4.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.4.0
+[1.3.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.3.0
 [1.0.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.0.0
 [0.1.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v0.1.0
