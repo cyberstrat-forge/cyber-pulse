@@ -22,6 +22,7 @@ class TestSettingsModel:
         assert setting.key == "default_fetch_interval"
         assert setting.value == "3600"
 
+    @pytest.mark.filterwarnings("ignore::sqlalchemy.exc.SAWarning")
     def test_settings_upsert(self, db_session):
         """Test upsert behavior for settings."""
         # Create initial
@@ -30,10 +31,13 @@ class TestSettingsModel:
         db_session.commit()
 
         # Try to create duplicate - should fail
+        # Use nested transaction (savepoint) to isolate the error
+        nested = db_session.begin_nested()
         duplicate = Settings(key="test_key", value="value2")
         db_session.add(duplicate)
         with pytest.raises(IntegrityError):
             db_session.commit()
+        nested.rollback()  # Rollback the savepoint, outer transaction remains valid
 
     def test_settings_with_null_value(self, db_session):
         """Test settings with null value."""
