@@ -646,10 +646,10 @@ cmd_jobs_run() {
     fi
 
     local response
-    response=$(api_post "/api/v1/admin/jobs/run" "{\"source_id\": \"$source_id\"}")
+    response=$(api_post "/api/v1/admin/jobs" "{\"type\": \"ingest\", \"source_id\": \"$source_id\"}")
     check_api_error "$response"
 
-    print_success "Job started"
+    print_success "Job created"
     echo "$response" | jq .
 }
 
