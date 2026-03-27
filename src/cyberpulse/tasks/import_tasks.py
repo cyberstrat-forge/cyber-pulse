@@ -3,16 +3,15 @@
 import logging
 from datetime import UTC, datetime
 
-import dramatiq
-
 from ..database import SessionLocal
 from ..models import Job, JobStatus, SourceTier
 from ..services.source_service import SourceService
+from .worker import broker
 
 logger = logging.getLogger(__name__)
 
 
-@dramatiq.actor(max_retries=3)
+@broker.actor(max_retries=3)
 def process_import_job(job_id: str) -> None:
     """Process an IMPORT job.
 
