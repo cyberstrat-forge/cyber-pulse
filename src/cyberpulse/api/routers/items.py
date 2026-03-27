@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Cursor format: item_{YYYYMMDDHHMMSS}_{uuid8}
-CURSOR_PATTERN = re.compile(r"^item_\d{14}_[a-f0-9]{8}$")
+# Cursor format: item_{uuid8}
+CURSOR_PATTERN = re.compile(r"^item_[a-f0-9]{8}$")
 
 
 def validate_cursor(cursor: str) -> None:
@@ -84,6 +84,7 @@ async def list_items(
                 status_code=404, detail=f"Cursor item not found: {cursor}"
             )
         query = query.filter(Item.fetched_at < cursor_item.fetched_at)
+        query = query.order_by(desc(Item.fetched_at))
     elif from_param == "beginning":
         # Start from earliest
         query = query.order_by(Item.fetched_at.asc())
