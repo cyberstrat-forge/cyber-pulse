@@ -34,6 +34,7 @@ from ....models import (
 )
 from ....services.source_quality_validator import SourceQualityValidator
 from ....tasks.import_tasks import process_import_job
+from ....tasks.ingestion_tasks import ingest_source
 from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
 from ...schemas.source import (
@@ -259,6 +260,13 @@ async def create_source(
         )
 
     logger.info(f"Created source: {new_source.source_id}")
+
+    # Trigger initial ingestion
+    try:
+        ingest_source.send(new_source.source_id)
+        logger.info(f"Triggered initial ingestion for source: {new_source.source_id}")
+    except Exception as e:
+        logger.error(f"Failed to trigger initial ingestion: {e}")
 
     return build_source_response(new_source)
 

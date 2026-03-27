@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from ..database import SessionLocal
 from ..models import Job, JobStatus, SourceTier
 from ..services.source_service import SourceService
+from .ingestion_tasks import ingest_source
 from .worker import dramatiq
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,13 @@ def process_import_job(job_id: str) -> None:
                         "source_id": source.source_id,
                     })
                     logger.info(f"Imported source: {feed_title} ({source.source_id})")
+
+                    # Trigger initial ingestion
+                    try:
+                        ingest_source.send(source.source_id)
+                        logger.info(f"Triggered initial ingestion for source: {source.source_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to trigger initial ingestion: {e}")
                 else:
                     # Duplicate or other issue
                     skipped += 1
