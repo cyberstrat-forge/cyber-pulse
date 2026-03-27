@@ -12,7 +12,7 @@ import logging
 import signal
 import sys
 
-from .jobs import run_scheduled_collection, update_source_scores
+from .jobs import cleanup_orphaned_jobs, run_scheduled_collection, update_source_scores
 from .scheduler import SchedulerService
 
 # Configure logging
@@ -79,6 +79,17 @@ async def async_main() -> None:
         replace_existing=True,
     )
     logger.info("Scheduled: score update job (every 6 hours)")
+
+    # Cleanup orphaned jobs every 5 minutes
+    scheduler.scheduler.add_job(
+        cleanup_orphaned_jobs,
+        "interval",
+        minutes=5,
+        id="cleanup_orphaned_jobs",
+        name="Cleanup Orphaned Jobs",
+        replace_existing=True,
+    )
+    logger.info("Scheduled: orphaned jobs cleanup (every 5 minutes)")
 
     logger.info("Scheduler started and running. Press Ctrl+C to stop.")
 

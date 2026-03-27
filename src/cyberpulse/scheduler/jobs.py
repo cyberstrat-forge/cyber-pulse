@@ -5,14 +5,18 @@ These jobs trigger Dramatiq tasks for actual processing.
 """
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..database import SessionLocal
-from ..models import Source, SourceStatus
+from ..models import Job, JobStatus, Source, SourceStatus
 from ..services.source_score_service import SourceScoreService
 from ..tasks.ingestion_tasks import ingest_source
 
 logger = logging.getLogger(__name__)
+
+# Timeout threshold for orphaned jobs (minutes)
+ORPHANED_JOB_TIMEOUT_MINUTES = 5
 
 
 def collect_source(source_id: str) -> dict[str, Any]:
@@ -114,6 +118,73 @@ def update_source_scores() -> dict[str, Any]:
             "sources_updated": updated_count,
             "failed_count": failed_count,
             "message": f"Updated scores for {updated_count} sources ({failed_count} failed)",
+        }
+    finally:
+        db.close()
+
+
+def cleanup_orphaned_jobs() -> dict[str, Any]:
+    """Clean up orphaned PENDING jobs.
+
+    Scans for jobs that have been in PENDING status longer than the
+    timeout threshold and marks them as FAILED. This handles cases where
+    the Dramatiq message was lost or the worker failed to process it.
+
+    Returns:
+        Dictionary with cleanup result status.
+    """
+    logger.info("Running orphaned jobs cleanup")
+
+    db = SessionLocal()
+    try:
+        # Calculate threshold: jobs older than this are considered orphaned
+        threshold = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+            minutes=ORPHANED_JOB_TIMEOUT_MINUTES
+        )
+
+        # Find orphaned jobs
+        orphaned_jobs = (
+            db.query(Job)
+            .filter(
+                Job.status == JobStatus.PENDING,
+                Job.created_at < threshold,
+            )
+            .all()
+        )
+
+        cleaned_count = 0
+        for job in orphaned_jobs:
+            job.status = JobStatus.FAILED  # type: ignore[assignment]
+            job.error_type = "OrphanedJob"
+            job.error_message = (
+                f"Task timeout - no worker response after "
+                f"{ORPHANED_JOB_TIMEOUT_MINUTES} minutes"
+            )
+            job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+            cleaned_count += 1
+            logger.warning(
+                f"Marked orphaned job {job.job_id} as FAILED "
+                f"(type: {job.type}, created: {job.created_at})"
+            )
+
+        if cleaned_count > 0:
+            db.commit()
+            logger.info(f"Cleaned up {cleaned_count} orphaned jobs")
+        else:
+            logger.debug("No orphaned jobs found")
+
+        return {
+            "status": "completed",
+            "cleaned_count": cleaned_count,
+            "message": f"Cleaned up {cleaned_count} orphaned jobs",
+        }
+    except Exception as e:
+        logger.error(f"Failed to cleanup orphaned jobs: {e}", exc_info=True)
+        db.rollback()
+        return {
+            "status": "failed",
+            "cleaned_count": 0,
+            "error": str(e),
         }
     finally:
         db.close()
