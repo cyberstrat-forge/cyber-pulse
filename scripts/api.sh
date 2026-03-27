@@ -295,6 +295,7 @@ cmd_sources_create() {
     local connector_type=""
     local url=""
     local tier=""
+    local needs_full_fetch=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -302,6 +303,7 @@ cmd_sources_create() {
             --type)     connector_type="$2"; shift 2 ;;
             --url)      url="$2"; shift 2 ;;
             --tier)     tier="$2"; shift 2 ;;
+            --needs-full-fetch) needs_full_fetch="$2"; shift 2 ;;
             *)          shift ;;
         esac
     done
@@ -316,7 +318,8 @@ cmd_sources_create() {
         --arg type "$connector_type" \
         --arg url "$url" \
         --arg tier "$tier" \
-        '{name: $name, connector_type: $type, url: $url} + if $tier != "" then {tier: $tier} else {} end'
+        --argjson needs_full_fetch "${needs_full_fetch:-false}" \
+        '{name: $name, connector_type: $type, config: {feed_url: $url}} + if $tier != "" then {tier: $tier} else {} end + if $needs_full_fetch then {needs_full_fetch: $needs_full_fetch} else {} end'
     )
 
     local response
@@ -340,15 +343,19 @@ cmd_sources_update() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --name)     data=$(echo "$data" | jq --arg v "$2" '. + {name: $v}'); shift 2 ;;
-            --url)      data=$(echo "$data" | jq --arg v "$2" '. + {url: $v}'); shift 2 ;;
+            --url)      data=$(echo "$data" | jq --arg v "$2" '.config = (.config // {}) + {feed_url: $v}'); shift 2 ;;
             --tier)     data=$(echo "$data" | jq --arg v "$2" '. + {tier: $v}'); shift 2 ;;
             --status)   data=$(echo "$data" | jq --arg v "$2" '. + {status: $v}'); shift 2 ;;
+            --score)    data=$(echo "$data" | jq --argjson v "$2" '. + {score: $v}'); shift 2 ;;
+            --needs-full-fetch) data=$(echo "$data" | jq --argjson v "$2" '. + {needs_full_fetch: $v}'); shift 2 ;;
+            --schedule-interval) data=$(echo "$data" | jq --argjson v "$2" '. + {schedule_interval: $v}'); shift 2 ;;
+            --config)   data=$(echo "$data" | jq --argjson v "$2" '. + {config: $v}'); shift 2 ;;
             *)          shift ;;
         esac
     done
 
     local response
-    response=$(api_request "PATCH" "/api/v1/admin/sources/$source_id" "$data")
+    response=$(api_request "PUT" "/api/v1/admin/sources/$source_id" "$data")
     check_api_error "$response"
 
     print_success "Source updated"
@@ -646,10 +653,10 @@ cmd_jobs_run() {
     fi
 
     local response
-    response=$(api_post "/api/v1/admin/jobs/run" "{\"source_id\": \"$source_id\"}")
+    response=$(api_post "/api/v1/admin/jobs" "{\"type\": \"ingest\", \"source_id\": \"$source_id\"}")
     check_api_error "$response"
 
-    print_success "Job started"
+    print_success "Job created"
     echo "$response" | jq .
 }
 

@@ -20,17 +20,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Cursor format: item_{YYYYMMDDHHMMSS}_{uuid8}
-CURSOR_PATTERN = re.compile(r"^item_\d{14}_[a-f0-9]{8}$")
+# Cursor format: item_{uuid8}
+CURSOR_PATTERN = re.compile(r"^item_[a-f0-9]{8}$")
 
 
 def validate_cursor(cursor: str) -> None:
     """Validate cursor format."""
     if not CURSOR_PATTERN.match(cursor):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid cursor format: {cursor}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid cursor format: {cursor}")
 
 
 def calculate_completeness_score(item: Item) -> float:
@@ -39,7 +36,8 @@ def calculate_completeness_score(item: Item) -> float:
     content = item.content_completeness or 0.0
     noise = item.noise_ratio or 0.0
 
-    return meta * 0.4 + content * 0.4 + (1 - noise) * 0.2
+    score = meta * 0.4 + content * 0.4 + (1 - noise) * 0.2
+    return round(score, 3)
 
 
 @router.get("/items", response_model=ItemListResponse)
@@ -47,7 +45,9 @@ async def list_items(
     cursor: str | None = Query(None, description="Pagination cursor"),
     since: datetime | None = Query(None, description="Start time"),
     until: datetime | None = Query(None, description="End time"),
-    from_param: str | None = Query(None, alias="from", description="Start position: latest or beginning"),
+    from_param: str | None = Query(
+        None, alias="from", description="Start position: latest or beginning"
+    ),
     limit: int = Query(50, ge=1, le=100, description="Page size"),
     db: Session = Depends(get_db),
     _client: ApiClient = Depends(require_permissions(["read"])),
@@ -60,8 +60,7 @@ async def list_items(
     # Validate cursor and from are not both provided
     if cursor and from_param:
         raise HTTPException(
-            status_code=400,
-            detail="Cannot specify both cursor and from parameters"
+            status_code=400, detail="Cannot specify both cursor and from parameters"
         )
 
     # Validate cursor format
@@ -83,10 +82,10 @@ async def list_items(
         cursor_item = db.query(Item).filter(Item.item_id == cursor).first()
         if not cursor_item:
             raise HTTPException(
-                status_code=404,
-                detail=f"Cursor item not found: {cursor}"
+                status_code=404, detail=f"Cursor item not found: {cursor}"
             )
         query = query.filter(Item.fetched_at < cursor_item.fetched_at)
+        query = query.order_by(desc(Item.fetched_at))
     elif from_param == "beginning":
         # Start from earliest
         query = query.order_by(Item.fetched_at.asc())
@@ -128,7 +127,6 @@ async def list_items(
             url=item.url,
             completeness_score=calculate_completeness_score(item),
             tags=item.raw_metadata.get("tags", []) if item.raw_metadata else [],
-            language=item.language,
             word_count=item.word_count,
             fetched_at=item.fetched_at,
             source=source_info,

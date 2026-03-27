@@ -52,7 +52,6 @@ def valid_normalization_result():
         "normalized_title": "Test Article for Quality Check",
         "normalized_body": "This is sufficient content for quality check. " * 20,
         "canonical_hash": hashlib.md5(b"normalized_content").hexdigest(),
-        "language": "en",
         "word_count": 100,
         "extraction_method": "trafilatura",
     }
@@ -117,7 +116,6 @@ class TestQualityCheckItem:
                 normalized_title="Abc",
                 normalized_body="",  # Empty body - will be rejected
                 canonical_hash=hashlib.md5(b"reject").hexdigest(),
-                language="en",
                 word_count=0,
                 extraction_method="raw",
             )

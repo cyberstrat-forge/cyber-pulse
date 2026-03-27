@@ -155,6 +155,7 @@ class ApiClientService:
         name: str,
         permissions: list[str] | None = None,
         description: str | None = None,
+        expires_at: datetime | None = None,
     ) -> tuple[ApiClient, str]:
         """
         Create a new API client.
@@ -163,6 +164,7 @@ class ApiClientService:
             name: Client name
             permissions: List of permissions for this client
             description: Optional description
+            expires_at: Optional expiration time (None = never expires)
 
         Returns:
             Tuple of (ApiClient, plain_api_key)
@@ -183,6 +185,7 @@ class ApiClientService:
             status=ApiClientStatus.ACTIVE,
             permissions=permissions or [],
             description=description,
+            expires_at=expires_at,
         )
 
         self.db.add(client)

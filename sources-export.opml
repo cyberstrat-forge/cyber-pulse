@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>CyberPulse Sources Export</title>
+    <dateCreated>2026-03-27T07:05:12.733172+00:00</dateCreated>
+  </head>
+  <body>
+    <outline type="rss" title="Anthropic Research" text="Anthropic Research" xmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml" htmlUrl="https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds"/>
+    <outline type="rss" title="OpenAI Blog" text="OpenAI Blog" xmlUrl="https://blog.openai.com/rss/" htmlUrl="https://blog.openai.com/rss"/>
+    <outline type="rss" title="MITRE ATT&amp;CK" text="MITRE ATT&amp;CK" xmlUrl="https://medium.com/feed/mitre-attack" htmlUrl="https://medium.com/feed"/>
+    <outline type="rss" title="Cloud Security Alliance" text="Cloud Security Alliance" xmlUrl="https://cloudsecurityalliance.org/feed/" htmlUrl="https://cloudsecurityalliance.org/feed"/>
+    <outline type="rss" title="The Hacker News" text="The Hacker News" xmlUrl="http://thehackernews.com/feeds/posts/default" htmlUrl="http://thehackernews.com/feeds/posts"/>
+    <outline type="rss" title="Krebs on Security" text="Krebs on Security" xmlUrl="https://krebsonsecurity.com/feed/" htmlUrl="https://krebsonsecurity.com/feed"/>
+    <outline type="rss" title="Project Zero" text="Project Zero" xmlUrl="http://googleprojectzero.blogspot.com/feeds/posts/default" htmlUrl="http://googleprojectzero.blogspot.com/feeds/posts"/>
+    <outline type="rss" title="Unit 42" text="Unit 42" xmlUrl="http://feeds.feedburner.com/Unit42" htmlUrl="http://feeds.feedburner.com"/>
+  </body>
+</opml>

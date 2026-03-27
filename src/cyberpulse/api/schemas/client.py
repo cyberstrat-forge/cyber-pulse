@@ -26,13 +26,18 @@ class ClientCreate(BaseModel):
         None,
         description="Optional description of the client's purpose"
     )
+    expires_at: datetime | None = Field(
+        None,
+        description="Optional expiration time. None means never expires."
+    )
 
     model_config = {
         "json_schema_extra": {
             "example": {
                 "name": "Analytics Service",
                 "permissions": ["read"],
-                "description": "Client for analytics dashboard"
+                "description": "Client for analytics dashboard",
+                "expires_at": None
             }
         }
     }
@@ -54,6 +59,10 @@ class ClientResponse(BaseModel):
         description="List of permissions for this client"
     )
     description: str | None = Field(None, description="Client description")
+    expires_at: datetime | None = Field(
+        None,
+        description="Expiration time. None means never expires."
+    )
     last_used_at: datetime | None = Field(
         None,
         description="When the client was last used"
@@ -70,6 +79,7 @@ class ClientResponse(BaseModel):
                 "status": "ACTIVE",
                 "permissions": ["read"],
                 "description": "Client for analytics dashboard",
+                "expires_at": None,
                 "last_used_at": "2026-03-19T10:00:00Z",
                 "created_at": "2026-03-19T08:00:00Z",
                 "updated_at": "2026-03-19T08:00:00Z"
@@ -108,6 +118,7 @@ class ClientCreatedResponse(BaseModel):
                     "status": "ACTIVE",
                     "permissions": ["read"],
                     "description": "Client for analytics dashboard",
+                    "expires_at": None,
                     "last_used_at": None,
                     "created_at": "2026-03-19T08:00:00Z",
                     "updated_at": "2026-03-19T08:00:00Z"
