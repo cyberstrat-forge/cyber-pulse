@@ -1,4 +1,4 @@
-from enum import Enum as PyEnum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Integer, String, Text
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     pass
 
 
-class SourceTier(str, PyEnum):
+class SourceTier(StrEnum):
     """Source tier levels"""
     T0 = "T0"
     T1 = "T1"
@@ -20,7 +20,7 @@ class SourceTier(str, PyEnum):
     T3 = "T3"
 
 
-class SourceStatus(str, PyEnum):
+class SourceStatus(StrEnum):
     """Source status"""
     ACTIVE = "ACTIVE"
     FROZEN = "FROZEN"

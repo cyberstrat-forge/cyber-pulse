@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 
 from sqlalchemy import (
     Boolean,
@@ -19,7 +19,7 @@ from ..database import Base
 from .base import TimestampMixin
 
 
-class ItemStatus(str, Enum):
+class ItemStatus(StrEnum):
     """Item processing status"""
 
     NEW = "NEW"

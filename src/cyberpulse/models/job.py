@@ -1,6 +1,6 @@
 """Job model for tracking async task execution."""
 
-from enum import Enum as PyEnum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
@@ -15,13 +15,13 @@ if TYPE_CHECKING:
     pass
 
 
-class JobType(str, PyEnum):
+class JobType(StrEnum):
     """Job type enumeration."""
     INGEST = "ingest"
     IMPORT = "import"
 
 
-class JobStatus(str, PyEnum):
+class JobStatus(StrEnum):
     """Job status enumeration."""
     PENDING = "pending"
     RUNNING = "running"
@@ -35,7 +35,11 @@ class Job(Base, TimestampMixin):
 
     job_id = Column(String(64), primary_key=True, index=True)
     type = Column(SAEnum(JobType, name="jobtype"), nullable=False)
-    status = Column(SAEnum(JobStatus, name="jobstatus"), nullable=False, default=JobStatus.PENDING)
+    status = Column(
+        SAEnum(JobStatus, name="jobstatus"),
+        nullable=False,
+        default=JobStatus.PENDING,
+    )
 
     # For ingest jobs
     source_id = Column(String(64), ForeignKey("sources.source_id"), nullable=True)
