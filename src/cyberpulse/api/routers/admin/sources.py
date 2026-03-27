@@ -377,6 +377,15 @@ async def import_sources(
 
     logger.info(f"Created import job {job.job_id} with {len(feeds)} feeds")
 
+    # Trigger import task
+    try:
+        from ....tasks.import_tasks import process_import_job
+
+        process_import_job.send(job.job_id)
+        logger.info(f"Triggered process_import_job for job {job.job_id}")
+    except (OSError, ConnectionError) as e:
+        logger.error(f"Failed to trigger import job {job.job_id}: {e}")
+
     return ImportResponse(
         job_id=job.job_id,
         status="pending",
