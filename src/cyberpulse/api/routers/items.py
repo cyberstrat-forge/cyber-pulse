@@ -118,7 +118,7 @@ async def list_items(
                 source_score=source.score,
             )
 
-data.append(ItemResponse(
+        data.append(ItemResponse(
             id=item.item_id,
             title=item.normalized_title or item.title,
             author=item.raw_metadata.get("author") if item.raw_metadata else None,
@@ -127,7 +127,6 @@ data.append(ItemResponse(
             url=item.url,
             completeness_score=calculate_completeness_score(item),
             tags=item.raw_metadata.get("tags", []) if item.raw_metadata else [],
-            language=item.language,
             word_count=item.word_count,
             fetched_at=item.fetched_at,
             source=source_info,
