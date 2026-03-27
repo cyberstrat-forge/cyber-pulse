@@ -33,6 +33,7 @@ from ....models import (
     SourceTier,
 )
 from ....services.source_quality_validator import SourceQualityValidator
+from ....tasks.import_tasks import process_import_job
 from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
 from ...schemas.source import (
@@ -375,6 +376,13 @@ async def import_sources(
     db.refresh(job)
 
     logger.info(f"Created import job {job.job_id} with {len(feeds)} feeds")
+
+    # Trigger Dramatiq task
+    try:
+        process_import_job.send(job.job_id)
+        logger.info(f"Triggered process_import_job for job: {job.job_id}")
+    except Exception as e:
+        logger.error(f"Failed to trigger import job: {e}")
 
     return ImportResponse(
         job_id=job.job_id,
