@@ -173,13 +173,17 @@ def build_source_response(source: Source) -> SourceResponse:
 
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
-    status: str | None = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED"),
+    status: str | None = Query(None, description="Filter by status: ACTIVE, FROZEN, REMOVED (default: exclude REMOVED)"),
     tier: str | None = Query(None, description="Filter by tier: T0, T1, T2, T3"),
     scheduled: bool | None = Query(None, description="Filter by scheduled status"),
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> SourceListResponse:
-    """List all sources with optional filtering."""
+    """List all sources with optional filtering.
+
+    By default, excludes REMOVED sources. Use status=REMOVED to list removed sources,
+    or status=ACTIVE,FROZEN,REMOVED for specific filtering.
+    """
     logger.debug(f"Listing sources: status={status}, tier={tier}, scheduled={scheduled}")
 
     query = db.query(Source)
@@ -187,6 +191,9 @@ async def list_sources(
     if status:
         status_enum = validate_status(status)
         query = query.filter(Source.status == status_enum)
+    else:
+        # Default: exclude REMOVED status
+        query = query.filter(Source.status != SourceStatus.REMOVED)
 
     if tier:
         tier_enum = validate_tier(tier)
