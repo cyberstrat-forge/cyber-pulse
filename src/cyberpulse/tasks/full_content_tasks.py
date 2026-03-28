@@ -20,7 +20,7 @@ from ..services.full_content_fetch_service import FullContentFetchService
 logger = logging.getLogger(__name__)
 
 
-@dramatiq.actor(max_retries=2, max_concurrency=3)
+@dramatiq.actor(max_retries=2)
 def fetch_full_content(item_id: str) -> dict:
     """Fetch full content for an item.
 
