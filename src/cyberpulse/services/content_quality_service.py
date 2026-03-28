@@ -1,15 +1,25 @@
 """Content quality judgment service.
 
 Determines if item content needs full fetch based on:
-1. Content length threshold (< 100 chars)
+1. Content length threshold (< 500 chars or < 50 words)
 2. Title-body similarity (Anthropic Research issue)
 3. Invalid content patterns (JS challenge, 404, etc.)
+
+Note: RSS feeds typically provide 100-300 character summaries.
+Real article content is usually > 500 characters and > 50 words.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
-MIN_CONTENT_LENGTH = 100
+# Minimum content thresholds
+# RSS summaries are typically 100-300 chars, 10-30 words
+# Real articles are typically > 500 chars, > 50 words
+MIN_CONTENT_LENGTH = 500  # characters
+MIN_WORD_COUNT = 50  # words
+
 TITLE_SIMILARITY_THRESHOLD = 0.8
 
 INVALID_CONTENT_PATTERNS = [
@@ -17,6 +27,8 @@ INVALID_CONTENT_PATTERNS = [
     "Checking your browser",
     "404 Not Found",
     "Access Denied",
+    "error 403",
+    "Forbidden",
 ]
 
 
@@ -48,7 +60,7 @@ class ContentQualityService:
         Returns:
             QualityCheckResult with needs_full_fetch flag and reason.
         """
-        # Rule 1: Content length
+        # Rule 1: Content length (characters)
         body_len = len(body or "")
         if body_len < MIN_CONTENT_LENGTH:
             return QualityCheckResult(
@@ -59,7 +71,18 @@ class ContentQualityService:
                 ),
             )
 
-        # Rule 2: Title-body similarity
+        # Rule 2: Word count (more reliable for RSS summaries)
+        word_count = self._count_words(body)
+        if word_count < MIN_WORD_COUNT:
+            return QualityCheckResult(
+                needs_full_fetch=True,
+                reason=(
+                    f"Content too short: {word_count} words "
+                    f"(min: {MIN_WORD_COUNT}) - likely RSS summary"
+                ),
+            )
+
+        # Rule 3: Title-body similarity
         if self._is_title_as_body(title, body):
             return QualityCheckResult(
                 needs_full_fetch=True,
@@ -69,7 +92,7 @@ class ContentQualityService:
                 ),
             )
 
-        # Rule 3: Invalid content patterns
+        # Rule 4: Invalid content patterns
         if self._has_invalid_pattern(body):
             return QualityCheckResult(
                 needs_full_fetch=True,
@@ -80,6 +103,20 @@ class ContentQualityService:
             needs_full_fetch=False,
             reason="Content quality check passed",
         )
+
+    def _count_words(self, text: str | None) -> int:
+        """Count words in text.
+
+        Args:
+            text: Text to count words in.
+
+        Returns:
+            Number of words.
+        """
+        if not text:
+            return 0
+        # Split on whitespace and filter empty strings
+        return len([w for w in text.split() if w])
 
     def _is_title_as_body(self, title: str | None, body: str | None) -> bool:
         """Check if title was incorrectly extracted as body."""

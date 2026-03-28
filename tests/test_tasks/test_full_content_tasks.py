@@ -54,12 +54,13 @@ class TestFetchFullContentTask:
         from cyberpulse.tasks.full_content_tasks import fetch_full_content
         assert fetch_full_content.options.get("max_retries") == 2
 
-    def test_concurrency_controlled_by_semaphore(self):
-        """Test that JinaAIClient uses semaphore for concurrency control."""
+    def test_rate_limiter_enforces_20_rpm(self):
+        """Test that JinaAIClient uses rate limiter for 20 RPM."""
         from cyberpulse.services.jina_client import JinaAIClient
+
         client = JinaAIClient()
-        # Concurrency is controlled by semaphore in the client
-        assert client.concurrency == 3
+        # Rate limiter enforces 20 RPM = 3 seconds per request
+        assert client._rate_limiter._min_interval == 3.0
 
     def test_fetch_full_content_success(self, test_item):
         """Test successful full content fetch."""

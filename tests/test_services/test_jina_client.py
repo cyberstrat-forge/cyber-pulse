@@ -14,8 +14,15 @@ class TestJinaAIClient:
     def test_init(self):
         """Test initialization."""
         client = JinaAIClient()
-        assert client.concurrency == 3
-        assert client._semaphore._value == 3
+        # Rate limiter is shared globally
+        assert client._rate_limiter is not None
+        assert client._rate_limiter._min_interval == 3.0  # 60/20 = 3 seconds
+
+    def test_global_rate_limiter_singleton(self):
+        """Test that all instances share the same rate limiter."""
+        client1 = JinaAIClient()
+        client2 = JinaAIClient()
+        assert client1._rate_limiter is client2._rate_limiter
 
     def test_headers_include_required_params(self):
         """Test headers include X-Return-Format and X-Md-Link-Style."""

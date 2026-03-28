@@ -1,21 +1,61 @@
-"""Jina AI Reader client (20 RPM, no API key).
-
-Request headers:
-- X-Return-Format: markdown
-- X-Md-Link-Style: discarded (removes links, keeps text)
-"""
+from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    pass
 
 logger = logging.getLogger(__name__)
 
 JINA_BASE_URL = "https://r.jina.ai/"
 DEFAULT_TIMEOUT = 30.0
 MIN_CONTENT_LENGTH = 100
+
+# Global rate limiter singleton - 20 RPM = 3 seconds per request
+_global_rate_limiter: _RateLimiter | None = None
+
+
+def _get_rate_limiter() -> _RateLimiter:
+    """Get the global rate limiter singleton."""
+    global _global_rate_limiter
+    if _global_rate_limiter is None:
+        _global_rate_limiter = _RateLimiter(rate_per_minute=20)
+    return _global_rate_limiter
+
+
+class _RateLimiter:
+    """Rate limiter that enforces requests per minute.
+
+    Uses a sliding window approach: each request must wait for
+    the minimum interval since the last request.
+
+    For 20 RPM: interval = 60/20 = 3 seconds per request.
+    """
+
+    def __init__(self, rate_per_minute: int):
+        self._min_interval = 60.0 / rate_per_minute  # 3.0 seconds for 20 RPM
+        self._last_request_time: float | None = None
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        """Wait until we can make a request within the rate limit."""
+        async with self._lock:
+            now = time.time()
+
+            if self._last_request_time is not None:
+                elapsed = now - self._last_request_time
+                if elapsed < self._min_interval:
+                    wait_time = self._min_interval - elapsed
+                    logger.debug(f"Rate limiter waiting {wait_time:.2f}s")
+                    await asyncio.sleep(wait_time)
+
+            self._last_request_time = time.time()
 
 
 @dataclass
@@ -31,7 +71,7 @@ class JinaAIClient:
     """Jina AI Reader client.
 
     Rate limit: 20 RPM (no API key required)
-    Concurrency: 3 (safe for 20 RPM)
+    Uses global singleton RateLimiter to enforce rate limit across all instances.
 
     Request headers:
     - X-Return-Format: markdown
@@ -39,9 +79,11 @@ class JinaAIClient:
     """
 
     def __init__(self):
-        """Initialize Jina AI client."""
-        self.concurrency = 3
-        self._semaphore = asyncio.Semaphore(self.concurrency)
+        """Initialize Jina AI client.
+
+        Note: Rate limiting is enforced by global singleton, not per-instance.
+        """
+        self._rate_limiter = _get_rate_limiter()
         self.headers = {
             "X-Return-Format": "markdown",
             "X-Md-Link-Style": "discarded",
@@ -56,8 +98,8 @@ class JinaAIClient:
         Returns:
             JinaResult with content or error.
         """
-        async with self._semaphore:
-            return await self._do_fetch(url)
+        await self._rate_limiter.acquire()
+        return await self._do_fetch(url)
 
     async def _do_fetch(self, url: str) -> JinaResult:
         """Perform the actual fetch.
