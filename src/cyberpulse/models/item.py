@@ -24,6 +24,7 @@ class ItemStatus(StrEnum):
 
     NEW = "NEW"
     NORMALIZED = "NORMALIZED"
+    PENDING_FULL_FETCH = "PENDING_FULL_FETCH"  # Waiting for full content fetch
     MAPPED = "MAPPED"
     REJECTED = "REJECTED"
 
