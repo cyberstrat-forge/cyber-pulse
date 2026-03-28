@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-03-28
+
+### Added
+
+#### 两级全文提取策略
+- **Level 1**: httpx + trafilatura 直接抓取（快速，无限制）
+- **Level 2**: Jina AI Reader 作为降级方案（20 RPM 限制）
+- `FullContentFetchService` 实现两级策略自动切换
+- `ContentQualityService` 统一内容质量评估和全文提取触发
+- `PENDING_FULL_FETCH` 状态：等待全文提取的 Item
+
+#### Redis 分布式 Rate Limiter
+- 使用 Redis Sorted Set (ZSET) 实现滑动窗口算法
+- 跨进程/跨容器 Rate Limit 同步
+- 解决多 Worker 进程导致的 HTTP 429 问题
+
+#### 自动重试机制
+- `retry_pending_full_fetch` 定时任务（每 30 分钟）
+- 自动重试卡在 PENDING_FULL_FETCH 状态的 Item
+- 任务超时配置：10 分钟（适应 Rate Limiting）
+
+### Changed
+
+- 内容质量阈值提升：MIN_CONTENT_LENGTH 500（原 100），MIN_WORD_COUNT 50（新增）
+- Item 状态流转优化：NORMALIZED → QUALITY_CHECK → PENDING_FULL_FETCH/MAPPED
+- Source 创建后自动触发采集任务
+
+### Fixed
+
+- **asyncio.Lock 事件循环绑定问题**：`asyncio.run()` 每次创建新事件循环导致 Lock 绑定失败
+- **多进程 Rate Limit 失效**：threading.Lock 无法跨进程同步，改用 Redis 分布式锁
+- **内容质量检查未触发全文提取**：检查顺序调整，先检查内容质量再检查元数据
+
 ## [1.4.0] - 2026-03-27
 
 ### Added
@@ -193,6 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.5.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.5.0
 [1.4.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.4.0
 [1.3.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.3.0
 [1.0.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.0.0
