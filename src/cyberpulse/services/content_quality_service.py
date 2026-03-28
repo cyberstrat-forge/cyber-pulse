@@ -109,14 +109,21 @@ def needs_full_fetch(item) -> bool:
     """Convenience function to check if item needs full fetch.
 
     Args:
-        item: Item object with raw_title and raw_body attributes.
+        item: Item object with normalized_title and normalized_body attributes.
 
     Returns:
         True if item needs full fetch.
     """
     service = ContentQualityService()
+    # Use normalized content if available, fallback to raw content
+    title = getattr(item, "normalized_title", None) or getattr(
+        item, "title", None
+    )
+    body = getattr(item, "normalized_body", None) or getattr(
+        item, "raw_content", None
+    )
     result = service.check_quality(
-        title=getattr(item, "raw_title", None),
-        body=getattr(item, "raw_body", None),
+        title=title,
+        body=body,
     )
     return result.needs_full_fetch

@@ -62,6 +62,9 @@ def fetch_full_content(item_id: str) -> dict:
         # Update item
         item.full_fetch_attempted = True  # type: ignore[assignment]
 
+        # Get source for statistics update
+        source = item.source
+
         if result.success and result.content:
             item.full_fetch_succeeded = True  # type: ignore[assignment]
             item.raw_content = result.content  # type: ignore[assignment]
@@ -72,10 +75,17 @@ def fetch_full_content(item_id: str) -> dict:
                 f"via {result.level}"
             )
 
+            # Update source statistics
+            if source:
+                source.full_fetch_success_count = (
+                    source.full_fetch_success_count or 0
+                ) + 1  # type: ignore[assignment]
+
             db.commit()
 
             # Re-normalize with new content
             from .normalization_tasks import normalize_item
+
             normalize_item.send(item_id)
 
             return {
@@ -92,6 +102,12 @@ def fetch_full_content(item_id: str) -> dict:
                 f"Full fetch failed for {item_id}: {result.error}, "
                 "marking REJECTED"
             )
+
+            # Update source statistics
+            if source:
+                source.full_fetch_failure_count = (
+                    source.full_fetch_failure_count or 0
+                ) + 1  # type: ignore[assignment]
 
             db.commit()
 
