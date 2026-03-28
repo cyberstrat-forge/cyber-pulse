@@ -8,14 +8,18 @@ Components:
 - ingestion_tasks.py: Source ingestion tasks
 - normalization_tasks.py: Content normalization tasks
 - quality_tasks.py: Quality check tasks
+- full_content_tasks.py: Full content fetch tasks
 - import_tasks.py: OPML import tasks
 """
 
+# Import worker first to configure broker before other task registrations
+from .worker import broker, dramatiq, result_backend
+
+from .full_content_tasks import fetch_full_content
 from .import_tasks import process_import_job
 from .ingestion_tasks import ingest_source
 from .normalization_tasks import normalize_item, normalize_item_with_result
 from .quality_tasks import quality_check_item, recheck_item
-from .worker import broker, dramatiq, result_backend
 
 __all__ = [
     "broker",
@@ -26,5 +30,6 @@ __all__ = [
     "normalize_item_with_result",
     "quality_check_item",
     "recheck_item",
+    "fetch_full_content",
     "process_import_job",
 ]

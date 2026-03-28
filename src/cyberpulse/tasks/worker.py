@@ -22,6 +22,7 @@ from dramatiq.results import Results
 from dramatiq.results.backends import RedisBackend
 
 from ..config import settings
+from .middleware import ConcurrencyLimitMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ result_backend = RedisBackend(url=redis_url)
 
 # Add Results middleware for result tracking
 broker.add_middleware(Results(backend=result_backend))
+
+# Add ConcurrencyLimitMiddleware for max_concurrency actor option
+broker.add_middleware(ConcurrencyLimitMiddleware())
 
 # Set as the default broker for dramatiq
 dramatiq.set_broker(broker)
