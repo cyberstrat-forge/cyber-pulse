@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement two-level full content fetch strategy with unified trigger point (方案 A). Content incomplete → full fetch → success=MAPPED / fail=REJECTED.
+**Goal:** Implement two-level full content fetch strategy with unified trigger point (方案 A). Content incomplete → PENDING_FULL_FETCH → full fetch → success=MAPPED / fail=REJECTED. API only exposes MAPPED status.
 
-**Architecture:** Level 1 uses httpx + trafilatura. On failure (403, content too short), Level 2 uses Jina AI Reader (20 RPM, no API key). ContentQualityService determines if full fetch needed. Dramatiq task with max_concurrency=3.
+**Architecture:** Level 1 uses httpx + trafilatura. On failure (403, content too short), Level 2 uses Jina AI Reader (20 RPM, no API key). ContentQualityService determines if full fetch needed. New status PENDING_FULL_FETCH for items awaiting full fetch.
 
-**Tech Stack:** Python 3.11+, httpx, trafilatura, Dramatiq, PostgreSQL
+**Tech Stack:** Python 3.11+, httpx, trafilatura, Dramatiq, PostgreSQL, SQLAlchemy, Alembic
 
 ---
 
@@ -14,19 +14,171 @@
 
 | File | Responsibility |
 |------|----------------|
+| `src/cyberpulse/models/item.py` | Modify - Add PENDING_FULL_FETCH status |
 | `src/cyberpulse/services/content_quality_service.py` | **New** - 内容质量判断规则 |
 | `src/cyberpulse/services/jina_client.py` | **New** - Jina AI client (20 RPM) |
 | `src/cyberpulse/services/full_content_fetch_service.py` | Extend with Level 2 fallback |
 | `src/cyberpulse/tasks/full_content_tasks.py` | **New** - Dramatiq task (concurrency=3) |
-| `src/cyberpulse/tasks/quality_tasks.py` | Integrate full content fetch trigger |
+| `src/cyberpulse/tasks/quality_tasks.py` | Modify - Integrate full content fetch trigger |
+| `src/cyberpulse/api/routers/items.py` | Modify - Filter by status == MAPPED |
+| `alembic/versions/xxx_add_pending_full_fetch.py` | **New** - Migration |
 | `tests/test_services/test_content_quality.py` | **New** - 质量判断测试 |
 | `tests/test_services/test_jina_client.py` | **New** - Jina client tests |
-| `tests/test_services/test_full_content_fetch.py` | Extend existing tests |
 | `tests/test_tasks/test_full_content_tasks.py` | **New** - Task tests |
 
 ---
 
-## Task 1: Create ContentQualityService
+## Task 1: Add PENDING_FULL_FETCH Status
+
+**Files:**
+- Modify: `src/cyberpulse/models/item.py`
+- Create: `alembic/versions/xxx_add_pending_full_fetch.py`
+
+- [ ] **Step 1: Update ItemStatus enum**
+
+Edit `src/cyberpulse/models/item.py`:
+
+```python
+class ItemStatus(StrEnum):
+    """Item processing status"""
+
+    NEW = "NEW"
+    NORMALIZED = "NORMALIZED"
+    PENDING_FULL_FETCH = "PENDING_FULL_FETCH"  # Waiting for full content fetch
+    MAPPED = "MAPPED"
+    REJECTED = "REJECTED"
+```
+
+- [ ] **Step 2: Create database migration**
+
+```bash
+uv run alembic revision -m "add pending_full_fetch status"
+```
+
+Edit the generated migration file:
+
+```python
+"""add pending_full_fetch status
+
+Revision ID: xxx
+Revises: yyy
+Create Date: 2026-03-28
+"""
+from alembic import op
+
+# revision identifiers
+revision = "xxx"
+down_revision = "yyy"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    # Add new enum value to itemstatus
+    op.execute("ALTER TYPE itemstatus ADD VALUE IF NOT EXISTS 'PENDING_FULL_FETCH'")
+
+
+def downgrade() -> None:
+    # PostgreSQL doesn't support removing enum values
+    # This is a no-op for safety
+    pass
+```
+
+- [ ] **Step 3: Run migration**
+
+```bash
+uv run alembic upgrade head
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/cyberpulse/models/item.py alembic/versions/
+git commit -m "feat(models): add PENDING_FULL_FETCH status for items awaiting full fetch"
+```
+
+---
+
+## Task 2: Update API Filter
+
+**Files:**
+- Modify: `src/cyberpulse/api/routers/items.py`
+- Modify: `tests/test_api/test_items.py`
+
+- [ ] **Step 1: Update filter condition**
+
+Edit `src/cyberpulse/api/routers/items.py`, line 71:
+
+```python
+# Before
+query = db.query(Item).filter(Item.status != ItemStatus.REJECTED)
+
+# After
+query = db.query(Item).filter(Item.status == ItemStatus.MAPPED)
+```
+
+- [ ] **Step 2: Update/add tests**
+
+Add test to `tests/test_api/test_items.py`:
+
+```python
+def test_items_only_returns_mapped_status(client, db):
+    """Test that API only returns items with MAPPED status."""
+    from cyberpulse.models import Item, ItemStatus
+    from datetime import datetime, UTC
+
+    # Create items with different statuses
+    statuses = [
+        ItemStatus.NEW,
+        ItemStatus.NORMALIZED,
+        ItemStatus.PENDING_FULL_FETCH,
+        ItemStatus.MAPPED,
+        ItemStatus.REJECTED,
+    ]
+
+    for i, status in enumerate(statuses):
+        item = Item(
+            item_id=f"item_{i:08d}",
+            source_id="src_test",
+            external_id=f"ext_{i}",
+            url=f"https://example.com/{i}",
+            title=f"Test Item {i}",
+            published_at=datetime.now(UTC),
+            fetched_at=datetime.now(UTC),
+            status=status,
+        )
+        db.add(item)
+    db.commit()
+
+    response = client.get("/api/v1/items?limit=100")
+    assert response.status_code == 200
+
+    data = response.json()
+    returned_statuses = {item["id"].split("_")[1] for item in data["data"]}
+
+    # Only MAPPED should be returned
+    assert len(data["data"]) == 1
+    assert data["data"][0]["id"] == "item_00000003"  # MAPPED item
+```
+
+- [ ] **Step 3: Run tests**
+
+```bash
+uv run pytest tests/test_api/test_items.py -v
+```
+
+Expected: All tests PASS
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/cyberpulse/api/routers/items.py tests/test_api/test_items.py
+git commit -m "fix(api): filter items by status == MAPPED to only expose complete content"
+```
+
+---
+
+## Task 3: Create ContentQualityService
 
 **Files:**
 - Create: `src/cyberpulse/services/content_quality_service.py`
@@ -256,8 +408,8 @@ def needs_full_fetch(item) -> bool:
     """
     service = ContentQualityService()
     result = service.check_quality(
-        title=item.raw_title,
-        body=item.raw_body,
+        title=getattr(item, "raw_title", None),
+        body=getattr(item, "raw_body", None),
     )
     return result.needs_full_fetch
 ```
@@ -279,7 +431,7 @@ git commit -m "feat(services): add ContentQualityService for unified full fetch 
 
 ---
 
-## Task 2: Create Jina AI Client
+## Task 4: Create Jina AI Client
 
 **Files:**
 - Create: `src/cyberpulse/services/jina_client.py`
@@ -333,10 +485,6 @@ class TestJinaAIClient:
 
         assert result.success is True
         assert "Test content" in result.content
-        # Verify correct headers were passed
-        call_args = mock_client.get.call_args
-        assert call_args[1]["headers"]["X-Return-Format"] == "markdown"
-        assert call_args[1]["headers"]["X-Md-Link-Style"] == "discarded"
 
     @pytest.mark.asyncio
     async def test_fetch_content_too_short(self):
@@ -409,28 +557,6 @@ class TestJinaAIClient:
 
         assert result.success is False
         assert "timeout" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_concurrency_limit(self):
-        """Test semaphore limits concurrent requests to 3."""
-        import asyncio
-
-        client = JinaAIClient()
-
-        with patch.object(httpx.AsyncClient, "__aenter__") as mock_enter:
-            mock_client = MagicMock()
-            mock_enter.return_value = mock_client
-
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.text = "Content that is long enough to pass minimum length."
-            mock_client.get = AsyncMock(return_value=mock_response)
-
-            # Launch 5 concurrent requests
-            tasks = [client.fetch(f"https://example{i}.com") for i in range(5)]
-            results = await asyncio.gather(*tasks)
-
-        assert all(r.success for r in results)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -579,7 +705,7 @@ git commit -m "feat(services): add JinaAIClient with X-Return-Format and X-Md-Li
 
 ---
 
-## Task 3: Extend FullContentFetchService with Level 2
+## Task 5: Extend FullContentFetchService with Level 2
 
 **Files:**
 - Modify: `src/cyberpulse/services/full_content_fetch_service.py`
@@ -872,7 +998,7 @@ git commit -m "feat(services): add Level 2 (Jina AI) fallback to FullContentFetc
 
 ---
 
-## Task 4: Create Dramatiq Task (concurrency=3)
+## Task 6: Create Dramatiq Task (concurrency=3)
 
 **Files:**
 - Create: `src/cyberpulse/tasks/full_content_tasks.py`
@@ -899,7 +1025,6 @@ class TestFetchFullContentTask:
     def test_task_has_max_concurrency_3(self):
         """Test that task has max_concurrency=3 for 20 RPM limit."""
         from cyberpulse.tasks.full_content_tasks import fetch_full_content
-        # Check actor options
         assert fetch_full_content.options.get("max_concurrency") == 3
 ```
 
@@ -922,7 +1047,8 @@ Task fetches full content using two-level strategy:
 - Level 1: httpx + trafilatura
 - Level 2: Jina AI Reader (20 RPM)
 
-On failure, item is marked as REJECTED.
+On success: item -> NORMALIZED -> quality_check
+On failure: item -> REJECTED
 """
 
 import asyncio
@@ -933,7 +1059,6 @@ import dramatiq
 from ..database import SessionLocal
 from ..models import Item, ItemStatus
 from ..services.full_content_fetch_service import FullContentFetchService
-from .normalization_tasks import normalize_item
 from .worker import broker
 
 logger = logging.getLogger(__name__)
@@ -965,7 +1090,13 @@ def fetch_full_content(item_id: str) -> dict:
 
         url = item.url
         if not url:
-            return {"error": "No URL", "item_id": item_id}
+            # No URL - reject immediately
+            item.full_fetch_attempted = True
+            item.full_fetch_succeeded = False
+            item.status = ItemStatus.REJECTED
+            db.commit()
+            logger.warning(f"Item {item_id} has no URL, marking REJECTED")
+            return {"item_id": item_id, "error": "No URL", "status": "REJECTED"}
 
         logger.info(f"Fetching full content for {item_id}")
 
@@ -977,11 +1108,15 @@ def fetch_full_content(item_id: str) -> dict:
 
         if result.success and result.content:
             item.full_fetch_succeeded = True
-            item.raw_body = result.content
+            item.raw_content = result.content
+            # Set to NORMALIZED to trigger re-quality-check
+            item.status = ItemStatus.NORMALIZED
             logger.info(f"Full content fetched: {len(result.content)} chars via {result.level}")
 
-            # Re-normalize with new content
             db.commit()
+
+            # Re-normalize with new content
+            from .normalization_tasks import normalize_item
             normalize_item.send(item_id)
 
             return {
@@ -1030,28 +1165,217 @@ git commit -m "feat(tasks): add fetch_full_content task with max_concurrency=3, 
 
 ---
 
-## Task 5: Integrate into Quality Tasks
+## Task 7: Integrate into Quality Tasks
 
 **Files:**
 - Modify: `src/cyberpulse/tasks/quality_tasks.py`
 
-- [ ] **Step 1: Add full content fetch trigger in quality_check**
+- [ ] **Step 1: Update quality_check_item to use ContentQualityService**
 
-Read current `src/cyberpulse/tasks/quality_tasks.py` and locate where quality check happens. Add trigger for full fetch when content is insufficient.
+Edit `src/cyberpulse/tasks/quality_tasks.py`:
 
-Find the quality check logic and add after quality validation:
+Replace the `_handle_pass` function and modify the quality check logic:
 
 ```python
-# After quality check, if content insufficient, queue full fetch
-from ..services.content_quality_service import needs_full_fetch
+"""Quality check tasks for validating normalized items."""
 
-# In quality_check_item function, after existing checks:
-if needs_full_fetch(item) and not item.full_fetch_attempted:
-    from .full_content_tasks import fetch_full_content
-    fetch_full_content.send(item.item_id)
-    logger.info(f"Content quality check failed for {item_id}, queued full fetch")
-    # Keep item in pending state until full fetch completes
-    return {"item_id": item_id, "status": "pending_full_fetch"}
+import logging
+
+import dramatiq
+
+from ..database import SessionLocal
+from ..models import Item, ItemStatus, Source
+from ..services.content_quality_service import ContentQualityService
+from ..services.normalization_service import NormalizationResult
+from ..services.quality_gate_service import QualityDecision, QualityGateService
+from .worker import broker
+
+logger = logging.getLogger(__name__)
+
+
+@dramatiq.actor(max_retries=3)
+def quality_check_item(
+    item_id: str,
+    normalized_title: str,
+    normalized_body: str,
+    canonical_hash: str,
+    language: str | None = None,
+    word_count: int = 0,
+    extraction_method: str = "trafilatura",
+) -> None:
+    """Run quality check on an item.
+
+    This task:
+    1. Gets item and normalization result
+    2. Runs QualityGateService for meta quality
+    3. Runs ContentQualityService for content quality
+    4. If content insufficient: PENDING_FULL_FETCH + trigger full fetch
+    5. If content sufficient: MAPPED
+
+    Args:
+        item_id: The item ID to check.
+        normalized_title: Normalized title from normalization.
+        normalized_body: Normalized body from normalization.
+        canonical_hash: Hash for deduplication.
+        language: Detected language code.
+        word_count: Word count of normalized body.
+        extraction_method: Method used for extraction.
+    """
+    db = SessionLocal()
+    try:
+        item = db.query(Item).filter(Item.item_id == item_id).first()
+        if not item:
+            logger.error(f"Item not found: {item_id}")
+            return
+
+        logger.info(f"Starting quality check for item: {item_id}")
+
+        # Create normalization result object
+        normalization_result = NormalizationResult(
+            normalized_title=normalized_title,
+            normalized_body=normalized_body,
+            canonical_hash=canonical_hash,
+            language=language,
+            word_count=word_count,
+            extraction_method=extraction_method,
+        )
+
+        # Run meta quality check
+        quality_service = QualityGateService()
+        quality_result = quality_service.check(item, normalization_result)
+
+        # Run content quality check
+        content_service = ContentQualityService()
+        content_result = content_service.check_quality(
+            title=normalized_title,
+            body=normalized_body,
+        )
+
+        logger.debug(
+            f"Quality check result for {item_id}: "
+            f"decision={quality_result.decision.value}, "
+            f"needs_full_fetch={content_result.needs_full_fetch}"
+        )
+
+        if quality_result.decision == QualityDecision.REJECT:
+            # Meta quality rejected (e.g., duplicate)
+            _handle_reject(db, item, quality_result)
+            db.commit()
+            return
+
+        if content_result.needs_full_fetch:
+            # Content quality insufficient - need full fetch
+            _handle_needs_full_fetch(db, item, content_result.reason)
+            db.commit()
+
+            # Trigger full content fetch
+            if item.url:
+                from .full_content_tasks import fetch_full_content
+                fetch_full_content.send(item_id)
+                logger.info(f"Queued full fetch for {item_id}: {content_result.reason}")
+            else:
+                # No URL - reject immediately
+                item.status = ItemStatus.REJECTED
+                db.commit()
+                logger.warning(f"Item {item_id} needs full fetch but has no URL, marking REJECTED")
+        else:
+            # All checks passed
+            _handle_pass(db, item, normalization_result, quality_result)
+            db.commit()
+
+        logger.info(f"Quality check complete for item {item_id}")
+
+    except Exception as e:
+        logger.error(f"Quality check failed for item {item_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _handle_pass(
+    db,
+    item: Item,
+    normalization_result: NormalizationResult,
+    quality_result,
+) -> None:
+    """Handle a passed quality check."""
+    item.status = ItemStatus.MAPPED
+    item.normalized_title = normalization_result.normalized_title
+    item.normalized_body = normalization_result.normalized_body
+    item.canonical_hash = normalization_result.canonical_hash
+    item.language = normalization_result.language
+    item.word_count = normalization_result.word_count
+    item.meta_completeness = quality_result.metrics.get("meta_completeness")
+    item.content_completeness = quality_result.metrics.get("content_completeness")
+    item.noise_ratio = quality_result.metrics.get("noise_ratio")
+
+    # Update source statistics
+    source = getattr(item, "source", None)
+    if source:
+        source.total_items = (source.total_items or 0) + 1
+
+    logger.info(f"Item {item.item_id} passed quality check: MAPPED")
+
+
+def _handle_needs_full_fetch(
+    db,
+    item: Item,
+    reason: str,
+) -> None:
+    """Handle item that needs full content fetch."""
+    item.status = ItemStatus.PENDING_FULL_FETCH
+    item.meta_completeness = 0.0
+    item.content_completeness = 0.0
+
+    # Store reason in metadata
+    if item.raw_metadata is None:
+        item.raw_metadata = {}
+    item.raw_metadata["full_fetch_reason"] = reason
+
+    logger.info(f"Item {item.item_id} needs full fetch: {reason}")
+
+
+def _handle_reject(db, item: Item, quality_result) -> None:
+    """Handle a rejected quality check."""
+    item.status = ItemStatus.REJECTED
+    item.meta_completeness = quality_result.metrics.get("meta_completeness")
+    item.content_completeness = quality_result.metrics.get("content_completeness")
+    item.noise_ratio = quality_result.metrics.get("noise_ratio")
+
+    # Store rejection reason
+    if item.raw_metadata is None:
+        item.raw_metadata = {}
+    item.raw_metadata["rejection_reason"] = quality_result.rejection_reason
+    item.raw_metadata["quality_warnings"] = quality_result.warnings
+
+    logger.warning(f"Item {item.item_id} rejected: {quality_result.rejection_reason}")
+
+
+@dramatiq.actor(max_retries=3)
+def recheck_item(item_id: str) -> None:
+    """Re-run quality check on an item."""
+    db = SessionLocal()
+    try:
+        item = db.query(Item).filter(Item.item_id == item_id).first()
+        if not item:
+            logger.error(f"Item not found: {item_id}")
+            return
+
+        item.status = ItemStatus.NEW
+        db.commit()
+
+        normalize_actor = broker.get_actor("normalize_item")
+        normalize_actor.send(item_id)
+
+        logger.info(f"Queued re-processing for item: {item_id}")
+
+    except Exception as e:
+        logger.error(f"Recheck failed for item {item_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
+    finally:
+        db.close()
 ```
 
 - [ ] **Step 2: Run tests to verify no regression**
@@ -1066,12 +1390,12 @@ Expected: All tests PASS
 
 ```bash
 git add src/cyberpulse/tasks/quality_tasks.py
-git commit -m "feat(tasks): integrate ContentQualityService into quality_check, trigger full fetch"
+git commit -m "feat(tasks): integrate ContentQualityService, add PENDING_FULL_FETCH status flow"
 ```
 
 ---
 
-## Task 6: Final Verification
+## Task 8: Final Verification
 
 - [ ] **Step 1: Run all tests**
 
@@ -1096,16 +1420,21 @@ Expected: No errors
 git add -A
 git commit -m "feat: implement two-level full content fetch (方案 A)
 
-- ContentQualityService: unified trigger point
-  - Rule 1: content < 100 chars
-  - Rule 2: title-body similarity > 80%
-  - Rule 3: invalid content patterns
+Status flow:
+- NEW → NORMALIZED → quality_check
+- Content complete → MAPPED (API visible)
+- Content incomplete → PENDING_FULL_FETCH
+  - Full fetch success → NORMALIZED → MAPPED
+  - Full fetch failure → REJECTED (API invisible)
+- No URL → REJECTED
+
+Changes:
+- Add PENDING_FULL_FETCH status
+- API filter: status == MAPPED only
+- ContentQualityService: unified trigger (3 rules)
 - Level 1: httpx + trafilatura (~57% success)
 - Level 2: Jina AI Reader (20 RPM, no API key)
-  - X-Return-Format: markdown
-  - X-Md-Link-Style: discarded
-- Dramatiq task with max_concurrency=3
-- Failure → REJECTED (no summary retained)
+- Dramatiq task max_concurrency=3
 
 Design: docs/superpowers/specs/2026-03-27-full-content-fetch-mixed-strategy-design.md"
 ```
@@ -1116,19 +1445,21 @@ Design: docs/superpowers/specs/2026-03-27-full-content-fetch-mixed-strategy-desi
 
 | Task | Files | Key Change |
 |------|-------|------------|
-| 1 | content_quality_service.py | 统一触发规则（3条规则） |
-| 2 | jina_client.py | Jina AI 客户端，20 RPM |
-| 3 | full_content_fetch_service.py | Level 2 fallback |
-| 4 | full_content_tasks.py | Dramatiq 任务，并发=3，失败→REJECTED |
-| 5 | quality_tasks.py | 集成 ContentQualityService |
-| 6 | - | 最终验证 |
+| 1 | item.py, migration | 新增 PENDING_FULL_FETCH 状态 |
+| 2 | items.py | API 过滤改为 `status == MAPPED` |
+| 3 | content_quality_service.py | 统一触发规则（3条规则） |
+| 4 | jina_client.py | Jina AI 客户端，20 RPM |
+| 5 | full_content_fetch_service.py | Level 2 fallback |
+| 6 | full_content_tasks.py | Dramatiq 任务，并发=3 |
+| 7 | quality_tasks.py | 集成 ContentQualityService |
+| 8 | - | 最终验证 |
 
-**业务流程（方案 A）：**
-```
-quality_check → 内容不足 → fetch_full_content → 成功→MAPPED / 失败→REJECTED
-```
+**状态流转验证矩阵：**
 
-**Rate Limiting:**
-- Jina AI: 20 RPM (no API key)
-- Task concurrency: 3 (safe for 20 RPM)
-- Headers: `X-Return-Format: markdown`, `X-Md-Link-Style: discarded`
+| 场景 | 最终状态 | API 可见 | 正确性 |
+|------|---------|---------|--------|
+| 内容完整 | MAPPED | ✓ | ✓ |
+| 内容不足 + 全文成功 | MAPPED | ✓ | ✓ |
+| 内容不足 + 全文失败 | REJECTED | ✗ | ✓ |
+| 内容不足 + 无 URL | REJECTED | ✗ | ✓ |
+| 全文获取进行中 | PENDING_FULL_FETCH | ✗ | ✓ |

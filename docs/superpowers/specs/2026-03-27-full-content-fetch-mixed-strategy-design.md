@@ -12,6 +12,37 @@
 
 ## 业务流程（方案 A：统一触发点）
 
+### 状态定义
+
+```python
+class ItemStatus(StrEnum):
+    NEW = "NEW"                    # 刚采集
+    NORMALIZED = "NORMALIZED"      # 归一化完成
+    PENDING_FULL_FETCH = "PENDING_FULL_FETCH"  # 等待全文获取
+    MAPPED = "MAPPED"              # 质量检测通过，可对外提供
+    REJECTED = "REJECTED"          # 质量检测不通过
+```
+
+### 状态流转图
+
+```
+ingest → NEW
+    ↓
+normalize_item → NORMALIZED
+    ↓
+quality_check_item
+    ├─ 内容完整 → MAPPED ✓ (API 可见)
+    │
+    └─ 内容不足
+        ├─ 有 URL → PENDING_FULL_FETCH (API 不可见)
+        │       ↓
+        │   fetch_full_content
+        │       ├─ 成功 → NORMALIZED → quality_check_item
+        │       └─ 失败 → REJECTED (API 不可见)
+        │
+        └─ 无 URL → REJECTED (API 不可见)
+```
+
 ### 简化流程
 
 ```
@@ -34,14 +65,22 @@ ingest → normalize → quality_check
 
 ### API 暴露条件
 
-只有满足以下条件的 item 才会通过 API 对外提供：
+**只有 `status == MAPPED` 的 item 才会通过 API 对外提供。**
 
-| 状态 | 条件 |
-|------|------|
-| MAPPED | 内容完整，或全文获取成功 |
-| REJECTED | 内容不足且全文获取失败 |
+```python
+# items.py
+query = db.query(Item).filter(Item.status == ItemStatus.MAPPED)
+```
 
-**pending 状态不对外暴露**：全文获取任务进行中的 item 不会出现在 API 结果中。
+| 状态 | API 可见 | 说明 |
+|------|---------|------|
+| NEW | ✗ | 未处理 |
+| NORMALIZED | ✗ | 等待质量检测 |
+| PENDING_FULL_FETCH | ✗ | 全文获取进行中 |
+| MAPPED | ✓ | 内容完整，可对外提供 |
+| REJECTED | ✗ | 内容不完整且无法获取全文 |
+
+**关键保证**：API 返回的所有 item 都是内容完整的。
 
 ---
 
@@ -400,6 +439,8 @@ fetch_full_content (Level 1 + Level 2)
 
 | 决策项 | 选择 | 原因 |
 |--------|------|------|
+| 新增状态 | `PENDING_FULL_FETCH` | 全文获取进行中，API 不应暴露 |
+| API 过滤 | `status == MAPPED` | 只有内容完整的 item 对外提供 |
 | 第三方服务 | 接受 Jina AI Reader | 无需 API Key，20 RPM，实测 100% 救援成功率 |
 | Level 3 实现 | **暂不实现** | Level 1+2 已达 96%+ 成功率，远超设计目标 |
 | 并发控制 | Dramatiq max_concurrency=3 | 单一参数，适配 20 RPM 限制 |
