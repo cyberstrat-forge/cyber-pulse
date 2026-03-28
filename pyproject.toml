@@ -100,3 +100,11 @@ ignore = []
 [tool.ruff.lint.per-file-ignores]
 # Alembic migration files use module-level variables that appear unused
 "alembic/versions/*.py" = ["F841"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.7",
+]
