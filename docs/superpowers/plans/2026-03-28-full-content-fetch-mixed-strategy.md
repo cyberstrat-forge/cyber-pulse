@@ -998,11 +998,22 @@ git commit -m "feat(services): add Level 2 (Jina AI) fallback to FullContentFetc
 
 ---
 
-## Task 6: Create Dramatiq Task (concurrency=3)
+## Task 6: Create Dramatiq Task (concurrency=3) + Delete Old Task
 
 **Files:**
 - Create: `src/cyberpulse/tasks/full_content_tasks.py`
+- Modify: `src/cyberpulse/tasks/quality_tasks.py` (删除旧的 fetch_full_content 任务)
 - Create: `tests/test_tasks/test_full_content_tasks.py`
+
+**⚠️ 重要：迁移策略（方案 A）**
+- 当前 `quality_tasks.py:218` 已有 `fetch_full_content` 任务
+- 新任务在 `full_content_tasks.py` 创建
+- **必须删除** `quality_tasks.py` 中的旧任务（line 218-286）
+
+**开发前检查清单：**
+- [ ] 确认 quality_tasks.py 中存在旧 fetch_full_content 任务（line 218-286）
+- [ ] 确认新任务将设置 REJECTED 状态（旧任务未设置）
+- [ ] 确认新任务将使用 Level 2 fallback（旧任务仅 Level 1）
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1156,12 +1167,42 @@ uv run pytest tests/test_tasks/test_full_content_tasks.py -v
 
 Expected: Tests PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Delete old fetch_full_content task from quality_tasks.py**
+
+删除 `src/cyberpulse/tasks/quality_tasks.py` 中的旧任务（line 218-286）：
+
+```python
+# 删除以下代码（line 218-286）：
+@dramatiq.actor(max_retries=2)
+def fetch_full_content(item_id: str) -> None:
+    """Fetch full content for an item.
+    ...
+    """
+    # 整个函数删除
+```
+
+同时删除 `_handle_pass` 中调用旧任务的代码（line 153-155）：
+
+```python
+# 删除以下代码（line 153-155）：
+if needs_full_fetch and not item.full_fetch_attempted:
+    fetch_actor = broker.get_actor("fetch_full_content")
+    fetch_actor.send(item.item_id)
+```
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/cyberpulse/tasks/full_content_tasks.py tests/test_tasks/test_full_content_tasks.py
-git commit -m "feat(tasks): add fetch_full_content task with max_concurrency=3, REJECT on failure"
+git add src/cyberpulse/tasks/full_content_tasks.py src/cyberpulse/tasks/quality_tasks.py tests/test_tasks/test_full_content_tasks.py
+git commit -m "feat(tasks): add fetch_full_content task with max_concurrency=3, remove old task from quality_tasks"
 ```
+
+**开发后检查清单：**
+- [ ] 确认 quality_tasks.py 中不再有 fetch_full_content 任务定义
+- [ ] 确认 quality_tasks.py 中不再有调用 fetch_full_content 的代码
+- [ ] 确认新任务设置 REJECTED 状态（检查 line 1095-1098）
+- [ ] 确认新任务使用 Level 2 fallback（检查 _fetch_level2 调用）
+- [ ] 运行 `grep -n "fetch_full_content" quality_tasks.py` 应无匹配
 
 ---
 
@@ -1170,8 +1211,13 @@ git commit -m "feat(tasks): add fetch_full_content task with max_concurrency=3, 
 **Files:**
 - Modify: `src/cyberpulse/tasks/quality_tasks.py`
 - Modify: `src/cyberpulse/api/routers/sources.py`
+- Modify: `tests/test_tasks/test_quality_tasks.py` (添加 PENDING_FULL_FETCH 状态测试)
 
-- [ ] **Step 1: Update quality_check_item to use ContentQualityService**
+**⚠️ 开发前检查清单：**
+- [ ] 确认 ContentQualityService 已实现（Task 3）
+- [ ] 确认 PENDING_FULL_FETCH 状态已添加（Task 1）
+- [ ] 确认旧的 fetch_full_content 任务已删除（Task 6）
+- [ ] 确认 quality_tasks.py 中 _handle_pass 使用 ContentQualityService 判断
 
 Edit `src/cyberpulse/tasks/quality_tasks.py`:
 
@@ -1460,6 +1506,128 @@ git add src/cyberpulse/tasks/quality_tasks.py src/cyberpulse/api/routers/sources
 git commit -m "feat(tasks,api): integrate ContentQualityService, trigger ingestion on source creation"
 ```
 
+- [ ] **Step 4: Add PENDING_FULL_FETCH status test**
+
+Add to `tests/test_tasks/test_quality_tasks.py`:
+
+```python
+class TestPendingFullFetchStatus:
+    """Test PENDING_FULL_FETCH status handling."""
+
+    def test_quality_check_sets_pending_full_fetch_for_short_content(self, db, test_source):
+        """Test that short content sets PENDING_FULL_FETCH status."""
+        from cyberpulse.tasks.quality_tasks import quality_check_item
+        from cyberpulse.models import Item, ItemStatus
+
+        # Create item with short content
+        item = Item(
+            item_id="item_test_001",
+            source_id=test_source.source_id,
+            external_id="ext_001",
+            url="https://example.com/article",
+            title="Test Article",
+            raw_body="Short content",  # < 100 chars
+            status=ItemStatus.NORMALIZED,
+        )
+        db.add(item)
+        db.commit()
+
+        # Run quality check
+        quality_check_item(
+            item_id=item.item_id,
+            normalized_title="Test Article",
+            normalized_body="Short content",
+            canonical_hash="abc123",
+        )
+
+        # Verify status
+        db.refresh(item)
+        assert item.status == ItemStatus.PENDING_FULL_FETCH
+
+    def test_quality_check_sets_mapped_for_good_content(self, db, test_source):
+        """Test that good content sets MAPPED status."""
+        from cyberpulse.tasks.quality_tasks import quality_check_item
+        from cyberpulse.models import Item, ItemStatus
+
+        # Create item with good content
+        item = Item(
+            item_id="item_test_002",
+            source_id=test_source.source_id,
+            external_id="ext_002",
+            url="https://example.com/article2",
+            title="Test Article 2",
+            raw_body="This is a long enough content that should pass the minimum length check of one hundred characters.",
+            status=ItemStatus.NORMALIZED,
+        )
+        db.add(item)
+        db.commit()
+
+        # Run quality check
+        quality_check_item(
+            item_id=item.item_id,
+            normalized_title="Test Article 2",
+            normalized_body="This is a long enough content that should pass the minimum length check of one hundred characters.",
+            canonical_hash="def456",
+        )
+
+        # Verify status
+        db.refresh(item)
+        assert item.status == ItemStatus.MAPPED
+
+    def test_quality_check_rejects_no_url_item(self, db, test_source):
+        """Test that item without URL gets REJECTED when content insufficient."""
+        from cyberpulse.tasks.quality_tasks import quality_check_item
+        from cyberpulse.models import Item, ItemStatus
+
+        # Create item without URL
+        item = Item(
+            item_id="item_test_003",
+            source_id=test_source.source_id,
+            external_id="ext_003",
+            url=None,  # No URL
+            title="Test Article 3",
+            raw_body="Short",
+            status=ItemStatus.NORMALIZED,
+        )
+        db.add(item)
+        db.commit()
+
+        # Run quality check
+        quality_check_item(
+            item_id=item.item_id,
+            normalized_title="Test Article 3",
+            normalized_body="Short",
+            canonical_hash="ghi789",
+        )
+
+        # Verify status
+        db.refresh(item)
+        assert item.status == ItemStatus.REJECTED
+```
+
+- [ ] **Step 5: Run tests**
+
+```bash
+uv run pytest tests/test_tasks/test_quality_tasks.py -v
+```
+
+Expected: All tests PASS
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add tests/test_tasks/test_quality_tasks.py
+git commit -m "test(tasks): add PENDING_FULL_FETCH and REJECTED status tests for quality_check_item"
+```
+
+**开发后检查清单：**
+- [ ] 确认 quality_tasks.py 使用 ContentQualityService 判断是否需要全文获取
+- [ ] 确认内容不足时设置 PENDING_FULL_FETCH 状态
+- [ ] 确认无 URL 时设置 REJECTED 状态
+- [ ] 确认有 URL 时触发 fetch_full_content 任务（from full_content_tasks）
+- [ ] 确认 sources.py 创建源后触发 ingest_source.send()
+- [ ] 运行 `grep -n "needs_full_fetch" quality_tasks.py` 确认不再依赖 source.needs_full_fetch
+
 ---
 
 ## Task 8: Integration Tests with Real URLs
@@ -1468,7 +1636,10 @@ git commit -m "feat(tasks,api): integrate ContentQualityService, trigger ingesti
 - Create: `tests/test_integration/test_full_content_fetch_real.py`
 - Create: `tests/fixtures/real_test_urls.py`
 
-- [ ] **Step 1: Create test fixtures with real URLs**
+**⚠️ 开发前检查清单：**
+- [ ] 确认 FullContentFetchService 已实现 Level 2（Task 5）
+- [ ] 确认 fetch_full_content 任务已创建（Task 6）
+- [ ] 确认 ContentQualityService 已实现（Task 3）
 
 Create `tests/fixtures/real_test_urls.py`:
 
@@ -1663,6 +1834,93 @@ git add tests/fixtures/real_test_urls.py tests/test_integration/test_full_conten
 git commit -m "test: add integration tests with real problematic URLs from issues"
 ```
 
+- [ ] **Step 6: Add Level 2 fallback integration test**
+
+Add to `tests/test_integration/test_full_content_fetch_real.py`:
+
+```python
+class TestLevel2FallbackIntegration:
+    """End-to-end tests for Level 2 fallback."""
+
+    @pytest.mark.asyncio
+    async def test_level1_403_triggers_level2(self):
+        """Test that Level 1 403 triggers Level 2."""
+        from unittest.mock import patch, MagicMock, AsyncMock
+        from cyberpulse.services.full_content_fetch_service import (
+            FullContentFetchService,
+            FullContentResult,
+        )
+
+        service = FullContentFetchService()
+
+        # Mock Level 1 to return 403
+        with patch.object(service, "_fetch_level1") as mock_l1:
+            mock_l1.return_value = FullContentResult(
+                content="", success=False, error="HTTP error: 403"
+            )
+
+            # Mock Level 2 to succeed
+            with patch.object(service, "_fetch_level2") as mock_l2:
+                mock_l2.return_value = FullContentResult(
+                    content="Full content from Jina AI that is long enough to pass.",
+                    success=True,
+                )
+
+                result = await service.fetch_full_content("https://openai.com/test")
+
+        assert result.success is True
+        assert result.level == "level2"
+        mock_l1.assert_called_once()
+        mock_l2.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_level1_success_skips_level2(self):
+        """Test that Level 1 success skips Level 2."""
+        from unittest.mock import patch
+        from cyberpulse.services.full_content_fetch_service import (
+            FullContentFetchService,
+            FullContentResult,
+        )
+
+        service = FullContentFetchService()
+
+        with patch.object(service, "_fetch_level1") as mock_l1:
+            mock_l1.return_value = FullContentResult(
+                content="Good content from Level 1 that passes the check.",
+                success=True,
+            )
+
+            with patch.object(service, "_fetch_level2") as mock_l2:
+                result = await service.fetch_full_content("https://example.com")
+
+        assert result.success is True
+        assert result.level == "level1"
+        mock_l1.assert_called_once()
+        mock_l2.assert_not_called()
+```
+
+- [ ] **Step 7: Run Level 2 integration tests**
+
+```bash
+uv run pytest tests/test_integration/test_full_content_fetch_real.py::TestLevel2FallbackIntegration -v
+```
+
+Expected: All tests PASS
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add tests/test_integration/test_full_content_fetch_real.py
+git commit -m "test: add Level 2 fallback integration tests"
+```
+
+**开发后检查清单：**
+- [ ] 确认 Level 1 成功时跳过 Level 2
+- [ ] 确认 Level 1 失败时触发 Level 2
+- [ ] 确认 Level 2 使用 Jina AI 客户端
+- [ ] 确认真实 URL 测试使用环境变量控制（RUN_INTEGRATION_TESTS）
+- [ ] 确认测试覆盖：Cloudflare URL、title-as-body URL
+
 ---
 
 ## Task 9: Final Verification
@@ -1720,10 +1978,18 @@ Design: docs/superpowers/specs/2026-03-27-full-content-fetch-mixed-strategy-desi
 | 3 | content_quality_service.py | 统一触发规则（3条规则） |
 | 4 | jina_client.py | Jina AI 客户端，20 RPM |
 | 5 | full_content_fetch_service.py | Level 2 fallback |
-| 6 | full_content_tasks.py | Dramatiq 任务，并发=3 |
-| 7 | quality_tasks.py, sources.py | 集成 ContentQualityService + 创建源触发采集 |
-| 8 | real_test_urls.py, test_full_content_fetch_real.py | 真实 URL 集成测试 |
+| 6 | full_content_tasks.py, quality_tasks.py | 新 Dramatiq 任务 + **删除旧任务** |
+| 7 | quality_tasks.py, sources.py, test_quality_tasks.py | 集成 + **PENDING_FULL_FETCH 测试** |
+| 8 | real_test_urls.py, test_full_content_fetch_real.py | 真实 URL 测试 + **Level 2 集成测试** |
 | 9 | - | 最终验证 |
+
+**遗漏项补充说明：**
+
+| 遗漏项 | 处理位置 | 处理方式 |
+|--------|---------|---------|
+| fetch_full_content 迁移策略 | Task 6 Step 5 | 删除 quality_tasks.py 中旧任务（line 218-286） |
+| PENDING_FULL_FETCH 状态测试 | Task 7 Step 4 | 新增 TestPendingFullFetchStatus 测试类 |
+| Level 2 集成测试 | Task 8 Step 6 | 新增 TestLevel2FallbackIntegration 测试类 |
 
 **状态流转验证矩阵：**
 
