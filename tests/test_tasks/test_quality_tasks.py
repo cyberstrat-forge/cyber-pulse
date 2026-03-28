@@ -1,7 +1,7 @@
 """Tests for quality check tasks."""
 
 import hashlib
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +27,7 @@ def test_source():
 def test_item(test_source):
     """Create a test item for quality check."""
     # Use naive datetime to match how database stores it
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     item = Item(
         item_id="item_qual001",
         source_id=test_source.source_id,
@@ -205,10 +205,10 @@ class TestQualityCheckItem:
         ):
             with patch(
                 "cyberpulse.tasks.quality_tasks.QualityGateService"
-            ) as MockQGService:
+            ) as mock_qg_service:
                 mock_service = MagicMock()
                 mock_service.check.side_effect = RuntimeError("Quality check failed")
-                MockQGService.return_value = mock_service
+                mock_qg_service.return_value = mock_service
 
                 from cyberpulse.tasks.quality_tasks import quality_check_item
 
@@ -228,7 +228,7 @@ class TestRecheckItem:
     def test_recheck_item_success(self, test_source):
         """Test successful item recheck."""
         # Create a rejected item
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         test_item = Item(
             item_id="item_recheck",
             source_id=test_source.source_id,
@@ -284,171 +284,3 @@ class TestRecheckItem:
             recheck_item("item_nonexistent")
 
 
-class TestFetchFullContent:
-    """Tests for fetch_full_content task."""
-
-    def test_fetch_full_content_success(self, test_source):
-        """Test successful full content fetch."""
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        test_item = Item(
-            item_id="item_fetch001",
-            source_id=test_source.source_id,
-            external_id="ext_fetch001",
-            url="https://example.com/article/full",
-            title="Article to Fetch",
-            raw_content="Short summary",
-            published_at=now,
-            fetched_at=now,
-            status=ItemStatus.NORMALIZED,
-        )
-        test_item.source = test_source
-
-        mock_db = MagicMock()
-        mock_item_query = MagicMock()
-        mock_item_query.filter.return_value = mock_item_query
-        mock_item_query.first.return_value = test_item
-
-        mock_source_query = MagicMock()
-        mock_source_query.filter.return_value = mock_source_query
-        mock_source_query.first.return_value = test_source
-
-        def query_side_effect(model):
-            if model == Item:
-                return mock_item_query
-            elif model == Source:
-                return mock_source_query
-            return MagicMock()
-
-        mock_db.query.side_effect = query_side_effect
-
-        with patch(
-            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
-        ):
-            with patch(
-                "cyberpulse.tasks.quality_tasks.FullContentFetchService"
-            ) as MockFetchService:
-                mock_fetch_service = MagicMock()
-                mock_result = MagicMock()
-                mock_result.success = True
-                mock_result.content = "Full article content retrieved from URL"
-                mock_fetch_service.fetch_with_retry.return_value = mock_result
-
-                # Mock asyncio.run
-                with patch("asyncio.run", return_value=mock_result):
-                    with patch(
-                        "cyberpulse.tasks.quality_tasks.broker.get_actor"
-                    ) as mock_get_actor:
-                        mock_normalize_actor = MagicMock()
-                        mock_get_actor.return_value = mock_normalize_actor
-
-                        from cyberpulse.tasks.quality_tasks import fetch_full_content
-
-                        fetch_full_content(test_item.item_id)
-
-        # Verify item was updated
-        assert test_item.full_fetch_attempted is True
-        assert test_item.full_fetch_succeeded is True
-
-        # Verify source stats updated
-        assert test_source.full_fetch_success_count == 1
-
-    def test_fetch_full_content_failure(self, test_source):
-        """Test failed full content fetch."""
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        test_item = Item(
-            item_id="item_fetch002",
-            source_id=test_source.source_id,
-            external_id="ext_fetch002",
-            url="https://example.com/article/fail",
-            title="Article Fetch Fail",
-            raw_content="Short summary",
-            published_at=now,
-            fetched_at=now,
-            status=ItemStatus.NORMALIZED,
-        )
-        test_item.source = test_source
-
-        mock_db = MagicMock()
-        mock_item_query = MagicMock()
-        mock_item_query.filter.return_value = mock_item_query
-        mock_item_query.first.return_value = test_item
-
-        mock_source_query = MagicMock()
-        mock_source_query.filter.return_value = mock_source_query
-        mock_source_query.first.return_value = test_source
-
-        def query_side_effect(model):
-            if model == Item:
-                return mock_item_query
-            elif model == Source:
-                return mock_source_query
-            return MagicMock()
-
-        mock_db.query.side_effect = query_side_effect
-
-        with patch(
-            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
-        ):
-            mock_result = MagicMock()
-            mock_result.success = False
-            mock_result.error = "Connection timeout"
-            mock_result.content = ""
-
-            with patch("asyncio.run", return_value=mock_result):
-                from cyberpulse.tasks.quality_tasks import fetch_full_content
-
-                fetch_full_content(test_item.item_id)
-
-        # Verify item was updated
-        assert test_item.full_fetch_attempted is True
-        assert test_item.full_fetch_succeeded is False
-
-        # Verify source stats updated
-        assert test_source.full_fetch_failure_count == 1
-
-    def test_fetch_full_content_no_url(self, test_source):
-        """Test fetch with no URL."""
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        test_item = Item(
-            item_id="item_fetch003",
-            source_id=test_source.source_id,
-            external_id="ext_fetch003",
-            url=None,  # No URL
-            title="Article No URL",
-            raw_content="Content",
-            published_at=now,
-            fetched_at=now,
-            status=ItemStatus.NORMALIZED,
-        )
-
-        mock_db = MagicMock()
-        mock_item_query = MagicMock()
-        mock_item_query.filter.return_value = mock_item_query
-        mock_item_query.first.return_value = test_item
-        mock_db.query.return_value = mock_item_query
-
-        with patch(
-            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
-        ):
-            from cyberpulse.tasks.quality_tasks import fetch_full_content
-
-            fetch_full_content(test_item.item_id)
-
-        # Should not attempt fetch
-        assert test_item.full_fetch_attempted is True
-
-    def test_fetch_full_content_item_not_found(self):
-        """Test fetch with non-existent item."""
-        mock_db = MagicMock()
-        mock_query = MagicMock()
-        mock_query.filter.return_value = mock_query
-        mock_query.first.return_value = None
-        mock_db.query.return_value = mock_query
-
-        with patch(
-            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
-        ):
-            from cyberpulse.tasks.quality_tasks import fetch_full_content
-
-            # Should not raise, just log error
-            fetch_full_content("item_nonexistent")
