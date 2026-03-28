@@ -167,6 +167,19 @@ async def create_source(
             detail=message
         )
 
+    # Trigger immediate ingestion for the new source
+    from ...tasks.ingestion_tasks import ingest_source
+    try:
+        ingest_source.send(created_source.source_id)
+        logger.info(
+            f"Triggered initial ingestion for source: {created_source.source_id}"
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to trigger initial ingestion: {e}", exc_info=True
+        )
+        # Don't fail the request - source was created successfully
+
     return SourceResponse.model_validate(created_source)
 
 

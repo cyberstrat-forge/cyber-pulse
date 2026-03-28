@@ -6,6 +6,7 @@ import dramatiq
 
 from ..database import SessionLocal
 from ..models import Item, ItemStatus
+from ..services.content_quality_service import ContentQualityService
 from ..services.normalization_service import NormalizationResult
 from ..services.quality_gate_service import QualityDecision, QualityGateService
 from .worker import broker
@@ -27,9 +28,13 @@ def quality_check_item(
 
     This task:
     1. Gets item and normalization result
-    2. Runs QualityGateService
-    3. If pass: store normalized content and quality metrics on Item
-    4. If reject: mark item as rejected
+    2. Runs QualityGateService (meta quality)
+    3. Runs ContentQualityService (content quality)
+    4. If meta pass + content pass: store normalized content, set MAPPED
+    5. If meta pass + content needs full fetch:
+       - If URL: set PENDING_FULL_FETCH, trigger fetch_full_content
+       - No URL: set REJECTED
+    6. If meta reject: mark item as rejected
 
     Args:
         item_id: The item ID to check.
@@ -60,23 +65,68 @@ def quality_check_item(
             extraction_method=extraction_method,
         )
 
-        # Run quality check
+        # Step 1: Run meta quality check
         quality_service = QualityGateService()
         quality_result = quality_service.check(item, normalization_result)
 
         logger.debug(
-            f"Quality check result for {item_id}: "
+            f"Meta quality check result for {item_id}: "
             f"decision={quality_result.decision.value}, "
             f"warnings={len(quality_result.warnings)}"
         )
 
-        if quality_result.decision == QualityDecision.PASS:
-            # Item passed quality check - update with normalized content
-            _handle_pass(db, item, normalization_result, quality_result)
-        else:
-            # Item rejected - mark as rejected
+        if quality_result.decision != QualityDecision.PASS:
+            # Meta quality failed - reject item
             _handle_reject(db, item, quality_result)
+            db.commit()
+            logger.info(
+                f"Quality check complete for item {item_id}: "
+                f"{quality_result.decision.value}"
+            )
+            return
 
+        # Step 2: Run content quality check (meta passed)
+        content_service = ContentQualityService()
+        content_result = content_service.check_quality(
+            title=normalized_title,
+            body=normalized_body,
+        )
+
+        logger.debug(
+            f"Content quality check for {item_id}: "
+            f"needs_full_fetch={content_result.needs_full_fetch}, "
+            f"reason={content_result.reason}"
+        )
+
+        if content_result.needs_full_fetch:
+            # Content insufficient - needs full fetch
+            _handle_needs_full_fetch(db, item, content_result.reason)
+            db.commit()
+
+            # Trigger full content fetch
+            if item.url:
+                from .full_content_tasks import fetch_full_content
+                fetch_full_content.send(item_id)
+                logger.info(
+                    f"Queued full fetch for {item_id}: {content_result.reason}"
+                )
+            else:
+                # No URL - reject immediately
+                item.status = ItemStatus.REJECTED  # type: ignore[assignment]
+                db.commit()
+                logger.warning(
+                    f"Item {item_id} needs full fetch but has no URL, "
+                    "marking REJECTED"
+                )
+
+            logger.info(
+                f"Quality check complete for item {item_id}: "
+                f"PENDING_FULL_FETCH"
+            )
+            return
+
+        # Both meta and content passed - mark as MAPPED
+        _handle_pass(db, item, normalization_result, quality_result)
         db.commit()
         logger.info(
             f"Quality check complete for item {item_id}: "
@@ -128,6 +178,31 @@ def _handle_pass(
         f"meta={item.meta_completeness:.2f}, content={item.content_completeness:.2f}"
     )
 
+
+def _handle_needs_full_fetch(
+    db,
+    item: Item,
+    reason: str,
+) -> None:
+    """Handle item that needs full content fetch.
+
+    Sets item status to PENDING_FULL_FETCH and stores reason in metadata.
+
+    Args:
+        db: Database session.
+        item: The item that needs full fetch.
+        reason: The reason why full fetch is needed.
+    """
+    item.status = ItemStatus.PENDING_FULL_FETCH  # type: ignore[assignment]
+    item.meta_completeness = 0.0
+    item.content_completeness = 0.0
+
+    # Store reason in metadata
+    if item.raw_metadata is None:
+        item.raw_metadata = {}
+    item.raw_metadata["full_fetch_reason"] = reason
+
+    logger.info(f"Item {item.item_id} needs full fetch: {reason}")
 
 
 def _handle_reject(db, item: Item, quality_result) -> None:

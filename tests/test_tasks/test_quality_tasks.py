@@ -284,3 +284,132 @@ class TestRecheckItem:
             recheck_item("item_nonexistent")
 
 
+class TestPendingFullFetchStatus:
+    """Test PENDING_FULL_FETCH status handling."""
+
+    def test_quality_check_sets_pending_full_fetch_for_short_content(
+        self, test_source
+    ):
+        """Test that short content sets PENDING_FULL_FETCH status."""
+        # Create item with short content
+        now = datetime.now(UTC).replace(tzinfo=None)
+        test_item = Item(
+            item_id="item_test_001",
+            source_id=test_source.source_id,
+            external_id="ext_001",
+            url="https://example.com/article",
+            title="Test Article",
+            raw_content="Short content",  # < 100 chars
+            published_at=now,
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            with patch(
+                "cyberpulse.tasks.full_content_tasks.fetch_full_content.send"
+            ) as mock_send:
+                from cyberpulse.tasks.quality_tasks import quality_check_item
+
+                quality_check_item(
+                    item_id=test_item.item_id,
+                    normalized_title="Test Article",
+                    normalized_body="Short content",
+                    canonical_hash="abc123",
+                )
+
+        # Verify status
+        assert test_item.status == ItemStatus.PENDING_FULL_FETCH
+
+        # Verify fetch_full_content was triggered
+        mock_send.assert_called_once_with(test_item.item_id)
+
+    def test_quality_check_sets_mapped_for_good_content(self, test_source):
+        """Test that good content sets MAPPED status."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        long_content = (
+            "This is a long enough content that should pass the minimum length "
+            "check of one hundred characters. Adding more text to ensure we "
+            "have sufficient length."
+        )
+        test_item = Item(
+            item_id="item_test_002",
+            source_id=test_source.source_id,
+            external_id="ext_002",
+            url="https://example.com/article2",
+            title="Test Article 2",
+            raw_content=long_content,
+            published_at=now,
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            from cyberpulse.tasks.quality_tasks import quality_check_item
+
+            quality_check_item(
+                item_id=test_item.item_id,
+                normalized_title="Test Article 2",
+                normalized_body=long_content,
+                canonical_hash="def456",
+            )
+
+        # Verify status
+        assert test_item.status == ItemStatus.MAPPED
+
+    def test_quality_check_rejects_no_url_item(self, test_source):
+        """Test that item without URL gets REJECTED when content insufficient."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        test_item = Item(
+            item_id="item_test_003",
+            source_id=test_source.source_id,
+            external_id="ext_003",
+            url=None,  # No URL
+            title="Test Article 3",
+            raw_content="Short",
+            published_at=now,
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            from cyberpulse.tasks.quality_tasks import quality_check_item
+
+            quality_check_item(
+                item_id=test_item.item_id,
+                normalized_title="Test Article 3",
+                normalized_body="Short",
+                canonical_hash="ghi789",
+            )
+
+        # Verify status
+        assert test_item.status == ItemStatus.REJECTED
+
+
