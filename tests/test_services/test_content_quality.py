@@ -120,3 +120,40 @@ class TestNeedsFullFetchFunction:
         item.raw_body = None
 
         assert needs_full_fetch(item) is True
+
+
+class TestContentQualityWithRealPatterns:
+    """Test content quality rules against real problematic patterns."""
+
+    def test_anthropic_title_as_body_pattern(self):
+        """Test detection of Anthropic-style title-as-body issue."""
+        service = ContentQualityService()
+
+        # Simulate Anthropic Research issue: title extracted as body
+        result = service.check_quality(
+            title="Alignment Faking in Large Language Models",
+            body="Alignment Faking in Large Language Models",  # Same as title
+        )
+        assert result.needs_full_fetch is True
+
+    def test_paulgraham_short_content(self):
+        """Test detection of short content (RSS summary only)."""
+        service = ContentQualityService()
+
+        # paulgraham.com RSS often has no content
+        result = service.check_quality(
+            title="Superlinear Returns",
+            body="A short summary from RSS feed",  # < 100 chars
+        )
+        assert result.needs_full_fetch is True
+
+    def test_cloudflare_challenge_content(self):
+        """Test detection of Cloudflare challenge page content."""
+        service = ContentQualityService()
+
+        # Cloudflare challenge response
+        result = service.check_quality(
+            title="Article Title",
+            body="Please enable JavaScript to continue. Checking your browser...",
+        )
+        assert result.needs_full_fetch is True
