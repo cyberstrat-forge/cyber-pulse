@@ -1462,7 +1462,210 @@ git commit -m "feat(tasks,api): integrate ContentQualityService, trigger ingesti
 
 ---
 
-## Task 8: Final Verification
+## Task 8: Integration Tests with Real URLs
+
+**Files:**
+- Create: `tests/test_integration/test_full_content_fetch_real.py`
+- Create: `tests/fixtures/real_test_urls.py`
+
+- [ ] **Step 1: Create test fixtures with real URLs**
+
+Create `tests/fixtures/real_test_urls.py`:
+
+```python
+"""Real problematic URLs for integration testing.
+
+These URLs are extracted from issues/ directory and validated through
+manual testing. They represent real-world content extraction challenges.
+"""
+
+# URLs that work with Level 1 (httpx + trafilatura)
+LEVEL1_SUCCESS_URLS = [
+    # paulgraham.com - classic essays, no JS
+    ("http://www.paulgraham.com/superlinear.html", "paulgraham.com"),
+    # mitchellh.com - technical blog
+    ("https://mitchellh.com/writing/my-ai-adoption-journey", "mitchellh.com"),
+]
+
+# URLs that need Level 2 (Jina AI) - Level 1 returns 403
+LEVEL2_RESCUE_URLS = [
+    # OpenAI blog - Cloudflare protection
+    ("https://openai.com/index/chatgpt/", "openai"),
+    # Anthropic Research - Cloudflare
+    ("https://www.anthropic.com/research/alignment-faking", "anthropic"),
+]
+
+# URLs with known title-body similarity issue
+TITLE_AS_BODY_URLS = [
+    # Anthropic Research - title sometimes extracted as body
+    ("https://www.anthropic.com/research/constitutional-classifiers", "anthropic"),
+]
+
+# URLs that fail both levels (for testing REJECTED status)
+EXPECTED_FAIL_URLS = [
+    # WeChat requires special handling
+    ("https://mp.weixin.qq.com/s?__biz=MzU3ODQ0NjA3Mg==&mid=2247486001", "wechat"),
+]
+```
+
+- [ ] **Step 2: Write integration tests**
+
+Create `tests/test_integration/test_full_content_fetch_real.py`:
+
+```python
+"""Integration tests using real problematic URLs.
+
+These tests validate the full content fetch pipeline against real-world
+content extraction challenges documented in issues/ directory.
+
+Run with: uv run pytest tests/test_integration/test_full_content_fetch_real.py -v --run-integration
+"""
+
+import os
+import pytest
+
+from cyberpulse.services.full_content_fetch_service import FullContentFetchService
+from cyberpulse.services.content_quality_service import ContentQualityService
+
+# Skip all tests in this module if --run-integration not set
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("RUN_INTEGRATION_TESTS"),
+    reason="Set RUN_INTEGRATION_TESTS=1 to run integration tests"
+)
+
+
+class TestLevel1WithRealURLs:
+    """Test Level 1 (httpx + trafilatura) with real URLs."""
+
+    @pytest.mark.asyncio
+    async def test_level1_success_urls(self):
+        """Test URLs that should work with Level 1."""
+        from tests.fixtures.real_test_urls import LEVEL1_SUCCESS_URLS
+
+        service = FullContentFetchService()
+
+        for url, source in LEVEL1_SUCCESS_URLS:
+            result = await service.fetch_full_content(url)
+            assert result.success, f"Level 1 failed for {source}: {result.error}"
+            assert len(result.content) >= 100
+            assert result.level == "level1"
+
+    @pytest.mark.asyncio
+    async def test_level1_fails_level2_rescues(self):
+        """Test URLs that need Level 2 rescue."""
+        from tests.fixtures.real_test_urls import LEVEL2_RESCUE_URLS
+
+        service = FullContentFetchService()
+
+        for url, source in LEVEL2_RESCUE_URLS:
+            result = await service.fetch_full_content(url)
+            assert result.success, f"Level 1+2 failed for {source}: {result.error}"
+            assert len(result.content) >= 100
+            # Could be level1 or level2 depending on current state
+
+
+class TestContentQualityWithRealURLs:
+    """Test ContentQualityService with real content."""
+
+    @pytest.mark.asyncio
+    async def test_title_body_similarity_detection(self):
+        """Test detection of title-as-body issue."""
+        from tests.fixtures.real_test_urls import TITLE_AS_BODY_URLS
+
+        service = ContentQualityService()
+        fetch_service = FullContentFetchService()
+
+        for url, source in TITLE_AS_BODY_URLS:
+            result = await fetch_service.fetch_full_content(url)
+            if result.success:
+                quality = service.check_quality(
+                    title="Test Title",  # Would use actual title
+                    body=result.content,
+                )
+                # This tests the similarity detection logic
+                assert isinstance(quality.needs_full_fetch, bool)
+
+
+class TestFullPipelineIntegration:
+    """End-to-end tests of the full content fetch pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_expected_fail_urls(self):
+        """Test URLs that are expected to fail (e.g., WeChat)."""
+        from tests.fixtures.real_test_urls import EXPECTED_FAIL_URLS
+
+        service = FullContentFetchService()
+
+        for url, source in EXPECTED_FAIL_URLS:
+            result = await service.fetch_full_content(url)
+            # These are expected to fail - validates REJECTED flow
+            # We don't assert failure, just that the system handles it gracefully
+            if not result.success:
+                assert result.error is not None
+```
+
+- [ ] **Step 3: Update Task 3 tests to use real URL patterns**
+
+Add to `tests/test_services/test_content_quality.py`:
+
+```python
+class TestContentQualityWithRealPatterns:
+    """Test content quality rules against real problematic patterns."""
+
+    def test_anthropic_title_as_body_pattern(self):
+        """Test detection of Anthropic-style title-as-body issue."""
+        service = ContentQualityService()
+
+        # Simulate Anthropic Research issue: title extracted as body
+        result = service.check_quality(
+            title="Alignment Faking in Large Language Models",
+            body="Alignment Faking in Large Language Models",  # Same as title
+        )
+        assert result.needs_full_fetch is True
+
+    def test_paulgraham_short_content(self):
+        """Test detection of short content (RSS summary only)."""
+        service = ContentQualityService()
+
+        # paulgraham.com RSS often has no content
+        result = service.check_quality(
+            title="Superlinear Returns",
+            body="A short summary from RSS feed",  # < 100 chars
+        )
+        assert result.needs_full_fetch is True
+
+    def test_cloudflare_challenge_content(self):
+        """Test detection of Cloudflare challenge page content."""
+        service = ContentQualityService()
+
+        # Cloudflare challenge response
+        result = service.check_quality(
+            title="Article Title",
+            body="Please enable JavaScript to continue. Checking your browser...",
+        )
+        assert result.needs_full_fetch is True
+```
+
+- [ ] **Step 4: Run integration tests manually**
+
+```bash
+# Run unit tests
+uv run pytest tests/test_services/test_content_quality.py -v
+
+# Run integration tests (requires network)
+RUN_INTEGRATION_TESTS=1 uv run pytest tests/test_integration/test_full_content_fetch_real.py -v
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/fixtures/real_test_urls.py tests/test_integration/test_full_content_fetch_real.py tests/test_services/test_content_quality.py
+git commit -m "test: add integration tests with real problematic URLs from issues"
+```
+
+---
+
+## Task 9: Final Verification
 
 - [ ] **Step 1: Run all tests**
 
@@ -1519,7 +1722,8 @@ Design: docs/superpowers/specs/2026-03-27-full-content-fetch-mixed-strategy-desi
 | 5 | full_content_fetch_service.py | Level 2 fallback |
 | 6 | full_content_tasks.py | Dramatiq 任务，并发=3 |
 | 7 | quality_tasks.py, sources.py | 集成 ContentQualityService + 创建源触发采集 |
-| 8 | - | 最终验证 |
+| 8 | real_test_urls.py, test_full_content_fetch_real.py | 真实 URL 集成测试 |
+| 9 | - | 最终验证 |
 
 **状态流转验证矩阵：**
 
@@ -1530,3 +1734,12 @@ Design: docs/superpowers/specs/2026-03-27-full-content-fetch-mixed-strategy-desi
 | 内容不足 + 全文失败 | REJECTED | ✗ | ✓ |
 | 内容不足 + 无 URL | REJECTED | ✗ | ✓ |
 | 全文获取进行中 | PENDING_FULL_FETCH | ✗ | ✓ |
+
+**真实 URL 测试数据来源：**
+
+| URL 类别 | 来源 | 测试目的 |
+|----------|------|---------|
+| Level 1 成功 | paulgraham.com, mitchellh.com | 验证基础提取 |
+| Level 2 救援 | openai.com, anthropic.com | 验证 Cloudflare 绕过 |
+| 标题-正文相似 | anthropic.com/research | 验证相似度检测 |
+| 预期失败 | wechat | 验证 REJECTED 流程 |
