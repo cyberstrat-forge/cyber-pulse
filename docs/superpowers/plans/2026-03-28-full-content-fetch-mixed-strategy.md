@@ -1165,10 +1165,11 @@ git commit -m "feat(tasks): add fetch_full_content task with max_concurrency=3, 
 
 ---
 
-## Task 7: Integrate into Quality Tasks
+## Task 7: Update Quality Tasks and Source API
 
 **Files:**
 - Modify: `src/cyberpulse/tasks/quality_tasks.py`
+- Modify: `src/cyberpulse/api/routers/sources.py`
 
 - [ ] **Step 1: Update quality_check_item to use ContentQualityService**
 
@@ -1378,19 +1379,85 @@ def recheck_item(item_id: str) -> None:
         db.close()
 ```
 
-- [ ] **Step 2: Run tests to verify no regression**
+- [ ] **Step 2: Update create_source to trigger immediate ingestion**
+
+Edit `src/cyberpulse/api/routers/sources.py`:
+
+```python
+@router.post("/sources", response_model=SourceResponse, status_code=201)
+async def create_source(
+    source: SourceCreate,
+    client: ApiClient = Depends(get_current_client),
+    db: Session = Depends(get_db),
+) -> SourceResponse:
+    """
+    Create a new source and trigger immediate ingestion.
+
+    New sources enter observation period by default (30 days).
+
+    **Tier/Score Rules:**
+    - If both `tier` and `score` provided: use as-is
+    - If only `score` provided: tier is derived from score
+    - If only `tier` provided: score defaults to tier's middle value
+    - If neither provided: defaults to T2 with score 50
+
+    **Tier-Score Mapping:**
+    - T0: score >= 80
+    - T1: 60 <= score < 80
+    - T2: 40 <= score < 60
+    - T3: score < 40
+    """
+    logger.debug(
+        f"create_source called by client {client.client_id}: name={source.name}"
+    )
+
+    # Convert tier string to enum if provided
+    tier_enum = None
+    if source.tier:
+        tier_enum = _validate_tier(source.tier)
+
+    # Create service and add source
+    service = SourceService(db)
+    created_source, message = service.add_source(
+        name=source.name,
+        connector_type=source.connector_type,
+        tier=tier_enum,
+        config=source.config or {},
+        score=source.score,
+    )
+
+    if created_source is None:
+        # Duplicate name
+        raise HTTPException(
+            status_code=409,
+            detail=message
+        )
+
+    # Trigger immediate ingestion for the new source
+    from ...tasks.ingestion_tasks import ingest_source
+    try:
+        ingest_source.send(created_source.source_id)
+        logger.info(f"Triggered initial ingestion for source: {created_source.source_id}")
+    except Exception as e:
+        logger.error(f"Failed to trigger initial ingestion: {e}", exc_info=True)
+        # Don't fail the request - source was created successfully
+
+    return SourceResponse.model_validate(created_source)
+```
+
+- [ ] **Step 3: Run tests to verify no regression**
 
 ```bash
-uv run pytest tests/test_tasks/test_quality_tasks.py -v
+uv run pytest tests/test_tasks/test_quality_tasks.py tests/test_api/test_sources.py -v
 ```
 
 Expected: All tests PASS
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/cyberpulse/tasks/quality_tasks.py
-git commit -m "feat(tasks): integrate ContentQualityService, add PENDING_FULL_FETCH status flow"
+git add src/cyberpulse/tasks/quality_tasks.py src/cyberpulse/api/routers/sources.py
+git commit -m "feat(tasks,api): integrate ContentQualityService, trigger ingestion on source creation"
 ```
 
 ---
@@ -1451,7 +1518,7 @@ Design: docs/superpowers/specs/2026-03-27-full-content-fetch-mixed-strategy-desi
 | 4 | jina_client.py | Jina AI 客户端，20 RPM |
 | 5 | full_content_fetch_service.py | Level 2 fallback |
 | 6 | full_content_tasks.py | Dramatiq 任务，并发=3 |
-| 7 | quality_tasks.py | 集成 ContentQualityService |
+| 7 | quality_tasks.py, sources.py | 集成 ContentQualityService + 创建源触发采集 |
 | 8 | - | 最终验证 |
 
 **状态流转验证矩阵：**

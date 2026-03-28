@@ -4,7 +4,7 @@
 
 | 场景 | 入口 | 当前行为 | 全文获取支持 |
 |------|------|---------|-------------|
-| 添加单个源 | `POST /sources` | 创建源，不触发采集 | ✅ 一致 |
+| 添加单个源 | `POST /sources` | 创建源 + 触发采集 | ✅ 一致 |
 | 批量导入 | `process_import_job` | 创建源 + 触发采集 | ✅ 一致 |
 | 定时采集 | `schedule_source_collection` | 触发采集 | ✅ 一致 |
 
@@ -20,19 +20,16 @@ POST /sources
     ↓
 SourceService.add_source()
     ↓
-创建 Source 记录
+ingest_source.send(source_id)  ← 立即触发采集
     ↓
-返回 (不触发采集)
+ingest_source → normalize_item → quality_check_item
 ```
 
 **特点：**
-- 只创建源，不触发初始采集
-- 需要用户手动调用 ingest API 或等待定时任务
+- 创建源后立即触发初始采集
+- 完整的数据处理流程
 
-**全文获取影响：** 无影响。当采集触发时，流程一致：
-```
-ingest_source → normalize_item → quality_check_item → fetch_full_content
-```
+**全文获取支持：** ✅ 正确。采集后自动进入质量检测和全文获取流程。
 
 ---
 
@@ -103,15 +100,7 @@ quality_check_item
 
 ## 发现的问题
 
-### 问题 1: 添加单个源不触发初始采集
-
-**现象：** `POST /sources` 只创建源，不触发采集
-
-**影响：** 用户需要额外操作才能获取第一批数据
-
-**建议：** 可考虑在 `add_source` 后自动触发初始采集（可选行为）
-
-### 问题 2: 现有代码仍依赖 `source.needs_full_fetch`
+### 问题：现有代码仍依赖 `source.needs_full_fetch`
 
 **位置：** `quality_tasks.py:126`
 
@@ -124,6 +113,18 @@ if not content_validity and item.url:
 **方案 A 要求：** 移除这个依赖，改用 `ContentQualityService` 统一判断
 
 **修复：** 实现计划中已包含此修改（Task 7）
+
+---
+
+## 已解决的变更
+
+### 变更：添加单个源立即触发采集
+
+**原行为：** `POST /sources` 只创建源，不触发采集
+
+**新行为：** 创建源后立即调用 `ingest_source.send(source_id)` 触发初始采集
+
+**实现：** 实现计划 Task 7 已包含对 `sources.py` 的修改
 
 ---
 
