@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 import httpx
 import trafilatura
@@ -20,7 +21,7 @@ class FullContentResult:
     content: str
     success: bool
     error: str | None = None
-    level: str | None = None  # "level1" or "level2"
+    level: Literal["level1", "level2"] | None = None
 
 
 class FullContentFetchService:
@@ -117,14 +118,19 @@ class FullContentFetchService:
                     )
 
         except httpx.TimeoutException:
+            logger.warning(f"Level 1 timeout for {url}")
             return FullContentResult(content="", success=False, error="Timeout")
         except httpx.HTTPStatusError as e:
+            logger.warning(
+                f"Level 1 HTTP error for {url}: {e.response.status_code}"
+            )
             return FullContentResult(
                 content="", success=False,
                 error=f"HTTP error: {e.response.status_code}",
             )
-        except Exception as e:
-            logger.error(f"Level 1 error for {url}: {type(e).__name__}: {e}")
+        except (httpx.RequestError, OSError, ConnectionError) as e:
+            # Catch network-related exceptions only, not system exceptions
+            logger.error(f"Level 1 network error for {url}: {type(e).__name__}: {e}")
             return FullContentResult(
                 content="", success=False,
                 error=f"{type(e).__name__}: {e}",

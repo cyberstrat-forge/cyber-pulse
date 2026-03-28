@@ -71,16 +71,16 @@ class TestFullContentFetchService:
             mock_client = MagicMock()
             mock_enter.return_value = mock_client
 
-            # Make the get call raise an exception
+            # Make the get call raise a network error
             async def raise_error(*args, **kwargs):
-                raise Exception("Connection error")
+                raise httpx.ConnectError("Connection error")
 
             mock_client.get = raise_error
 
             result = await service.fetch_full_content("https://example.com/article")
 
         assert result.success is False
-        assert "Connection error" in result.error
+        assert "ConnectError" in result.error or "Connection" in result.error
 
     @pytest.mark.asyncio
     async def test_fetch_with_retry_success_on_first_try(self):
@@ -327,3 +327,167 @@ class TestFullContentFetchServiceLevel2:
 
         assert result.success is False
         assert result.level == "level2"
+
+
+class TestSSRFRedirectProtection:
+    """Test cases for SSRF protection on redirects."""
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_private_ip_blocked(self):
+        """Test that redirect to private IP address is blocked."""
+        service = FullContentFetchService()
+
+        with patch.object(httpx.AsyncClient, "__aenter__") as mock_enter:
+            mock_client = MagicMock()
+            mock_enter.return_value = mock_client
+
+            # Create a mock response that appears to redirect to private IP
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.url = "http://192.168.1.1/internal"  # Redirect target
+            mock_response.text = "<html><body>Internal content</body></html>"
+
+            async def return_response(*args, **kwargs):
+                return mock_response
+
+            mock_client.get = return_response
+
+            # Level 1 should block redirect to private IP
+            result = await service._fetch_level1("https://example.com/article")
+
+        assert result.success is False
+        assert "Redirect to blocked URL" in result.error or "SSRF" in result.error
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_localhost_blocked(self):
+        """Test that redirect to localhost is blocked."""
+        service = FullContentFetchService()
+
+        with patch.object(httpx.AsyncClient, "__aenter__") as mock_enter:
+            mock_client = MagicMock()
+            mock_enter.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.url = "http://localhost/admin"  # Redirect target
+            mock_response.text = "<html><body>Admin page</body></html>"
+
+            async def return_response(*args, **kwargs):
+                return mock_response
+
+            mock_client.get = return_response
+
+            result = await service._fetch_level1("https://example.com/article")
+
+        assert result.success is False
+        assert "Redirect to blocked URL" in result.error or "SSRF" in result.error
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_metadata_endpoint_blocked(self):
+        """Test that redirect to AWS metadata endpoint is blocked."""
+        service = FullContentFetchService()
+
+        with patch.object(httpx.AsyncClient, "__aenter__") as mock_enter:
+            mock_client = MagicMock()
+            mock_enter.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.url = "http://169.254.169.254/latest/meta-data/"
+            mock_response.text = "<html><body>Metadata</body></html>"
+
+            async def return_response(*args, **kwargs):
+                return mock_response
+
+            mock_client.get = return_response
+
+            result = await service._fetch_level1("https://example.com/article")
+
+        assert result.success is False
+        assert "Redirect to blocked URL" in result.error or "SSRF" in result.error
+
+
+class Test429RetryBehavior:
+    """Test cases for 429 rate limit retry behavior."""
+
+    @pytest.mark.asyncio
+    async def test_429_triggers_retry(self):
+        """Test that 429 response triggers retry."""
+        service = FullContentFetchService()
+
+        with patch.object(service, "fetch_full_content") as mock_fetch:
+            # First call returns 429, second succeeds
+            mock_fetch.side_effect = [
+                FullContentResult(content="", success=False, error="HTTP error: 429"),
+                FullContentResult(content="Success content", success=True),
+            ]
+
+            result = await service.fetch_with_retry(
+                "https://example.com",
+                max_retries=3,
+                retry_delay=0.1,
+            )
+
+        assert result.success is True
+        assert mock_fetch.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_429_retries_all_attempts(self):
+        """Test that 429 exhausts all retry attempts before failing."""
+        service = FullContentFetchService()
+
+        with patch.object(service, "fetch_full_content") as mock_fetch:
+            mock_fetch.return_value = FullContentResult(
+                content="", success=False, error="HTTP error: 429"
+            )
+
+            result = await service.fetch_with_retry(
+                "https://example.com",
+                max_retries=3,
+                retry_delay=0.1,
+            )
+
+        assert result.success is False
+        assert mock_fetch.call_count == 3
+        assert "429" in result.error
+
+    @pytest.mark.asyncio
+    async def test_other_4xx_no_retry(self):
+        """Test that other 4xx errors (non-429) do not retry."""
+        service = FullContentFetchService()
+
+        with patch.object(service, "fetch_full_content") as mock_fetch:
+            mock_fetch.return_value = FullContentResult(
+                content="", success=False, error="HTTP error: 400"
+            )
+
+            result = await service.fetch_with_retry(
+                "https://example.com",
+                max_retries=3,
+                retry_delay=0.1,
+            )
+
+        assert result.success is False
+        assert mock_fetch.call_count == 1  # No retry for non-429 4xx
+        assert "400" in result.error
+
+    @pytest.mark.asyncio
+    async def test_429_vs_404_different_behavior(self):
+        """Test that 429 retries while 404 does not."""
+        service = FullContentFetchService()
+
+        # Test 429 - should retry
+        with patch.object(service, "fetch_full_content") as mock_fetch:
+            mock_fetch.side_effect = [
+                FullContentResult(content="", success=False, error="HTTP error: 429"),
+                FullContentResult(content="", success=False, error="HTTP error: 404"),
+            ]
+
+            result = await service.fetch_with_retry(
+                "https://example.com/429-then-404",
+                max_retries=3,
+                retry_delay=0.1,
+            )
+
+        assert result.success is False
+        assert mock_fetch.call_count == 2  # 429 retried, 404 did not

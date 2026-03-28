@@ -83,8 +83,9 @@ class JinaAIClient:
         except httpx.TimeoutException:
             logger.warning(f"Jina AI timeout for {url}")
             return JinaResult(content="", success=False, error="Timeout")
-        except Exception as e:
-            logger.error(f"Jina AI error for {url}: {type(e).__name__}: {e}")
+        except (httpx.RequestError, OSError, ConnectionError) as e:
+            # Catch network-related exceptions only, not system exceptions
+            logger.error(f"Jina AI network error for {url}: {type(e).__name__}: {e}")
             return JinaResult(
                 content="", success=False, error=f"{type(e).__name__}: {e}"
             )

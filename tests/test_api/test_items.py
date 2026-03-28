@@ -30,11 +30,6 @@ class TestItemsAPI:
         response = client.get("/api/v1/items")
         assert response.status_code == 401
 
-    def test_list_items_invalid_cursor_format(self, client):
-        """Test invalid cursor format returns 400."""
-        # Would need auth to reach validation
-        pass
-
     @patch("cyberpulse.api.auth.get_current_client")
     def test_list_items_with_read_permission(self, mock_auth, client, mock_read_client):
         """Test listing items with read permission."""
@@ -58,11 +53,6 @@ class TestItemsAPI:
 
         response = client.get("/api/v1/items?limit=10")
         assert response.status_code in [200, 401]
-
-    def test_cursor_and_from_conflict(self, client):
-        """Test that cursor and from cannot both be provided."""
-        # Would need auth to reach validation
-        pass
 
 
 def test_items_only_returns_mapped_status(client, db_session):
