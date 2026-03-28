@@ -6,9 +6,11 @@
 
 **相关 Issue**: #55, #58
 
-**影响范围**: 7 个模型文件 + 1 个 Mixin
+**影响范围**: 6 个模型文件 + 1 个 Mixin
 
-**预期结果**: mypy 错误从 124 降至 ~10（剩余为非 SQLAlchemy 问题）
+**预期结果**: mypy 错误从 149 降至 ~9（剩余为非 SQLAlchemy 问题）
+
+**前置条件**: ✅ 所有枚举已升级为 `StrEnum`（Python 3.11+）
 
 ---
 
@@ -72,29 +74,28 @@ total_items: Mapped[int] = mapped_column(default=0)
 
 ```python
 # Before
-observation_until = Column(DateTime, nullable=True)
 review_reason = Column(Text, nullable=True)
-fetch_interval = Column(Integer, nullable=True)
+last_error_message = Column(String(255), nullable=True)
+avg_content_length = Column(Integer, nullable=True)
 
 # After
-observation_until: Mapped[datetime | None] = mapped_column()
 review_reason: Mapped[str | None] = mapped_column(Text)
-fetch_interval: Mapped[int | None] = mapped_column()
+last_error_message: Mapped[str | None] = mapped_column(String(255))
+avg_content_length: Mapped[int | None] = mapped_column()
 ```
 
 **规则**:
 - `Mapped[T | None]` 表示可空，无需 `nullable=True`
 - 大文本字段保留 `Text` 参数
+- 有长度限制的字符串保留 `String(N)` 参数
 
 ### 3. Boolean 字段
 
 ```python
 # Before - 非空 Boolean
-is_in_observation = Column(Boolean, nullable=False, default=False)
 pending_review = Column(Boolean, nullable=False, default=False)
 
 # After - 非空 Boolean
-is_in_observation: Mapped[bool] = mapped_column(default=False)
 pending_review: Mapped[bool] = mapped_column(default=False)
 
 # Before - 可空 Boolean
@@ -108,7 +109,7 @@ full_fetch_succeeded: Mapped[bool | None] = mapped_column()
 - 非空 Boolean 有默认值：`Mapped[bool]` + `default=...`
 - 可空 Boolean：`Mapped[bool | None]`
 
-**受影响字段**: `Source.is_in_observation`, `Source.pending_review`, `Source.needs_full_fetch`, `Item.full_fetch_attempted`, `Item.full_fetch_succeeded`
+**受影响字段**: `Source.pending_review`, `Source.needs_full_fetch`, `Item.full_fetch_attempted`, `Item.full_fetch_succeeded`
 
 ### 4. Float 字段
 
@@ -161,39 +162,54 @@ status: Mapped[SourceStatus] = mapped_column(default=SourceStatus.ACTIVE)
 - 无需 `Enum()` 包装，由 `Mapped[EnumType]` 自动推断
 - 无需 `nullable=False`，有默认值即非空
 
+**注意**: `item.py` 和 `api_client.py` 使用 `SAEnum` 别名（`from sqlalchemy import Enum as SAEnum`），迁移时统一使用 `mapped_column`，无需显式枚举参数。
+
 ### 6. 外键字段
 
 ```python
-# Before
+# Before - 可空外键
 source_id = Column(String(64), ForeignKey("sources.source_id"), nullable=True)
-content_id = Column(String(64), ForeignKey("contents.content_id"), nullable=True, index=True)
 
-# After
+# After - 可空外键
 source_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("sources.source_id"))
-content_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("contents.content_id"), index=True)
+
+# Before - 非空外键
+source_id = Column(String(64), ForeignKey("sources.source_id"), nullable=False, index=True)
+
+# After - 非空外键
+source_id: Mapped[str] = mapped_column(String(64), ForeignKey("sources.source_id"), index=True)
 ```
 
 **规则**:
-- 可空外键：`Mapped[str | None]`
-- 保留 `ForeignKey()` 和索引参数
+- 可空外键：`Mapped[str | None]`，无需 `nullable=True`
+- 非空外键：`Mapped[str]`，保留索引参数
 
-**注意**: Item.source_id 是非空外键，Item.content_id 是可空外键。
+**受影响字段**: `Item.source_id`（非空），`Job.source_id`（可空）
 
 ### 7. JSONB 字段
 
 ```python
-# Before
+# Before - 非空 JSONB
 config = Column(JSONB, nullable=False, default=dict)
 permissions = Column(JSONB, nullable=False, default=list)
 
-# After
+# After - 非空 JSONB
 config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 permissions: Mapped[list[str]] = mapped_column(JSONB, default=list)
+
+# Before - 可空 JSONB 无默认值
+result = Column(JSONB, nullable=True)
+
+# After - 可空 JSONB 无默认值
+result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 ```
 
 **规则**:
 - 使用精确的类型注解：`dict[str, Any]` 或 `list[str]`
 - 保留 `JSONB` 参数和默认值
+- 可空无默认值：`Mapped[dict[str, Any] | None]`
+
+**受影响字段**: `Source.config`, `ApiClient.permissions`, `Job.result`, `Item.raw_metadata`
 
 ### 8. Relationship 字段
 
@@ -209,8 +225,10 @@ source: Mapped["Source | None"] = relationship(back_populates="jobs")
 
 **规则**:
 - 一对多：`Mapped[list["Model"]]`
-- 多对一：`Mapped["Model | None"]`（可空外键）
+- 多对一：`Mapped["Model | None"]`（可空外键时）
 - 字符串引用避免循环导入
+
+**受影响字段**: `Source.jobs`, `Job.source`, `Item.source`
 
 ### 9. 复合索引 (`__table_args__`)
 
@@ -230,9 +248,7 @@ __table_args__ = (
 
 **规则**: `__table_args__` 与 `Column` 定义无关，迁移时保持不变。
 
-**受影响模型**:
-- `Item`: 2 个复合索引
-- `Content`: 1 个复合索引
+**受影响模型**: `Item`（2 个复合索引）
 
 ### 10. TimestampMixin
 
@@ -251,50 +267,9 @@ class TimestampMixin:
 **规则**:
 - 无需 `nullable=False`，有默认值即非空
 - 保留 `func.now()` 和 `onupdate`
+- 需添加 `from datetime import datetime` 导入
 
-### 11. 枚举类升级
-
-```python
-# Before
-from enum import Enum
-
-class ItemStatus(str, Enum):
-    NEW = "NEW"
-    NORMALIZED = "NORMALIZED"
-
-# After
-from enum import StrEnum
-
-class ItemStatus(StrEnum):
-    NEW = "NEW"
-    NORMALIZED = "NORMALIZED"
-```
-
-**规则**:
-- Python 3.11+ 支持 `StrEnum`，语义更清晰
-- 无需 `(str, Enum)` 多重继承
-- 统一导入风格：所有枚举使用 `from enum import StrEnum`
-
-**当前不一致情况**:
-- `source.py`, `job.py`: `from enum import Enum as PyEnum`
-- `item.py`, `content.py`, `api_client.py`: `from enum import Enum`
-- 迁移后统一为 `StrEnum`
-
-### 12. 可空 JSONB 字段
-
-```python
-# Before (无默认值)
-result = Column(JSONB, nullable=True)
-
-# After
-result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-```
-
-**规则**: 可空 JSONB 无默认值时，类型为 `Mapped[dict[str, Any] | None]`。
-
-**受影响字段**: `Job.result`
-
-### 13. Settings 模型
+### 11. Settings 模型
 
 ```python
 # Before
@@ -310,6 +285,8 @@ class Settings(Base, TimestampMixin):
     value: Mapped[str | None] = mapped_column(Text)
 ```
 
+**规则**: 主键字符串保留 `String(N)` 参数。
+
 ---
 
 ## 迁移计划
@@ -323,11 +300,9 @@ class Settings(Base, TimestampMixin):
 | 1 | `TimestampMixin` | 2 | func.now() | 低 |
 | 2 | `Settings` | 2 | 主键 + 可空 | 低 |
 | 3 | `ApiClient` | 8 | 枚举 + JSONB(list) | 低 |
-| 4 | `Content` | 8 + 1复合索引 | 枚举 | 低 |
-| 5 | `Item` | 17 + 2复合索引 | 枚举 + 外键(2) + JSONB + Boolean(2) + Float可空(3) | 中 |
-| 6 | `Job` | 11 | 枚举(2) + 外键 + JSONB + relationship | 中 |
-| 7 | `Source` | 26 + 1 relationship | 枚举(2) + JSONB + Boolean(3) + Float可空(2) | 高 |
-| 8 | 枚举类升级 (6个) | - | StrEnum | 低 |
+| 4 | `Item` | 19 + 2复合索引 + 1关系 | 枚举 + 外键 + JSONB + Boolean(2) + Float可空(3) | 中 |
+| 5 | `Job` | 11 + 1关系 | 枚举(2) + 外键 + JSONB | 中 |
+| 6 | `Source` | 27 + 1关系 | 枚举(2) + JSONB + Boolean(2) + Float可空(2) | 高 |
 
 ### 验证检查点
 
@@ -365,18 +340,18 @@ uv run ruff check src/ tests/
 
 | 文件 | 变更内容 |
 |------|---------|
-| `src/cyberpulse/models/base.py` | TimestampMixin 迁移 |
+| `src/cyberpulse/models/base.py` | TimestampMixin 迁移，添加 datetime 导入 |
 | `src/cyberpulse/models/settings.py` | Settings 模型迁移 |
-| `src/cyberpulse/models/api_client.py` | ApiClient 模型 + 枚举迁移 |
-| `src/cyberpulse/models/content.py` | Content 模型 + 枚举迁移 |
-| `src/cyberpulse/models/item.py` | Item 模型 + 枚举迁移 |
-| `src/cyberpulse/models/job.py` | Job 模型 + 枚举 + relationship 迁移 |
-| `src/cyberpulse/models/source.py` | Source 模型 + 枚举 + relationship 迁移 |
+| `src/cyberpulse/models/api_client.py` | ApiClient 模型迁移 |
+| `src/cyberpulse/models/item.py` | Item 模型迁移 |
+| `src/cyberpulse/models/job.py` | Job 模型 + relationship 迁移 |
+| `src/cyberpulse/models/source.py` | Source 模型 + relationship 迁移 |
 
 ### 无需修改
 
 | 文件/目录 | 原因 |
 |-----------|------|
+| `src/cyberpulse/models/__init__.py` | 导出语句不变，仅导入路径已正确 |
 | `alembic/versions/` | 数据库结构不变 |
 | `src/cyberpulse/services/` | 类型推断自动修复 |
 | `src/cyberpulse/tasks/` | 类型推断自动修复 |
@@ -391,20 +366,18 @@ uv run ruff check src/ tests/
 
 | 类别 | 迁移前 | 迁移后 |
 |------|--------|--------|
-| SQLAlchemy Column 类型问题 | ~110 | 0 |
-| 枚举字段缺类型注解 | 7 | 0 |
-| 其他问题（非本次范围） | 7 | ~7 |
-| **总计** | **124** | **~7** |
+| SQLAlchemy Column 类型问题 | ~140 | 0 |
+| 枚举字段缺类型注解 | 6 | 0 |
+| 其他问题（非本次范围） | 9 | ~9 |
+| **总计** | **149** | **~9** |
 
 ### 剩余问题（后续 Issue 处理）
 
 | 问题 | 文件位置 | 说明 |
 |------|---------|------|
-| `item.normalized_title` 属性不存在 | `api/routers/items.py:124` | Item 模型无此字段，Content 模型有。需确认是引用错误还是需添加字段 |
-| `item.normalized_body` 属性不存在 | `api/routers/items.py:127` | 同上 |
-| `rss_connector.fetch` 返回类型不兼容 | `services/rss_connector.py:66` | 方法签名与基类不匹配 |
-| `datetime` 重复 `tzinfo` 参数 | `services/rss_connector.py:233` | 参数传递错误 |
-| `avg_content_length` float vs int | `services/source_quality_validator.py:99` | 类型不匹配 |
+| `rss_connector.fetch` 返回类型不兼容 | `services/rss_connector.py:66` | 返回 `FetchResult`，基类期望 `list[dict]`，需重构基类或子类签名 |
+| `datetime` tzinfo 参数冲突 | `services/rss_connector.py:229` | `datetime(*args, tzinfo=UTC)` 与 parsed datetime 已有 tzinfo 冲突 |
+| `avg_content_length` 类型不匹配 | `services/source_quality_validator.py:101` | analysis 返回 float，但 `SourceValidationResult.avg_content_length` 期望 int，需显式转换 |
 
 ---
 
@@ -416,6 +389,7 @@ uv run ruff check src/ tests/
 | 类型注解错误 | mypy 新错误 | 每个 Step 后运行类型检查 |
 | 运行时行为变化 | 功能异常 | 全量测试验证 |
 | Alembic 检测到差异 | 产生意外迁移 | `alembic check` 验证无差异 |
+| 导入遗漏 | 运行时错误 | 检查 `datetime`、`Mapped`、`mapped_column` 导入 |
 
 ---
 
