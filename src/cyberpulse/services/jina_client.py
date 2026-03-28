@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import httpx
+import redis
 
 if TYPE_CHECKING:
     pass
@@ -18,57 +18,107 @@ JINA_BASE_URL = "https://r.jina.ai/"
 DEFAULT_TIMEOUT = 30.0
 MIN_CONTENT_LENGTH = 100
 
-# Global rate limiter singleton - 20 RPM = 3 seconds per request
-_global_rate_limiter: _RateLimiter | None = None
-_rate_limiter_lock = threading.Lock()
+# Redis key for distributed rate limiting
+RATE_LIMIT_KEY = "jina:rate_limit"
+RATE_LIMIT_PER_MINUTE = 20
+RATE_LIMIT_WINDOW_SECONDS = 60
 
 
-def _get_rate_limiter() -> _RateLimiter:
-    """Get the global rate limiter singleton."""
-    global _global_rate_limiter
-    with _rate_limiter_lock:
-        if _global_rate_limiter is None:
-            _global_rate_limiter = _RateLimiter(rate_per_minute=20)
-        return _global_rate_limiter
+class _RedisRateLimiter:
+    """Distributed rate limiter using Redis sliding window.
 
+    This ensures rate limit coordination across multiple processes/containers.
+    Uses Redis to track request timestamps within a sliding window.
 
-class _RateLimiter:
-    """Rate limiter that enforces requests per minute.
-
-    Uses threading.Lock instead of asyncio.Lock to avoid event loop binding issues.
-    This is safe because the lock is only held briefly for time calculations,
-    and the actual sleep is done with asyncio.sleep after releasing the lock.
-
-    For 20 RPM: interval = 60/20 = 3 seconds per request.
+    For 20 RPM: we track requests in the last 60 seconds and allow max 20.
     """
 
-    def __init__(self, rate_per_minute: int):
-        self._min_interval = 60.0 / rate_per_minute  # 3.0 seconds for 20 RPM
-        self._last_request_time: float | None = None
-        self._lock = threading.Lock()  # Thread-safe, no event loop binding
+    def __init__(self, redis_url: str, rate_per_minute: int = 20):
+        self._redis_url = redis_url
+        self._rate_per_minute = rate_per_minute
+        self._window_seconds = 60
+        # 3s minimum interval for 20 RPM
+        self._min_interval = self._window_seconds / self._rate_per_minute
+        self._redis: redis.Redis | None = None
+
+    def _get_redis(self) -> redis.Redis:
+        """Get or create Redis connection."""
+        if self._redis is None:
+            self._redis = redis.from_url(self._redis_url, decode_responses=True)
+        return self._redis
 
     async def acquire(self) -> None:
-        """Wait until we can make a request within the rate limit.
+        """Wait until we can make a request within the distributed rate limit.
 
-        Uses threading.Lock for thread safety and calculates wait time
-        before doing async sleep (outside the lock).
+        Uses Redis sliding window algorithm:
+        1. Get count of requests in last 60 seconds
+        2. If count >= 20, calculate wait time based on oldest request timestamp
+        3. Add current request timestamp to Redis
         """
-        wait_time = 0.0
-
-        with self._lock:
+        while True:
             now = time.time()
+            client = self._get_redis()
 
-            if self._last_request_time is not None:
-                elapsed = now - self._last_request_time
-                if elapsed < self._min_interval:
-                    wait_time = self._min_interval - elapsed
-                    logger.debug(f"Rate limiter waiting {wait_time:.2f}s")
+            # Use pipeline for atomic operations
+            pipe = client.pipeline()
 
-            self._last_request_time = time.time()
+            # Remove expired timestamps (older than 60 seconds)
+            pipe.zremrangebyscore(RATE_LIMIT_KEY, 0, now - self._window_seconds)
 
-        # Sleep outside the lock to avoid blocking other threads
-        if wait_time > 0:
-            await asyncio.sleep(wait_time)
+            # Count current requests in window
+            pipe.zcard(RATE_LIMIT_KEY)
+
+            # Get the oldest timestamp in window (to calculate wait time if needed)
+            pipe.zrange(RATE_LIMIT_KEY, 0, 0, withscores=True)
+
+            results = pipe.execute()
+            current_count = results[1]
+            oldest_entries = results[2]
+
+            if current_count < self._rate_per_minute:
+                # We can proceed - add our timestamp
+                # Use a unique member name to allow multiple concurrent requests
+                member = f"{now}:{time.monotonic_ns()}"
+                client.zadd(RATE_LIMIT_KEY, {member: now})
+                count_msg = f"{current_count + 1}/{self._rate_per_minute}"
+                logger.debug(f"Rate limiter: request allowed ({count_msg})")
+                return
+
+            # Need to wait - calculate wait time from oldest request
+            if oldest_entries:
+                oldest_time = oldest_entries[0][1]
+                # Calculate wait time with small buffer
+                wait_time = oldest_time + self._window_seconds - now + 0.1
+                logger.debug(
+                    f"Rate limiter: at limit "
+                    f"({current_count}/{self._rate_per_minute}), "
+                    f"waiting {wait_time:.2f}s"
+                )
+                await asyncio.sleep(wait_time)
+            else:
+                # Edge case: window just cleared, wait minimum interval
+                await asyncio.sleep(self._min_interval)
+
+
+# Global rate limiter singleton - Redis-based for cross-process coordination
+_global_rate_limiter: _RedisRateLimiter | None = None
+
+
+def _get_rate_limiter(redis_url: str) -> _RedisRateLimiter:
+    """Get the global rate limiter singleton.
+
+    Args:
+        redis_url: Redis URL for distributed coordination.
+
+    Returns:
+        Redis-based rate limiter instance.
+    """
+    global _global_rate_limiter
+    if _global_rate_limiter is None:
+        _global_rate_limiter = _RedisRateLimiter(
+            redis_url=redis_url, rate_per_minute=RATE_LIMIT_PER_MINUTE
+        )
+    return _global_rate_limiter
 
 
 @dataclass
@@ -91,12 +141,19 @@ class JinaAIClient:
     - X-Md-Link-Style: discarded (removes links, keeps text)
     """
 
-    def __init__(self):
+    def __init__(self, redis_url: str | None = None):
         """Initialize Jina AI client.
 
-        Note: Rate limiting is enforced by global singleton, not per-instance.
+        Args:
+            redis_url: Redis URL for distributed rate limiting.
+                       If not provided, uses settings.redis_url.
         """
-        self._rate_limiter = _get_rate_limiter()
+        if redis_url is None:
+            from ..config import settings
+
+            redis_url = settings.redis_url
+
+        self._rate_limiter = _get_rate_limiter(redis_url)
         self.headers = {
             "X-Return-Format": "markdown",
             "X-Md-Link-Style": "discarded",
