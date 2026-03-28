@@ -65,27 +65,8 @@ def quality_check_item(
             extraction_method=extraction_method,
         )
 
-        # Step 1: Run meta quality check
-        quality_service = QualityGateService()
-        quality_result = quality_service.check(item, normalization_result)
-
-        logger.debug(
-            f"Meta quality check result for {item_id}: "
-            f"decision={quality_result.decision.value}, "
-            f"warnings={len(quality_result.warnings)}"
-        )
-
-        if quality_result.decision != QualityDecision.PASS:
-            # Meta quality failed - reject item
-            _handle_reject(db, item, quality_result)
-            db.commit()
-            logger.info(
-                f"Quality check complete for item {item_id}: "
-                f"{quality_result.decision.value}"
-            )
-            return
-
-        # Step 2: Run content quality check (meta passed)
+        # Step 1: Run content quality check FIRST (before meta quality)
+        # This allows items with empty/short body to trigger full fetch
         content_service = ContentQualityService()
         content_result = content_service.check_quality(
             title=normalized_title,
@@ -122,6 +103,26 @@ def quality_check_item(
             logger.info(
                 f"Quality check complete for item {item_id}: "
                 f"PENDING_FULL_FETCH"
+            )
+            return
+
+        # Step 2: Run meta quality check (content passed)
+        quality_service = QualityGateService()
+        quality_result = quality_service.check(item, normalization_result)
+
+        logger.debug(
+            f"Meta quality check result for {item_id}: "
+            f"decision={quality_result.decision.value}, "
+            f"warnings={len(quality_result.warnings)}"
+        )
+
+        if quality_result.decision != QualityDecision.PASS:
+            # Meta quality failed - reject item
+            _handle_reject(db, item, quality_result)
+            db.commit()
+            logger.info(
+                f"Quality check complete for item {item_id}: "
+                f"{quality_result.decision.value}"
             )
             return
 
