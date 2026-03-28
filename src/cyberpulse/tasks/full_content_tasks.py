@@ -16,16 +16,16 @@ import dramatiq
 from ..database import SessionLocal
 from ..models import Item, ItemStatus
 from ..services.full_content_fetch_service import FullContentFetchService
-from .worker import broker  # Ensure broker is configured before actor registration
 
 logger = logging.getLogger(__name__)
 
 
-@dramatiq.actor(max_retries=2)
+@dramatiq.actor(max_retries=2, time_limit=600_000)  # 10 minutes
 def fetch_full_content(item_id: str) -> dict:
     """Fetch full content for an item.
 
-    Max concurrency is 3 to respect Jina AI 20 RPM limit.
+    Time limit is 10 minutes to accommodate rate limiting (20 RPM = 3s per request).
+    With max_retries=2, total possible time is 30 minutes.
 
     Args:
         item_id: The item ID to fetch content for.

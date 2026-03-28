@@ -12,7 +12,11 @@ import logging
 import signal
 import sys
 
-from .jobs import run_scheduled_collection, update_source_scores
+from .jobs import (
+    retry_pending_full_fetch,
+    run_scheduled_collection,
+    update_source_scores,
+)
 from .scheduler import SchedulerService
 
 # Configure logging
@@ -79,6 +83,17 @@ async def async_main() -> None:
         replace_existing=True,
     )
     logger.info("Scheduled: score update job (every 6 hours)")
+
+    # Retry pending full fetch items every 30 minutes
+    scheduler.scheduler.add_job(
+        retry_pending_full_fetch,
+        "interval",
+        minutes=30,
+        id="retry_pending_full_fetch",
+        name="Retry Pending Full Fetch",
+        replace_existing=True,
+    )
+    logger.info("Scheduled: pending full fetch retry job (every 30 minutes)")
 
     logger.info("Scheduler started and running. Press Ctrl+C to stop.")
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -19,21 +20,24 @@ MIN_CONTENT_LENGTH = 100
 
 # Global rate limiter singleton - 20 RPM = 3 seconds per request
 _global_rate_limiter: _RateLimiter | None = None
+_rate_limiter_lock = threading.Lock()
 
 
 def _get_rate_limiter() -> _RateLimiter:
     """Get the global rate limiter singleton."""
     global _global_rate_limiter
-    if _global_rate_limiter is None:
-        _global_rate_limiter = _RateLimiter(rate_per_minute=20)
-    return _global_rate_limiter
+    with _rate_limiter_lock:
+        if _global_rate_limiter is None:
+            _global_rate_limiter = _RateLimiter(rate_per_minute=20)
+        return _global_rate_limiter
 
 
 class _RateLimiter:
     """Rate limiter that enforces requests per minute.
 
-    Uses a sliding window approach: each request must wait for
-    the minimum interval since the last request.
+    Uses threading.Lock instead of asyncio.Lock to avoid event loop binding issues.
+    This is safe because the lock is only held briefly for time calculations,
+    and the actual sleep is done with asyncio.sleep after releasing the lock.
 
     For 20 RPM: interval = 60/20 = 3 seconds per request.
     """
@@ -41,11 +45,17 @@ class _RateLimiter:
     def __init__(self, rate_per_minute: int):
         self._min_interval = 60.0 / rate_per_minute  # 3.0 seconds for 20 RPM
         self._last_request_time: float | None = None
-        self._lock: asyncio.Lock = asyncio.Lock()
+        self._lock = threading.Lock()  # Thread-safe, no event loop binding
 
     async def acquire(self) -> None:
-        """Wait until we can make a request within the rate limit."""
-        async with self._lock:
+        """Wait until we can make a request within the rate limit.
+
+        Uses threading.Lock for thread safety and calculates wait time
+        before doing async sleep (outside the lock).
+        """
+        wait_time = 0.0
+
+        with self._lock:
             now = time.time()
 
             if self._last_request_time is not None:
@@ -53,9 +63,12 @@ class _RateLimiter:
                 if elapsed < self._min_interval:
                     wait_time = self._min_interval - elapsed
                     logger.debug(f"Rate limiter waiting {wait_time:.2f}s")
-                    await asyncio.sleep(wait_time)
 
             self._last_request_time = time.time()
+
+        # Sleep outside the lock to avoid blocking other threads
+        if wait_time > 0:
+            await asyncio.sleep(wait_time)
 
 
 @dataclass

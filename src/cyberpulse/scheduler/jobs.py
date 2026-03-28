@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 from ..database import SessionLocal
-from ..models import Source, SourceStatus
+from ..models import Item, ItemStatus, Source, SourceStatus
 from ..services.source_score_service import SourceScoreService
 from ..tasks.ingestion_tasks import ingest_source
 
@@ -114,6 +114,61 @@ def update_source_scores() -> dict[str, Any]:
             "sources_updated": updated_count,
             "failed_count": failed_count,
             "message": f"Updated scores for {updated_count} sources ({failed_count} failed)",
+        }
+    finally:
+        db.close()
+
+
+def retry_pending_full_fetch() -> dict[str, Any]:
+    """Retry full fetch for items stuck in PENDING_FULL_FETCH status.
+
+    Items can get stuck in this status when:
+    - Task failed due to rate limiting
+    - Task exceeded time limit
+    - Worker crashed during processing
+
+    This job re-queues items that have not yet attempted full fetch.
+
+    Returns:
+        Dictionary with job result status.
+    """
+    logger.info("Retrying pending full fetch items")
+
+    db = SessionLocal()
+    try:
+        # Find items that are pending full fetch but haven't attempted yet
+        items = db.query(Item).filter(
+            Item.status == ItemStatus.PENDING_FULL_FETCH,
+            Item.full_fetch_attempted == False,  # noqa: E712
+            Item.url.isnot(None),  # Must have a URL to fetch
+        ).limit(100).all()
+
+        if not items:
+            logger.debug("No pending items to retry")
+            return {
+                "status": "completed",
+                "items_queued": 0,
+                "message": "No pending items to retry",
+            }
+
+        # Import here to avoid circular dependency
+        from ..tasks.full_content_tasks import fetch_full_content
+
+        queued_count = 0
+        for item in items:
+            try:
+                fetch_full_content.send(item.item_id)
+                queued_count += 1
+            except (OSError, ConnectionError) as e:
+                logger.error(f"Failed to queue item {item.item_id}: {e}")
+                continue
+
+        logger.info(f"Queued {queued_count} pending items for full fetch retry")
+
+        return {
+            "status": "completed",
+            "items_queued": queued_count,
+            "message": f"Queued {queued_count} pending items for full fetch retry",
         }
     finally:
         db.close()
