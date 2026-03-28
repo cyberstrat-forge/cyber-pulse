@@ -67,8 +67,8 @@ async def list_items(
     if cursor:
         validate_cursor(cursor)
 
-    # Build query
-    query = db.query(Item).filter(Item.status != ItemStatus.REJECTED)
+    # Build query - only expose MAPPED items to downstream systems
+    query = db.query(Item).filter(Item.status == ItemStatus.MAPPED)
 
     # Apply time filters
     if since:
