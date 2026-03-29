@@ -951,7 +951,7 @@ git commit -m "refactor(models): remove noise_ratio field from Item model"
 
 - [ ] **Step 3: 删除 test_calculate_metrics_noise_ratio_html 测试方法**
 
-删除整个测试方法（约第 383-400 行）：
+删除整个测试方法（约第 383-401 行）：
 
 ```python
     def test_calculate_metrics_noise_ratio_html(
@@ -962,11 +962,27 @@ git commit -m "refactor(models): remove noise_ratio field from Item model"
         <html><body>
         <div class="ad">广告</div>
         ...
+        assert metrics["noise_ratio"] > 0
 ```
 
-- [ ] **Step 4: 删除 test_calculate_metrics_empty_raw_content 中的 noise_ratio 断言**
+- [ ] **Step 4: 删除 test_calculate_metrics_empty_raw_content 测试方法**
 
-更新该测试方法，删除 `noise_ratio` 相关断言。
+该测试专门测试 `noise_ratio` 行为，删除 `noise_ratio` 后整个测试失去意义。
+
+删除整个测试方法（约第 402-411 行）：
+
+```python
+    def test_calculate_metrics_empty_raw_content(
+        self, quality_gate_service, valid_item, valid_normalization_result
+    ):
+        """Test noise_ratio handles empty raw_content."""
+        valid_item.raw_content = None
+
+        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
+
+        # Should handle None gracefully
+        assert metrics["noise_ratio"] == 0.0
+```
 
 - [ ] **Step 5: 运行测试验证**
 
