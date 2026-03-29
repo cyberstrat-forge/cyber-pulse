@@ -1,8 +1,8 @@
 """Tests for TitleParserService."""
 
 from cyberpulse.services.title_parser_service import (
-    TitleParserService,
     ParsedTitle,
+    TitleParserService,
 )
 
 

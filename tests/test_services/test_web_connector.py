@@ -1,6 +1,6 @@
 """Tests for Web Scraper Connector."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -694,18 +694,18 @@ class TestWebScraperConnectorHelpers:
         assert dt.year == 2024
         assert dt.month == 1
         assert dt.day == 15
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_parse_date_fallback_to_current_time(self):
         """Test that invalid date falls back to current UTC time."""
         connector = WebScraperConnector({"base_url": "https://example.com"})
 
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         dt = connector._parse_date("invalid date string")
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
 
         assert before <= dt <= after
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_build_headers_default(self):
         """Test building headers with defaults."""

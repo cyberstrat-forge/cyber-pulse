@@ -1,7 +1,7 @@
-import pytest
-from datetime import datetime, timedelta, timezone
 
-from cyberpulse.models import Source, SourceTier, SourceStatus
+import pytest
+
+from cyberpulse.models import Source, SourceStatus, SourceTier
 from cyberpulse.services import SourceService
 
 

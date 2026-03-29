@@ -1,14 +1,14 @@
 """Tests for Diagnose Admin API."""
 
-import pytest
 from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 
-from cyberpulse.api.main import app
-from cyberpulse.api.auth import get_current_client
-from cyberpulse.models import ApiClient, ApiClientStatus
 from cyberpulse import __version__
+from cyberpulse.api.auth import get_current_client
+from cyberpulse.api.main import app
+from cyberpulse.models import ApiClient, ApiClientStatus
 
 
 @pytest.fixture

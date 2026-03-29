@@ -1,10 +1,10 @@
 # tests/test_services/test_rss_connector_enhanced.py
 """Tests for enhanced RSS connector."""
 
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 
 
 class TestRSSConnectorEnhanced:
@@ -13,7 +13,7 @@ class TestRSSConnectorEnhanced:
     @pytest.mark.asyncio
     async def test_fetch_returns_fetch_result(self):
         """Test that fetch returns FetchResult with items and redirect_info."""
-        from cyberpulse.services.rss_connector import RSSConnector, FetchResult
+        from cyberpulse.services.rss_connector import FetchResult, RSSConnector
 
         connector = RSSConnector({"feed_url": "https://example.com/feed/"})
 
@@ -44,7 +44,7 @@ class TestRSSConnectorEnhanced:
     @pytest.mark.asyncio
     async def test_fetch_detects_permanent_redirect(self):
         """Test that fetch detects 301 redirect and returns redirect_info."""
-        from cyberpulse.services.rss_connector import RSSConnector, FetchResult
+        from cyberpulse.services.rss_connector import FetchResult, RSSConnector
 
         connector = RSSConnector({"feed_url": "https://old.example.com/feed/"})
 

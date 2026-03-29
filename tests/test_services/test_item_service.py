@@ -1,7 +1,8 @@
-import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from cyberpulse.models import ItemStatus, Source, SourceTier, SourceStatus
+import pytest
+
+from cyberpulse.models import ItemStatus, Source, SourceStatus, SourceTier
 from cyberpulse.services import ItemService
 
 
@@ -32,7 +33,7 @@ class TestCreateItem:
 
     def test_create_item_success(self, item_service, test_source):
         """Test creating a new item."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         item = item_service.create_item(
             source_id=test_source.source_id,
@@ -56,7 +57,7 @@ class TestCreateItem:
 
     def test_create_item_with_metadata(self, item_service, test_source):
         """Test creating an item with metadata."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
         metadata = {"author": "John Doe", "tags": ["tech", "security"]}
 
         item = item_service.create_item(
@@ -74,7 +75,7 @@ class TestCreateItem:
 
     def test_create_duplicate_item_by_external_id(self, item_service, test_source):
         """Test that duplicate by external_id returns existing item."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         # Create first item
         item1 = item_service.create_item(
@@ -103,7 +104,7 @@ class TestCreateItem:
 
     def test_create_duplicate_item_by_url(self, item_service, test_source):
         """Test that duplicate by url returns existing item."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         # Create first item
         item1 = item_service.create_item(
@@ -146,7 +147,7 @@ class TestGetItemsBySource:
 
     def test_get_items_by_source(self, item_service, test_source):
         """Test listing items for a source."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         # Create multiple items
         for i in range(3):
@@ -165,7 +166,7 @@ class TestGetItemsBySource:
 
     def test_get_items_by_source_with_status_filter(self, item_service, test_source):
         """Test filtering items by status."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         # Create items
         item1 = item_service.create_item(
@@ -203,7 +204,7 @@ class TestGetItemsBySource:
 
     def test_get_items_by_source_pagination(self, item_service, test_source):
         """Test pagination of items."""
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
 
         # Create 5 items
         for i in range(5):
@@ -237,7 +238,7 @@ class TestUpdateItemStatus:
 
     def test_update_item_status(self, item_service, test_source):
         """Test updating item status."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         item = item_service.create_item(
             source_id=test_source.source_id,
@@ -255,7 +256,7 @@ class TestUpdateItemStatus:
 
     def test_update_item_status_with_quality_metrics(self, item_service, test_source):
         """Test updating item status with quality metrics."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         item = item_service.create_item(
             source_id=test_source.source_id,
@@ -284,7 +285,7 @@ class TestUpdateItemStatus:
 
     def test_update_item_status_partial_metrics(self, item_service, test_source):
         """Test updating item status with partial quality metrics."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         item = item_service.create_item(
             source_id=test_source.source_id,
@@ -315,7 +316,7 @@ class TestUpdateItemStatus:
 
     def test_update_item_status_all_statuses(self, item_service, test_source):
         """Test updating to all possible statuses."""
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
 
         statuses = ["NEW", "NORMALIZED", "MAPPED", "REJECTED"]
 
@@ -338,7 +339,7 @@ class TestGetPendingItems:
 
     def test_get_pending_items(self, item_service, test_source):
         """Test getting items pending normalization."""
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
 
         # Create multiple items
         for i in range(5):
@@ -363,7 +364,7 @@ class TestGetPendingItems:
 
     def test_get_pending_items_order(self, item_service, test_source):
         """Test that pending items are ordered by fetched_at ascending."""
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
 
         # Create items (they will be fetched in this order)
         items = []
@@ -387,7 +388,7 @@ class TestGetPendingItems:
 
     def test_get_pending_items_limit(self, item_service, test_source):
         """Test limit parameter for pending items."""
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
 
         # Create 10 items
         for i in range(10):

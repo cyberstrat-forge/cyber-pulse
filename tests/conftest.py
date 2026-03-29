@@ -20,8 +20,8 @@ os.environ["TEST_DATABASE_URL"] = os.environ.get(
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.orm import Session, sessionmaker
 
 from cyberpulse.database import Base
 

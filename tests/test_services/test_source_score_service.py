@@ -1,10 +1,11 @@
 """Tests for SourceScoreService."""
 
-import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from cyberpulse.models import Source, SourceTier, SourceStatus, Item, ItemStatus
-from cyberpulse.services import SourceScoreService, ScoreComponents
+import pytest
+
+from cyberpulse.models import Item, ItemStatus, Source, SourceStatus, SourceTier
+from cyberpulse.services import ScoreComponents, SourceScoreService
 
 
 @pytest.fixture
@@ -34,7 +35,7 @@ def test_source(db_session):
 @pytest.fixture
 def test_source_with_items(db_session, test_source):
     """Create a test source with items for scoring."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Create items across different days in the past 30 days
     items = []
@@ -90,7 +91,7 @@ class TestCalculateStability:
 
     def test_calculate_stability_high_frequency(self, db_session, source_score_service, test_source):
         """Test stability with daily updates."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Create items for each of the past 30 days
         for i in range(30):
@@ -135,7 +136,7 @@ class TestCalculateActivity:
 
     def test_calculate_activity_low_frequency(self, db_session, source_score_service, test_source):
         """Test activity with low update frequency."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Create only 3 items in past 7 days
         for i in range(3):
@@ -181,7 +182,7 @@ class TestCalculateQuality:
 
     def test_calculate_quality_no_metrics(self, db_session, source_score_service, test_source):
         """Test quality with items but no quality metrics."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Create items without quality metrics
         item = Item(
@@ -206,7 +207,7 @@ class TestCalculateQuality:
 
     def test_calculate_quality_mixed_metrics(self, db_session, source_score_service, test_source):
         """Test quality with mixed quality metrics."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Create items with different quality levels
         items = [
@@ -302,7 +303,7 @@ class TestUpdateTier:
 
     def test_update_tier_t0(self, db_session, source_score_service, test_source):
         """Test tier update to T0."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Create high-quality, high-frequency items across all 30 days
         # This ensures stability = 1.0 (30/30 distinct days)
@@ -342,7 +343,7 @@ class TestUpdateTier:
 
     def test_update_tier_t1(self, db_session, source_score_service, test_source):
         """Test tier update to T1."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Create moderate items for T1 range
         for i in range(10):
@@ -387,7 +388,7 @@ class TestUpdateTier:
         db_session.commit()
 
         # Create few low-quality items
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(2):
             fetched_at = now - timedelta(days=20 + i)
             item = Item(
@@ -452,7 +453,7 @@ class TestTierEvolution:
         db_session.commit()
 
         # Add high-quality items that would push it to T0/T1
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(35):
             days_ago = i // 2
             fetched_at = now - timedelta(days=days_ago, hours=i % 24)
@@ -496,7 +497,7 @@ class TestTierEvolution:
         db_session.commit()
 
         # Add low-quality items
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(2):
             fetched_at = now - timedelta(days=20 + i)
             item = Item(

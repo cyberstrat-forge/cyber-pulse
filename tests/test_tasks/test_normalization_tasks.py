@@ -1,7 +1,6 @@
 """Tests for normalization tasks."""
 
-import hashlib
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,8 +32,8 @@ def test_item(test_source):
         url="https://example.com/article/normalization-test",
         title="Test Article for Normalization",
         raw_content="<html><body><p>This is test content for normalization.</p></body></html>",
-        published_at=datetime.now(timezone.utc) - timedelta(hours=1),
-        fetched_at=datetime.now(timezone.utc),
+        published_at=datetime.now(UTC) - timedelta(hours=1),
+        fetched_at=datetime.now(UTC),
         status=ItemStatus.NEW,
         raw_metadata={"author": "Test Author", "tags": ["test"]},
     )
@@ -225,7 +224,9 @@ class TestNormalizeItemWithResult:
                 mock_service.normalize.side_effect = ValueError("Invalid content")
                 MockNormService.return_value = mock_service
 
-                from cyberpulse.tasks.normalization_tasks import normalize_item_with_result
+                from cyberpulse.tasks.normalization_tasks import (
+                    normalize_item_with_result,
+                )
 
                 result = normalize_item_with_result(test_item.item_id)
 
@@ -252,7 +253,9 @@ class TestNormalizeItemWithResult:
                 mock_service.normalize.side_effect = RuntimeError("Processing error")
                 MockNormService.return_value = mock_service
 
-                from cyberpulse.tasks.normalization_tasks import normalize_item_with_result
+                from cyberpulse.tasks.normalization_tasks import (
+                    normalize_item_with_result,
+                )
 
                 with pytest.raises(RuntimeError, match="Processing error"):
                     normalize_item_with_result(test_item.item_id)

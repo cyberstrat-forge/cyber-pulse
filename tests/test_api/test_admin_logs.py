@@ -1,13 +1,12 @@
 """Tests for Log Admin API."""
 
-import pytest
-from datetime import datetime, timezone, timedelta
 from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 
-from cyberpulse.api.main import app
 from cyberpulse.api.auth import get_current_client
+from cyberpulse.api.main import app
 from cyberpulse.models import ApiClient, ApiClientStatus
 
 

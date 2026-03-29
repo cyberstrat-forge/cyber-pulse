@@ -1,6 +1,8 @@
 # tests/test_models/test_source_fields.py
 """Tests for Source model fields."""
 
+from datetime import UTC
+
 from cyberpulse.models import Source, SourceStatus
 
 
@@ -23,7 +25,7 @@ class TestSourceFailureTracking:
 
     def test_source_has_last_error_at_field(self, db_session):
         """Test that Source has last_error_at field."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         source = Source(
             source_id="src_test02",
@@ -35,7 +37,7 @@ class TestSourceFailureTracking:
         db_session.commit()
 
         # Set last_error_at
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         source.last_error_at = now
         db_session.commit()
 

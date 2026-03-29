@@ -6,12 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from cyberpulse.services.normalization_service import NormalizationResult
 from cyberpulse.services.quality_gate_service import (
     QualityDecision,
     QualityGateService,
     QualityResult,
 )
-from cyberpulse.services.normalization_service import NormalizationResult
 
 
 @pytest.fixture

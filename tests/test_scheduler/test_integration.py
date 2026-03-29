@@ -1,9 +1,13 @@
 """Integration tests for scheduler-dramatiq connection."""
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy.orm import Session
 
-from cyberpulse.scheduler.jobs import collect_source, run_scheduled_collection, update_source_scores
+from cyberpulse.scheduler.jobs import (
+    collect_source,
+    run_scheduled_collection,
+    update_source_scores,
+)
 
 
 class TestCollectSource:
@@ -26,7 +30,7 @@ class TestRunScheduledCollection:
 
     def test_scheduled_collection_queues_active_sources(self, db_session: Session) -> None:
         """Test that only active sources are queued."""
-        from cyberpulse.models import Source, SourceTier, SourceStatus
+        from cyberpulse.models import Source, SourceStatus, SourceTier
         from cyberpulse.services import SourceService
 
         # Create test sources

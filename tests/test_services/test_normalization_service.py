@@ -3,8 +3,8 @@
 import pytest
 
 from cyberpulse.services.normalization_service import (
-    NormalizationService,
     NormalizationResult,
+    NormalizationService,
 )
 
 

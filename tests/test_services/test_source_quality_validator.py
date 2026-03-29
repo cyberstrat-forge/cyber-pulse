@@ -1,7 +1,9 @@
 """Tests for SourceQualityValidator."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from cyberpulse.services.source_quality_validator import (
     SourceQualityValidator,
     SourceValidationResult,

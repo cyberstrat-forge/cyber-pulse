@@ -1,10 +1,10 @@
 # tests/test_services/test_rss_discovery.py
 """Tests for RSS discovery service."""
 
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 
 
 class TestRSSDiscovery:

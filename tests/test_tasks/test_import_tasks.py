@@ -1,8 +1,8 @@
 """Tests for import_tasks module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from datetime import datetime
 
 from cyberpulse.models import Job, JobStatus, Source
 from cyberpulse.tasks.import_tasks import process_import_job
