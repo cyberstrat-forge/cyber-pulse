@@ -446,6 +446,12 @@ cmd_deploy() {
     print_step "服务状态:"
     $DOCKER_COMPOSE $compose_files ps
 
+    # 10. 获取并显示 Admin Key
+    echo ""
+    print_step "获取 Admin API Key..."
+    local admin_key
+    admin_key=$($DOCKER_COMPOSE $compose_files logs api 2>&1 | grep -o "cp_live_[a-f0-9]\{32\}" | tail -1)
+
     echo ""
     print_success "部署完成！"
     echo ""
@@ -455,10 +461,27 @@ cmd_deploy() {
     echo -e "  API:      ${CYAN}http://localhost:8000${NC}"
     echo -e "  API 文档: ${CYAN}http://localhost:8000/docs${NC}"
     echo ""
+
+    if [[ -n "$admin_key" ]]; then
+        echo -e "${GREEN}Admin API Key:${NC}"
+        echo -e "  ${YELLOW}${admin_key}${NC}"
+        echo ""
+        echo -e "${RED}  ⚠️  此 Key 仅显示一次，请立即保存！${NC}"
+        echo -e "  如需重置: ${CYAN}cyber-pulse.sh admin reset${NC}"
+        echo ""
+    else
+        echo -e "${YELLOW}Admin API Key:${NC}"
+        echo -e "  未在日志中找到 Admin Key（可能已存在旧 Key）"
+        echo -e "  获取方式: ${CYAN}cyber-pulse.sh admin get-key${NC}"
+        echo -e "  重置方式: ${CYAN}cyber-pulse.sh admin reset --force${NC}"
+        echo ""
+    fi
+
     echo -e "${YELLOW}常用命令:${NC}"
     echo -e "  查看状态: ${CYAN}cyber-pulse.sh status${NC}"
     echo -e "  查看日志: ${CYAN}cyber-pulse.sh logs${NC}"
     echo -e "  停止服务: ${CYAN}cyber-pulse.sh stop${NC}"
+    echo -e "  配置 API: ${CYAN}./scripts/api.sh configure${NC}"
 }
 
 # 打印 deploy 帮助
@@ -1159,10 +1182,14 @@ cmd_env() {
 
 cmd_admin() {
     local subcommand="${1:-help}"
+    shift || true
 
     case "$subcommand" in
         reset)
-            cmd_admin_reset
+            cmd_admin_reset "$@"
+            ;;
+        get-key)
+            cmd_admin_get_key "$@"
             ;;
         help|--help|-h)
             print_admin_help
@@ -1176,6 +1203,21 @@ cmd_admin() {
 }
 
 cmd_admin_reset() {
+    local force="false"
+
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force|-f)
+                force="true"
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
     print_header "Reset Admin API Key"
 
     # Check if service is running
@@ -1193,15 +1235,17 @@ cmd_admin_reset() {
         exit 1
     fi
 
-    # Warning prompt
-    print_warning "This will invalidate the current admin API key!"
-    print_warning "All clients using the old key will lose access."
-    echo ""
-    read -r -p "Are you sure you want to reset? (yes/no): " response
+    # Warning prompt (skip if --force)
+    if [[ "$force" != "true" ]]; then
+        print_warning "This will invalidate the current admin API key!"
+        print_warning "All clients using the old key will lose access."
+        echo ""
+        read -r -p "Are you sure you want to reset? (yes/no): " response
 
-    if [[ "$response" != "yes" ]]; then
-        print_info "Reset cancelled"
-        exit 0
+        if [[ "$response" != "yes" ]]; then
+            print_info "Reset cancelled"
+            exit 0
+        fi
     fi
 
     # Call API to reset admin key
@@ -1249,13 +1293,46 @@ finally:
     fi
 }
 
+# 获取现有 Admin Key（不重置）
+cmd_admin_get_key() {
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
+
+    cd "$DEPLOY_DIR"
+
+    # Check if API is running
+    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "running"; then
+        print_error "API service is not running"
+        exit 1
+    fi
+
+    # Check logs for admin key (first run only)
+    local key_from_logs
+    key_from_logs=$($DOCKER_COMPOSE $compose_files logs api 2>&1 | grep -o "cp_live_[a-f0-9]\{32\}" | tail -1)
+
+    if [[ -n "$key_from_logs" ]]; then
+        echo "$key_from_logs"
+        return 0
+    fi
+
+    # If no key in logs, need to reset
+    print_warning "No admin key found in logs. Use 'admin reset --force' to generate a new key."
+    return 1
+}
+
 print_admin_help() {
     echo ""
     echo "Admin commands:"
-    echo "  reset        Reset admin API key (old key becomes invalid)"
+    echo "  get-key           Get admin API key from logs (if available)"
+    echo "  reset [--force]   Reset admin API key (old key becomes invalid)"
+    echo "                    --force: skip confirmation prompt"
     echo ""
     echo "Examples:"
+    echo "  cyber-pulse.sh admin get-key"
     echo "  cyber-pulse.sh admin reset"
+    echo "  cyber-pulse.sh admin reset --force"
     echo ""
     echo "Note: Admin key is generated on first deployment and shown once."
     echo "      If lost, use 'reset' to generate a new key."

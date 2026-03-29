@@ -1,6 +1,6 @@
-# 本地测试环境部署指南（Worktree）
+# 本地测试环境部署指南
 
-本文档指导如何在 Git Worktree 环境中部署测试环境，用于 PR 验证和开发测试。
+本文档指导如何部署测试环境，用于 PR 验证和开发测试。
 
 ## 开发模式说明
 
@@ -16,144 +16,148 @@
 ## 前置条件
 
 - Docker 和 Docker Compose 已安装
-- 已 clone 主仓库
-- 有访问权限的 PR 分支
+- 已 clone 主仓库或 worktree
 
 ## 快速开始
 
 ```bash
-# 1. 进入 worktree 目录
-cd /Users/luoweirong/cyberstrat-forge/cyber-pulse/.worktrees/<branch-name>
-
-# 2. 停止并清理旧环境（重要：删除数据卷确保干净状态）
-./scripts/cyber-pulse.sh stop --env test
+# 1. 停止并清理旧环境（首次部署跳过此步骤）
+./scripts/cyber-pulse.sh stop
 docker volume rm deploy_postgres_data deploy_redis_data 2>/dev/null || true
 
-# 3. 本地构建并部署测试环境
-./scripts/cyber-pulse.sh deploy --env test --local
+# 2. 部署开发环境（本地构建）
+./scripts/cyber-pulse.sh deploy --env dev --local
+```
 
-# 4. 等待服务启动后，获取 Admin Key
-sleep 10
-docker logs deploy-api-1 2>&1 | grep -A2 "Admin API Key" | head -6
+部署成功后，终端会显示 **Admin API Key**，请立即保存！
 
-# 5. 配置 api.sh
-./scripts/api.sh configure
-# 输入 API URL: http://localhost:8000
-# 输入 Admin Key: cp_live_xxx（从步骤4获取）
+```bash
+# 3. 配置 API 管理（使用部署输出的 Key）
+./scripts/api.sh configure --url http://localhost:8000 --key cp_live_xxxxx
 
-# 6. 验证部署
+# 4. 验证部署
 ./scripts/api.sh diagnose
 ```
 
-> ⚠️ **重要提示**：步骤 2 中的 `docker volume rm` 命令会删除数据库和 Redis 的持久化数据。如果不执行此步骤，重新部署后将保留之前测试的所有数据（源、任务、API Key 等）。对于干净测试，请务必先删除数据卷。
+## 获取 Admin API Key
+
+Admin API Key 在首次部署时自动生成并显示在终端。如果需要重新获取：
+
+```bash
+# 方法 1：从日志获取（仅首次部署有效）
+./scripts/cyber-pulse.sh logs api 2>&1 | grep -o "cp_live_[a-f0-9]\{32\}" | tail -1
+
+# 方法 2：重置 Key（旧 Key 失效）
+./scripts/cyber-pulse.sh admin reset --force
+```
 
 ## 命令详解
 
 ### 部署命令
 
 ```bash
-# 本地构建部署（开发测试用，使用本地代码构建镜像）
+# 开发环境（本地构建，支持热重载）
+./scripts/cyber-pulse.sh deploy --env dev --local
+
+# 测试环境（本地构建）
 ./scripts/cyber-pulse.sh deploy --env test --local
 
-# 远程镜像部署（运维人员用，从镜像仓库拉取）
-./scripts/cyber-pulse.sh deploy --env test
+# 使用远程镜像（运维模式）
+./scripts/cyber-pulse.sh deploy --env prod
 ```
 
-### 管理命令
+### 服务管理
 
 ```bash
-# 查看服务状态
+# 查看状态
 ./scripts/cyber-pulse.sh status
 
 # 查看日志
 ./scripts/cyber-pulse.sh logs [api|worker|scheduler|postgres|redis]
 
 # 停止服务
-./scripts/cyber-pulse.sh stop --env test
+./scripts/cyber-pulse.sh stop
 
 # 重启服务
-./scripts/cyber-pulse.sh restart --env test
+./scripts/cyber-pulse.sh restart
 ```
 
 ### 版本显示
 
 ```bash
-# 在 main 分支
-./scripts/cyber-pulse.sh status
-# 显示版本: v1.5.0
+# 查看当前版本
+cat .version
 
-# 在特性分支
-./scripts/cyber-pulse.sh status
-# 显示版本: feature/auth@abc1234
+# 在 main 分支: v1.5.0
+# 在特性分支: feature/auth@abc1234
 ```
 
-### API 管理命令
+### API 管理
 
 ```bash
-# 配置 API 连接
+# 配置 API 连接（交互式）
 ./scripts/api.sh configure
+
+# 配置 API 连接（非交互式）
+./scripts/api.sh configure --url http://localhost:8000 --key cp_live_xxx
 
 # 系统诊断
 ./scripts/api.sh diagnose
 
 # 情报源管理
 ./scripts/api.sh sources list
-./scripts/api.sh sources create --name "名称" --type rss --url "RSS_URL" --tier T0
-./scripts/api.sh sources get <source_id>
-./scripts/api.sh sources delete <source_id>   # 软删除
-./scripts/api.sh sources cleanup              # 物理删除已删除的源
+./scripts/api.sh sources create --name "名称" --type rss --url "URL" --tier T0
+./scripts/api.sh sources test <source_id>
 
 # 任务管理
 ./scripts/api.sh jobs list
-./scripts/api.sh jobs get <job_id>
-./scripts/api.sh jobs delete <job_id>         # 删除失败任务
-./scripts/api.sh jobs retry <job_id>          # 重试失败任务
-./scripts/api.sh jobs cleanup --days 30       # 清理旧任务
+./scripts/api.sh jobs run <source_id>
 
 # 客户端管理
 ./scripts/api.sh clients list
 ```
 
+## 清理环境
+
+```bash
+# 停止服务
+./scripts/cyber-pulse.sh stop
+
+# 删除数据卷（清空数据库和 Redis）
+docker volume rm deploy_postgres_data deploy_redis_data
+
+# 完全清理（包括镜像）
+docker rmi cyber-pulse:dev 2>/dev/null || true
+docker image prune -f
+```
+
 ## 常见问题
 
-### 1. 数据库迁移失败
+### 1. Admin Key 未显示
+
+**症状**: 部署完成但未看到 Admin Key
+
+**原因**: 数据卷保留了旧数据，admin client 已存在
+
+**解决**:
+```bash
+# 重置 Admin Key
+./scripts/cyber-pulse.sh admin reset --force
+```
+
+### 2. 数据库迁移失败
 
 **症状**: 容器日志显示迁移错误
 
 **解决**:
 ```bash
-# 完全清理数据库 volume 后重新部署
-./scripts/cyber-pulse.sh stop --env test
+# 完全清理后重新部署
+./scripts/cyber-pulse.sh stop
 docker volume rm deploy_postgres_data deploy_redis_data
-./scripts/cyber-pulse.sh deploy --env test --local
+./scripts/cyber-pulse.sh deploy --env dev --local
 ```
 
-### 2. Git Worktree 检查失败
-
-**症状**: `check-deps.sh` 报告 "不是 Git 仓库"
-
-**解决**: 确保 `deploy/init/check-deps.sh` 包含 worktree 支持：
-```bash
-if [[ -d "$PROJECT_ROOT/.git" ]] || [[ -f "$PROJECT_ROOT/.git" ]]; then
-```
-
-### 3. Admin Key 未显示
-
-**症状**: 日志中没有 Admin Key
-
-**解决**:
-```bash
-# 检查数据库中是否有 admin client
-docker exec deploy-postgres-1 psql -U cyberpulse -d cyberpulse \
-  -c "SELECT client_id, name FROM api_clients WHERE permissions @> '[\"admin\"]';"
-
-# 如果没有，重启 API 容器触发创建
-docker restart deploy-api-1
-sleep 5
-docker logs deploy-api-1 2>&1 | grep -A2 "Admin API Key"
-```
-
-### 4. 端口冲突
+### 3. 端口冲突
 
 **症状**: 部署时端口已被占用
 
@@ -168,6 +172,21 @@ lsof -i :6379
 docker stop <container_name>
 ```
 
+### 4. API 认证失败
+
+**症状**: `./scripts/api.sh diagnose` 返回 "Invalid or expired API key"
+
+**解决**:
+```bash
+# 1. 确认配置正确
+cat ~/.config/cyber-pulse/config
+
+# 2. 重置 Key 并更新配置
+./scripts/cyber-pulse.sh admin reset --force
+# 复制新 Key
+./scripts/api.sh configure --url http://localhost:8000 --key <new_key>
+```
+
 ## 验证清单
 
 部署完成后，执行以下验证：
@@ -180,43 +199,16 @@ curl http://localhost:8000/health
 ./scripts/api.sh diagnose
 
 # 3. 创建测试源
-curl -X POST -H "Authorization: Bearer <admin_key>" -H "Content-Type: application/json" \
-  -d '{"name": "Test Source", "connector_type": "rss", "config": {"feed_url": "https://example.com/feed.xml"}}' \
-  http://localhost:8000/api/v1/admin/sources
+./scripts/api.sh sources create --name "Test" --type rss --url "https://example.com/feed.xml"
 
-# 4. 触发采集并检查结果
-# ... 使用 jobs API
-```
-
-## 清理环境
-
-```bash
-# 停止服务并清理数据
-./scripts/cyber-pulse.sh stop --env test
-docker volume rm deploy_postgres_data deploy_redis_data
-
-# 完全清理（包括镜像）
-docker rmi cyber-pulse:test 2>/dev/null || true
-docker image prune -f
-```
-
-## 目录结构
-
-```
-.worktrees/<branch-name>/
-├── scripts/
-│   ├── cyber-pulse.sh      # 部署管理脚本
-│   └── api.sh              # API 管理脚本
-├── deploy/
-│   ├── docker-compose.yml
-│   ├── docker-compose.test.yml
-│   ├── docker-compose.local.yml
-│   └── .env                # 生成的配置文件
-├── alembic/versions/       # 数据库迁移
-└── src/cyberpulse/         # 源代码
+# 4. 运行采集任务
+./scripts/api.sh jobs run <source_id>
 ```
 
 ## 配置文件
 
-- **API 配置**: `~/.config/cyber-pulse/config` (由 api.sh configure 生成)
-- **部署配置**: `deploy/.env` (由 cyber-pulse.sh deploy 生成)
+| 文件 | 说明 |
+|------|------|
+| `~/.config/cyber-pulse/config` | API 管理配置（api.sh） |
+| `deploy/.env` | 部署配置（数据库密码等） |
+| `.version` | 版本追踪文件 |
