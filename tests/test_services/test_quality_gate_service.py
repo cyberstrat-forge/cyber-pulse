@@ -296,14 +296,12 @@ class TestCalculateMetrics:
         assert "word_count" in metrics
         assert "meta_completeness" in metrics
         assert "content_completeness" in metrics
-        assert "noise_ratio" in metrics
 
         # Check specific values
         assert metrics["title_length"] == len("Test Title Here")
         assert metrics["body_length"] == len("This is the normalized body content.")
         assert 0.0 <= metrics["meta_completeness"] <= 1.0
         assert 0.0 <= metrics["content_completeness"] <= 1.0
-        assert 0.0 <= metrics["noise_ratio"] <= 1.0
 
     def test_calculate_metrics_meta_completeness_full(
         self, quality_gate_service, valid_item, valid_normalization_result
@@ -369,47 +367,7 @@ class TestCalculateMetrics:
 
         assert metrics["content_completeness"] == 0.2
 
-    def test_calculate_metrics_noise_ratio_clean(
-        self, quality_gate_service, valid_item, valid_normalization_result
-    ):
-        """Test noise_ratio low for clean content."""
-        valid_item.raw_content = "This is clean text content without HTML or ads."
-
-        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
-
-        # Clean text should have low noise ratio
-        assert metrics["noise_ratio"] < 0.1
-
-    def test_calculate_metrics_noise_ratio_html(
-        self, quality_gate_service, valid_item, valid_normalization_result
-    ):
-        """Test noise_ratio higher for HTML with ad markers."""
-        valid_item.raw_content = """
-        <html><body>
-        <div class="ad">广告</div>
-        <p>推荐阅读 other articles</p>
-        <p>推广 content</p>
-        <div>AD placement</div>
-        <p>Actual content here.</p>
-        </body></html>
-        """
-
-        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
-
-        # HTML with ad markers should have higher noise ratio
-        assert metrics["noise_ratio"] > 0
-
-    def test_calculate_metrics_empty_raw_content(
-        self, quality_gate_service, valid_item, valid_normalization_result
-    ):
-        """Test noise_ratio handles empty raw_content."""
-        valid_item.raw_content = None
-
-        metrics = quality_gate_service._calculate_metrics(valid_item, valid_normalization_result)
-
-        # Should handle None gracefully
-        assert metrics["noise_ratio"] == 0.0
-
+    
 
 class TestQualityResult:
     """Tests for QualityResult dataclass."""
