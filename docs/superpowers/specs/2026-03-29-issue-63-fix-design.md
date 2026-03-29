@@ -35,8 +35,12 @@
 | `models/item.py` | 删除 `noise_ratio` 字段 |
 | `services/quality_gate_service.py` | 删除 `_calculate_noise_ratio()` 方法，删除 `AD_MARKERS` 常量 |
 | `services/quality_gate_service.py` | `_calculate_metrics()` 中移除 noise_ratio 计算 |
-| `tasks/quality_tasks.py` | 删除 `noise_ratio` 赋值 |
-| `api/schemas/item.py` | 删除 `noise_ratio` 字段（如存在） |
+| `services/item_service.py` | 删除 `noise_ratio` 赋值（`update_item_status` 方法） |
+| `services/source_score_service.py` | 删除 `QUALITY_WEIGHTS["noise_ratio"]`，更新质量计算公式为 50/50 |
+| `services/source_score_service.py` | `calculate_quality()` 中移除 noise_ratio 查询条件和计算 |
+| `api/routers/items.py` | 更新 `calculate_completeness_score()` 函数，移除 noise_ratio |
+| `tasks/quality_tasks.py` | 删除 `noise_ratio` 赋值（`_handle_pass` 和 `_handle_reject`） |
+| `api/schemas/item.py` | 无需修改（schema 不包含 noise_ratio） |
 
 **数据库迁移**: 需要 Alembic 迁移删除列
 
@@ -52,8 +56,9 @@
 |------|------|
 | `services/normalization_service.py` | 删除 `_detect_language()` 方法，删除 `NormalizationResult.language` 字段 |
 | `services/normalization_service.py` | `normalize()` 方法中移除语言检测调用 |
-| `tasks/normalization_tasks.py` | 删除 `item.language` 赋值（2处），删除日志中的 language 输出 |
+| `tasks/normalization_tasks.py` | 删除 `item.language` 赋值（2处），删除日志中的 language 输出，删除 task 返回值中的 language |
 | `tasks/quality_tasks.py` | 删除 `language` 参数，删除 `item.language` 赋值，删除 `NormalizationResult` 中的 language 传递 |
+| `tests/test_integration/test_e2e.py` | 删除所有 language 相关断言和赋值 |
 
 **影响**: 修复 #80 中的 2 个 mypy 错误
 
@@ -123,6 +128,24 @@ def get_browser_headers(custom: dict | None = None) -> dict[str, str]:
 
 ---
 
+### 5. 质量评分公式更新
+
+**当前公式**:
+```
+quality = meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
+```
+
+**新公式（移除 noise_ratio 后）**:
+```
+quality = meta_completeness * 0.5 + content_completeness * 0.5
+```
+
+**变更位置**:
+- `services/source_score_service.py` - `QUALITY_WEIGHTS` 和 `calculate_quality()` 方法
+- `api/routers/items.py` - `calculate_completeness_score()` 函数
+
+---
+
 ## 文件变更清单
 
 ### 必须修改
@@ -130,14 +153,26 @@ def get_browser_headers(custom: dict | None = None) -> dict[str, str]:
 | 文件 | 变更类型 | 说明 |
 |------|----------|------|
 | `models/item.py` | 删除字段 | 删除 `noise_ratio` |
-| `services/quality_gate_service.py` | 删除方法 | 删除 `_calculate_noise_ratio()`、`AD_MARKERS` |
-| `services/normalization_service.py` | 删除方法 | 删除 `_detect_language()`、`language` 字段 |
-| `tasks/normalization_tasks.py` | 删除代码 | 删除 language 相关赋值 |
+| `services/quality_gate_service.py` | 删除方法/常量 | 删除 `_calculate_noise_ratio()`、`AD_MARKERS`，更新 `_calculate_metrics()` |
+| `services/item_service.py` | 删除代码 | 删除 `update_item_status` 中的 noise_ratio 赋值 |
+| `services/source_score_service.py` | 修改常量/方法 | 更新 `QUALITY_WEIGHTS`，更新 `calculate_quality()` 公式 |
+| `api/routers/items.py` | 修改函数 | 更新 `calculate_completeness_score()` |
+| `services/normalization_service.py` | 删除方法/字段 | 删除 `_detect_language()`、`NormalizationResult.language` |
+| `tasks/normalization_tasks.py` | 删除代码 | 删除 language 相关赋值和日志 |
 | `tasks/quality_tasks.py` | 删除代码 | 删除 language 参数和赋值、noise_ratio 赋值 |
 | `services/http_headers.py` | 新建 | 共享请求头模块 |
 | `services/rss_connector.py` | 修改 | 使用共享请求头 |
 | `services/web_connector.py` | 修改 | 使用共享请求头 |
 | `services/full_content_fetch_service.py` | 修改 | 使用共享请求头 |
+
+### 测试文件更新
+
+| 文件 | 变更类型 | 说明 |
+|------|----------|------|
+| `tests/test_services/test_quality_gate_service.py` | 删除测试 | 移除 noise_ratio 相关测试 |
+| `tests/test_services/test_item_service.py` | 删除断言 | 移除 noise_ratio 相关断言 |
+| `tests/test_services/test_source_score_service.py` | 更新测试 | 更新质量计算测试数据 |
+| `tests/test_integration/test_e2e.py` | 删除代码 | 移除 language 相关断言和赋值 |
 
 ### 数据库迁移
 
@@ -153,7 +188,10 @@ uv run alembic revision --autogenerate -m "remove noise_ratio from items"
 ### 单元测试
 
 - 更新 `test_quality_gate_service.py`：移除 noise_ratio 相关测试
+- 更新 `test_item_service.py`：移除 noise_ratio 相关断言
+- 更新 `test_source_score_service.py`：更新质量计算测试（50/50 公式）
 - 更新 `test_normalization_service.py`：移除 language 相关测试
+- 更新 `test_e2e.py`：移除 language 相关断言
 
 ### 集成测试
 
@@ -161,16 +199,18 @@ uv run alembic revision --autogenerate -m "remove noise_ratio from items"
 2. 创建测试源，验证采集成功
 3. 检查 API 响应不再包含 `noise_ratio` 字段
 4. 检查日志无 language 相关错误
+5. 验证质量评分计算正确（50/50）
 
 ---
 
 ## 风险与缓解
 
-| 风险 | 影响 | 缓解措施 |
+| 险 | 影响 | 缓解措施 |
 |------|------|---------|
 | 数据库迁移失败 | 服务不可用 | 先备份数据库，使用 `alembic check` 验证 |
 | API 响应格式变更 | 下游消费者受影响 | `noise_ratio` 为可选字段，删除不影响现有解析 |
 | 请求头变更被检测 | 采集失败 | 统一使用 Chrome UA，与主流浏览器一致 |
+| 质量评分公式变更 | 现有数据评分变化 | 新公式仍为 0-1 范围，影响可控 |
 
 ---
 
@@ -189,3 +229,4 @@ uv run alembic revision --autogenerate -m "remove noise_ratio from items"
 - ✅ 采集兼容性提升
 - ✅ 修复 #80 中的 2 个 mypy 错误
 - ✅ 数据模型与代码一致
+- ✅ 质量评分公式更简洁可靠
