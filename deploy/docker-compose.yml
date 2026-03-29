@@ -33,6 +33,11 @@ services:
 
   api:
     image: crpi-tuxci06y0zyoionf.cn-guangzhou.personal.cr.aliyuncs.com/cyberstrat-forge/cyber-pulse:${CYBER_PULSE_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
@@ -52,6 +57,11 @@ services:
 
   worker:
     image: crpi-tuxci06y0zyoionf.cn-guangzhou.personal.cr.aliyuncs.com/cyberstrat-forge/cyber-pulse:${CYBER_PULSE_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
@@ -66,9 +76,21 @@ services:
         condition: service_healthy
     restart: unless-stopped
     command: dramatiq cyberpulse.tasks --processes 1 --threads 2
+    # Worker 使用进程检查而非 HTTP 健康检查
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'dramatiq' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   scheduler:
     image: crpi-tuxci06y0zyoionf.cn-guangzhou.personal.cr.aliyuncs.com/cyberstrat-forge/cyber-pulse:${CYBER_PULSE_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-latest}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
@@ -83,6 +105,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
     command: python -m cyberpulse.scheduler.main
+    # Scheduler 使用进程检查而非 HTTP 健康检查
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'cyberpulse.scheduler' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data:

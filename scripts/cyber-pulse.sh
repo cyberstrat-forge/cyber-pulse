@@ -396,6 +396,13 @@ cmd_deploy() {
     cd "$DEPLOY_DIR"
     if [[ "$use_local" == "true" ]]; then
         print_step "构建本地 Docker 镜像..."
+
+        # 获取版本用于构建
+        local build_version
+        build_version=$(git -C "$PROJECT_ROOT" describe --tags --always 2>/dev/null || echo "latest")
+        export APP_VERSION="$build_version"
+        print_info "构建版本: $build_version"
+
         $DOCKER_COMPOSE $compose_files build
 
         # 清理悬空镜像（构建产生的旧版本）
