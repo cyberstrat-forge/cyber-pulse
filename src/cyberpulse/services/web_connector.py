@@ -13,6 +13,7 @@ import trafilatura
 
 from .base import SSRFError, validate_url_for_ssrf
 from .connector_service import BaseConnector, ConnectorError
+from .http_headers import get_browser_headers
 
 logger = logging.getLogger(__name__)
 
@@ -257,14 +258,12 @@ class WebScraperConnector(BaseConnector):
         Returns:
             Dictionary of headers
         """
-        headers = {
-            "User-Agent": self.config.get(
-                "user_agent",
-                "Mozilla/5.0 (compatible; CyberPulseBot/1.0; +https://github.com/cyberstrat-forge/cyber-pulse)",
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-        }
+        # Use shared browser headers as base
+        headers = get_browser_headers()
+
+        # Allow config override for user_agent
+        if user_agent := self.config.get("user_agent"):
+            headers["User-Agent"] = user_agent
 
         # Add custom headers from config
         custom_headers = self.config.get("headers", {})

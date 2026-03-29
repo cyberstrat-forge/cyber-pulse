@@ -713,8 +713,9 @@ class TestWebScraperConnectorHelpers:
         headers = connector._build_headers()
 
         assert "User-Agent" in headers
-        assert "CyberPulseBot" in headers["User-Agent"]
+        assert "Mozilla" in headers["User-Agent"]  # Browser-like UA from shared module
         assert "Accept" in headers
+        assert "Accept-Language" in headers
 
     def test_build_headers_custom(self):
         """Test building headers with custom values."""
