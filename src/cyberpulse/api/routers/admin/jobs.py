@@ -19,6 +19,7 @@ from ...schemas.job import (
     JobDeleteResponse,
     JobListResponse,
     JobResponse,
+    JobRetryResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -221,6 +222,36 @@ async def delete_job(
     try:
         result = service.delete_job(job_id)
         return JobDeleteResponse(deleted=result["deleted"])
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404 if "not found" in str(e).lower() else 400,
+            detail=str(e)
+        )
+
+
+@router.post("/jobs/{job_id}/retry", response_model=JobRetryResponse)
+async def retry_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> JobRetryResponse:
+    """Retry a FAILED job.
+
+    Resets the job state and dispatches the appropriate Dramatiq task.
+    Maximum 3 retries allowed per job.
+    """
+    validate_job_id(job_id)
+
+    from ....services.job_lifecycle_service import JobLifecycleService
+
+    service = JobLifecycleService(db)
+    try:
+        result = service.retry_job(job_id)
+        return JobRetryResponse(
+            job_id=result["job_id"],
+            status=result["status"],
+            retry_count=result["retry_count"],
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=404 if "not found" in str(e).lower() else 400,
