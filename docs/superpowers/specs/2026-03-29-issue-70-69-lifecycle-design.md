@@ -93,6 +93,7 @@ def retry_job(job_id: str) -> dict:
         raise HTTPException(400, f"Job exceeded max retries ({MAX_RETRIES})")
 
     # Dispatch correct task based on job type
+    # NOTE: IMPORT jobs have no source_id, only file_name
     if job.type == JobType.INGEST:
         ingest_source.send(job.source_id, job_id=job.job_id)
     elif job.type == JobType.IMPORT:
@@ -112,7 +113,11 @@ def retry_job(job_id: str) -> dict:
     return {"job_id": job_id, "status": "PENDING", "retry_count": job.retry_count}
 ```
 
-**Key decision**: Use Dramatiq `.send()` for async execution (existing pattern).
+**Key decisions**:
+- Use Dramatiq `.send()` for async execution (existing pattern)
+- IMPORT jobs have no `source_id` - only `file_name` is used
+- INGEST jobs call `ingest_source(source_id, job_id)`
+- IMPORT jobs call `process_import_job(job_id)`
 
 ---
 
@@ -146,6 +151,10 @@ def cleanup_jobs(days: int = 30, status: JobStatus = JobStatus.COMPLETED) -> dic
 
 **Endpoint**: `POST /admin/sources/cleanup`
 
+**Relationship with existing DELETE /admin/sources/{source_id}**:
+- `DELETE /admin/sources/{source_id}`: Soft delete - sets `status = REMOVED` (already implemented)
+- `POST /admin/sources/cleanup`: Physical delete - removes REMOVED sources from database
+
 **Logic** (cascade deletion in correct order):
 
 ```python
@@ -161,13 +170,14 @@ def cleanup_sources() -> dict:
 
     for source in removed_sources:
         # Order matters: FK constraints require children deleted first
-        # 1. Delete items (items.source_id → sources.source_id)
+        # 1. Delete items (items.source_id → sources.source_id, NOT NULL)
         items_result = session.execute(
             delete(Item).where(Item.source_id == source.source_id)
         )
         deleted_items += items_result.rowcount
 
-        # 2. Delete jobs (jobs.source_id → sources.source_id)
+        # 2. Delete jobs with this source_id (jobs.source_id is nullable)
+        # NOTE: IMPORT jobs have no source_id, they are not affected
         jobs_result = session.execute(
             delete(Job).where(Job.source_id == source.source_id)
         )
@@ -186,7 +196,10 @@ def cleanup_sources() -> dict:
     }
 ```
 
-**Why manual cascade**: Database FK constraints have no `ON DELETE CASCADE`, requiring explicit deletion order.
+**Why manual cascade**:
+- Database FK constraints have no `ON DELETE CASCADE`
+- `items.source_id` is NOT NULL - must delete items before source
+- `jobs.source_id` is nullable - IMPORT jobs have no source_id
 
 ---
 
@@ -216,20 +229,56 @@ Follow existing `api.sh` patterns:
 ## Files to Modify/Create
 
 ### New Files
-- `src/cyberpulse/services/job_lifecycle_service.py` - Job lifecycle operations
-- `src/cyberpulse/services/source_cleanup_service.py` - Source cleanup
+- `src/cyberpulse/services/job_lifecycle_service.py` - Job lifecycle operations (delete, retry, cleanup)
 
 ### Modified Files
 - `src/cyberpulse/api/routers/admin/jobs.py` - Add delete, retry, cleanup endpoints
 - `src/cyberpulse/api/routers/admin/sources.py` - Add cleanup endpoint
 - `scripts/api.sh` - Add new CLI commands
-- `src/cyberpulse/api/schemas/job.py` - Add response schemas
+- `src/cyberpulse/api/schemas/job.py` - Add response schemas for new endpoints
 
 ### Test Files
-- `tests/test_services/test_job_lifecycle_service.py`
-- `tests/test_services/test_source_cleanup_service.py`
-- `tests/test_api/test_admin_jobs.py` - Extend existing tests
-- `tests/test_api/test_admin_sources.py` - Extend existing tests
+- `tests/test_services/test_job_lifecycle_service.py` - New test file
+- `tests/test_api/test_admin_jobs.py` - Extend existing tests with delete/retry/cleanup
+
+---
+
+## Code Review Findings
+
+Based on actual codebase review (2026-03-29):
+
+### Job Model (`src/cyberpulse/models/job.py`)
+- `JobStatus`: PENDING, RUNNING, COMPLETED, FAILED
+- `JobType`: INGEST, IMPORT
+- `source_id` is nullable (IMPORT jobs have no source)
+- `file_name` used for IMPORT jobs
+- `retry_count`, `error_type`, `error_message` exist
+
+### Source Model (`src/cyberpulse/models/source.py`)
+- `SourceStatus`: ACTIVE, FROZEN, REMOVED
+- `jobs` relationship defined
+
+### Item Model (`src/cyberpulse/models/item.py`)
+- `source_id` FK is NOT NULL
+- Content model removed - normalized content stored in Item
+
+### Foreign Key Constraints (alembic migrations)
+- `items.source_id → sources.source_id` (NOT NULL, no CASCADE)
+- `jobs.source_id → sources.source_id` (nullable, no CASCADE)
+- **No ON DELETE CASCADE** - requires manual deletion order
+
+### Existing Task Functions
+- `ingest_source(source_id: str, job_id: str | None = None)` - for INGEST retry
+- `process_import_job(job_id: str)` - for IMPORT retry
+
+### Existing API Patterns
+- `/admin/jobs` - list, create, get already implemented
+- `/admin/sources/{source_id}` - delete is soft delete (sets status=REMOVED)
+- Auth: `require_permissions(["admin"])`
+
+### Existing CLI Patterns (`scripts/api.sh`)
+- `jobs list`, `jobs get`, `jobs run` implemented
+- `sources delete` implemented (soft delete)
 
 ---
 
