@@ -84,6 +84,15 @@ class JobLifecycleService:
         if job.retry_count >= MAX_RETRIES:
             raise ValueError(f"Job exceeded max retries ({MAX_RETRIES})")
 
+        # Reset job state first (before dispatching task to avoid race condition)
+        job.status = JobStatus.PENDING
+        job.retry_count += 1
+        job.error_type = None
+        job.error_message = None
+        job.started_at = None
+        job.completed_at = None
+        self.db.commit()
+
         # Dispatch appropriate task based on job type
         if job.type == JobType.INGEST:
             if not job.source_id:
@@ -100,15 +109,6 @@ class JobLifecycleService:
             logger.info(f"Dispatched process_import_job for job {job_id}")
         else:
             raise ValueError(f"Unsupported job type: {job.type.value}")
-
-        # Reset job state
-        job.status = JobStatus.PENDING
-        job.retry_count += 1
-        job.error_type = None
-        job.error_message = None
-        job.started_at = None
-        job.completed_at = None
-        self.db.commit()
 
         logger.info(f"Job {job_id} queued for retry (attempt {job.retry_count})")
 
@@ -132,7 +132,7 @@ class JobLifecycleService:
         Returns:
             Dict with deleted_count and threshold_days.
         """
-        threshold = datetime.now(UTC) - timedelta(days=days)
+        threshold = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
 
         stmt = delete(Job).where(
             Job.status == status,
