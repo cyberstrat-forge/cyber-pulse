@@ -108,6 +108,12 @@ sources: []
 EOF
     fi
 
+    # 创建 .version 文件
+    if [[ -n "$VERSION" ]]; then
+        echo "$VERSION" > "$TEMP_DIR/cyber-pulse/.version"
+        print_info "创建 .version 文件: $VERSION"
+    fi
+
     print_success "文件复制完成"
 }
 

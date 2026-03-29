@@ -99,6 +99,137 @@ die() {
     exit 1
 }
 
+# ============================================
+# 模式检测函数
+# ============================================
+
+# 检测是否为 git 仓库（支持 worktree）
+is_git_repo() {
+    [[ -d "$PROJECT_ROOT/.git" ]] || [[ -f "$PROJECT_ROOT/.git" ]]
+}
+
+# 检测运行模式
+detect_mode() {
+    if [[ -n "${CYBER_PULSE_MODE:-}" ]]; then
+        echo "$CYBER_PULSE_MODE"
+        return
+    fi
+    if is_git_repo; then
+        echo "developer"
+    else
+        echo "ops"
+    fi
+}
+
+# 获取当前版本
+get_current_version() {
+    local mode
+    mode=$(detect_mode)
+
+    case "$mode" in
+        developer)
+            local branch
+            branch=$(git -C "$PROJECT_ROOT" branch --show-current 2>/dev/null || echo "")
+            if [[ -n "$branch" && "$branch" != "main" && "$branch" != "master" ]]; then
+                local commit
+                commit=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+                echo "$branch@$commit"
+                return
+            fi
+            local git_version
+            git_version=$(git -C "$PROJECT_ROOT" describe --tags --always 2>/dev/null || echo "")
+            if [[ -n "$git_version" ]]; then
+                echo "$git_version"
+                return
+            fi
+            ;;
+    esac
+
+    # 共同 fallback 路径
+    if [[ -f "$PROJECT_ROOT/.version" ]]; then
+        local version_content
+        version_content=$(cat "$PROJECT_ROOT/.version" 2>/dev/null)
+        if [[ -n "$version_content" && "$version_content" != "" ]]; then
+            echo "$version_content"
+            return
+        fi
+    fi
+
+    local api_version
+    api_version=$(curl -s localhost:8000/health 2>/dev/null | jq -r '.version' 2>/dev/null)
+    if [[ -n "$api_version" && "$api_version" != "null" ]]; then
+        echo "$api_version"
+        return
+    fi
+
+    echo "unknown"
+}
+
+# 获取最新版本
+get_latest_version() {
+    local response tag curl_exit curl_stderr
+    curl_stderr=$(curl -sf https://api.github.com/repos/cyberstrat-forge/cyber-pulse/releases/latest 2>&1) || curl_exit=$?
+    if [[ -n "${curl_exit:-}" && "${curl_exit:-0}" -ne 0 ]]; then
+        case "${curl_exit:-0}" in
+            6) echo "error:DNS解析失败，请检查网络连接" ;;
+            7) echo "error:无法连接到GitHub，请检查网络" ;;
+            22) echo "error:HTTP错误，可能是GitHub限流，请稍后重试" ;;
+            28) echo "error:请求超时，请检查网络连接" ;;
+            *) echo "error:网络请求失败(code=${curl_exit}): $curl_stderr" ;;
+        esac
+        return 1
+    fi
+    response="$curl_stderr"
+    if [[ -z "$response" ]]; then
+        echo "error:响应为空"
+        return 1
+    fi
+    tag=$(echo "$response" | jq -r '.tag_name' 2>/dev/null)
+    if [[ -z "$tag" || "$tag" == "null" ]]; then
+        echo "error:解析失败"
+        return 1
+    fi
+    echo "$tag"
+}
+
+# 版本比较函数
+version_compare() {
+    local current="$1"
+    local latest="$2"
+    current=${current#v}
+    latest=${latest#v}
+    if [[ "$current" == "$latest" ]]; then
+        return 0
+    fi
+    local sorted
+    sorted=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+    if [[ "$sorted" == "$current" ]]; then
+        return 1
+    else
+        return 2
+    fi
+}
+
+version_lt() {
+    version_compare "$1" "$2"
+    [[ $? -eq 2 ]]
+}
+
+# 写入 .version 文件
+write_version_file() {
+    local mode version
+    mode=$(detect_mode)
+
+    if [[ "$mode" == "developer" ]]; then
+        version=$(git -C "$PROJECT_ROOT" describe --tags --always 2>/dev/null || echo "unknown")
+    else
+        version="${CYBER_PULSE_VERSION:-latest}"
+    fi
+
+    echo "$version" > "$PROJECT_ROOT/.version"
+    print_info "版本信息已写入: .version ($version)"
+}
+
 # 检查 Docker 是否可用
 check_docker() {
     if ! command -v docker &>/dev/null; then
@@ -276,6 +407,13 @@ cmd_deploy() {
     cd "$DEPLOY_DIR"
     if [[ "$use_local" == "true" ]]; then
         print_step "构建本地 Docker 镜像..."
+
+        # 获取版本用于构建
+        local build_version
+        build_version=$(git -C "$PROJECT_ROOT" describe --tags --always 2>/dev/null || echo "latest")
+        export APP_VERSION="$build_version"
+        print_info "构建版本: $build_version"
+
         $DOCKER_COMPOSE $compose_files build
 
         # 清理悬空镜像（构建产生的旧版本）
@@ -306,15 +444,24 @@ cmd_deploy() {
     if $DOCKER_COMPOSE $compose_files exec -T api alembic upgrade head; then
         print_success "数据库迁移完成"
     else
-        print_error "数据库迁移失败，请检查日志"
+        print_error "数据库迁移失败"
         print_info "查看日志: cyber-pulse.sh logs api"
-        # 不退出，因为 entrypoint 会自动重试迁移
-        print_warning "服务将继续启动，迁移可能已在 entrypoint 中完成"
+        print_warning "entrypoint 可能会自动重试迁移，但建议手动检查"
+        # 继续启动服务，允许用户检查迁移状态
     fi
 
-    # 8. 显示状态
+    # 8. 写入版本文件
+    write_version_file
+
+    # 9. 显示状态
     print_step "服务状态:"
     $DOCKER_COMPOSE $compose_files ps
+
+    # 10. 获取并显示 Admin Key
+    echo ""
+    print_step "获取 Admin API Key..."
+    local admin_key
+    admin_key=$($DOCKER_COMPOSE $compose_files logs api 2>&1 | grep -o "cp_live_[a-f0-9]\{32\}" | tail -1)
 
     echo ""
     print_success "部署完成！"
@@ -325,10 +472,27 @@ cmd_deploy() {
     echo -e "  API:      ${CYAN}http://localhost:8000${NC}"
     echo -e "  API 文档: ${CYAN}http://localhost:8000/docs${NC}"
     echo ""
+
+    if [[ -n "$admin_key" ]]; then
+        echo -e "${GREEN}Admin API Key:${NC}"
+        echo -e "  ${YELLOW}${admin_key}${NC}"
+        echo ""
+        echo -e "${RED}  ⚠️  此 Key 仅显示一次，请立即保存！${NC}"
+        echo -e "  如需重置: ${CYAN}cyber-pulse.sh admin reset${NC}"
+        echo ""
+    else
+        echo -e "${YELLOW}Admin API Key:${NC}"
+        echo -e "  未在日志中找到 Admin Key（可能已存在旧 Key）"
+        echo -e "  获取方式: ${CYAN}cyber-pulse.sh admin get-key${NC}"
+        echo -e "  重置方式: ${CYAN}cyber-pulse.sh admin reset --force${NC}"
+        echo ""
+    fi
+
     echo -e "${YELLOW}常用命令:${NC}"
     echo -e "  查看状态: ${CYAN}cyber-pulse.sh status${NC}"
     echo -e "  查看日志: ${CYAN}cyber-pulse.sh logs${NC}"
     echo -e "  停止服务: ${CYAN}cyber-pulse.sh stop${NC}"
+    echo -e "  配置 API: ${CYAN}./scripts/api.sh configure${NC}"
 }
 
 # 打印 deploy 帮助
@@ -653,13 +817,28 @@ cmd_upgrade() {
     print_banner
     print_header "升级 Cyber Pulse"
 
+    # 模式和分支检测
+    local mode branch
+    mode=$(detect_mode)
+    print_info "检测到模式: $mode"
+
+    if [[ "$mode" == "developer" ]]; then
+        branch=$(git -C "$PROJECT_ROOT" branch --show-current 2>/dev/null || echo "")
+        if [[ -n "$branch" && "$branch" != "main" && "$branch" != "master" ]]; then
+            print_error "当前在特性分支 '$branch'，upgrade 不适用"
+            print_info "如需部署当前代码，请使用: ./scripts/cyber-pulse.sh deploy --local"
+            exit 1
+        fi
+    fi
+
+    if [[ "$mode" == "ops" ]]; then
+        if [[ ! -f "$PROJECT_ROOT/.version" ]]; then
+            print_warning ".version 文件不存在，无法确定当前版本"
+        fi
+    fi
+
     # 1. 预检查
     print_step "执行预检查..."
-
-    # 检查 git 仓库
-    if [[ ! -d "$PROJECT_ROOT/.git" ]]; then
-        die "当前目录不是 git 仓库，无法使用 upgrade 命令"
-    fi
 
     # 检查 Docker
     check_docker
@@ -729,7 +908,9 @@ cmd_upgrade() {
             snapshot_name=$(ls -t "$SNAPSHOTS_DIR" 2>/dev/null | head -1)
             print_success "快照已创建: $snapshot_name"
         else
-            print_warning "快照创建失败，继续升级"
+            print_error "快照创建失败"
+            print_warning "升级中止，请检查快照创建脚本"
+            exit 1
         fi
     else
         print_warning "跳过快照创建"
@@ -1014,10 +1195,14 @@ cmd_env() {
 
 cmd_admin() {
     local subcommand="${1:-help}"
+    shift || true
 
     case "$subcommand" in
         reset)
-            cmd_admin_reset
+            cmd_admin_reset "$@"
+            ;;
+        get-key)
+            cmd_admin_get_key "$@"
             ;;
         help|--help|-h)
             print_admin_help
@@ -1031,6 +1216,21 @@ cmd_admin() {
 }
 
 cmd_admin_reset() {
+    local force="false"
+
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force|-f)
+                force="true"
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
     print_header "Reset Admin API Key"
 
     # Check if service is running
@@ -1042,21 +1242,23 @@ cmd_admin_reset() {
     cd "$DEPLOY_DIR"
 
     # Check if API is running
-    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "running"; then
+    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "Up"; then
         print_error "API service is not running"
         print_info "Start the service first: ./scripts/cyber-pulse.sh start"
         exit 1
     fi
 
-    # Warning prompt
-    print_warning "This will invalidate the current admin API key!"
-    print_warning "All clients using the old key will lose access."
-    echo ""
-    read -r -p "Are you sure you want to reset? (yes/no): " response
+    # Warning prompt (skip if --force)
+    if [[ "$force" != "true" ]]; then
+        print_warning "This will invalidate the current admin API key!"
+        print_warning "All clients using the old key will lose access."
+        echo ""
+        read -r -p "Are you sure you want to reset? (yes/no): " response
 
-    if [[ "$response" != "yes" ]]; then
-        print_info "Reset cancelled"
-        exit 0
+        if [[ "$response" != "yes" ]]; then
+            print_info "Reset cancelled"
+            exit 0
+        fi
     fi
 
     # Call API to reset admin key
@@ -1104,13 +1306,46 @@ finally:
     fi
 }
 
+# 获取现有 Admin Key（不重置）
+cmd_admin_get_key() {
+    local current_env
+    current_env=$(get_current_env)
+    local compose_files
+    compose_files=$(get_compose_files "$current_env")
+
+    cd "$DEPLOY_DIR"
+
+    # Check if API is running
+    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "Up"; then
+        print_error "API service is not running"
+        exit 1
+    fi
+
+    # Check logs for admin key (first run only)
+    local key_from_logs
+    key_from_logs=$($DOCKER_COMPOSE $compose_files logs api 2>&1 | grep -o "cp_live_[a-f0-9]\{32\}" | tail -1)
+
+    if [[ -n "$key_from_logs" ]]; then
+        echo "$key_from_logs"
+        return 0
+    fi
+
+    # If no key in logs, need to reset
+    print_warning "No admin key found in logs. Use 'admin reset --force' to generate a new key."
+    return 1
+}
+
 print_admin_help() {
     echo ""
     echo "Admin commands:"
-    echo "  reset        Reset admin API key (old key becomes invalid)"
+    echo "  get-key           Get admin API key from logs (if available)"
+    echo "  reset [--force]   Reset admin API key (old key becomes invalid)"
+    echo "                    --force: skip confirmation prompt"
     echo ""
     echo "Examples:"
+    echo "  cyber-pulse.sh admin get-key"
     echo "  cyber-pulse.sh admin reset"
+    echo "  cyber-pulse.sh admin reset --force"
     echo ""
     echo "Note: Admin key is generated on first deployment and shown once."
     echo "      If lost, use 'reset' to generate a new key."

@@ -68,3 +68,16 @@ jobs:
           echo "Image pushed to:"
           echo "  ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}"
           echo "  ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest"
+
+      - name: Build deploy package
+        run: |
+          chmod +x scripts/build-deploy-package.sh
+          ./scripts/build-deploy-package.sh --version ${{ steps.version.outputs.version }}
+
+      - name: Upload deploy package to Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: cyber-pulse-deploy-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -133,4 +133,4 @@ class TestDiagnoseAdminAPI:
         # Check errors statistics
         assert "total_24h" in stats["errors"]
         assert "by_type" in stats["errors"]
-        assert "top_sources" in stats["errors"]
+        assert "top_error_sources" in stats["errors"]

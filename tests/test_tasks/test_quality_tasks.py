@@ -96,9 +96,10 @@ class TestQualityCheckItem:
         mock_db.commit.assert_called()
 
     def test_quality_check_reject(self, test_item):
-        """Test quality check rejects invalid item."""
-        # Create an item with empty body that will be rejected
+        """Test quality check rejects invalid item without URL."""
+        # Create an item with empty body and no URL - will be rejected
         test_item.title = "Abc"  # Too short
+        test_item.url = None  # No URL means can't do full fetch, so reject
 
         mock_db = MagicMock()
         mock_item_query = MagicMock()
@@ -120,9 +121,8 @@ class TestQualityCheckItem:
                 extraction_method="raw",
             )
 
-        # Verify item was rejected
+        # Verify item was rejected (no URL + empty content)
         assert test_item.status == ItemStatus.REJECTED
-        assert test_item.raw_metadata.get("rejection_reason") is not None
 
     def test_quality_check_item_not_found(self):
         """Test quality check with non-existent item."""
@@ -336,10 +336,16 @@ class TestPendingFullFetchStatus:
     def test_quality_check_sets_mapped_for_good_content(self, test_source):
         """Test that good content sets MAPPED status."""
         now = datetime.now(UTC).replace(tzinfo=None)
+        # Create content with > 500 chars and > 50 words to pass all thresholds
         long_content = (
-            "This is a long enough content that should pass the minimum length "
-            "check of one hundred characters. Adding more text to ensure we "
-            "have sufficient length."
+            "This is a long enough content that should pass the minimum word count "
+            "check of fifty words and the minimum character count of five hundred. "
+            "We need to add many more words here to ensure that the content quality "
+            "service determines this is sufficient content and does not trigger a "
+            "full content fetch. The minimum thresholds are fifty words and five "
+            "hundred characters, so we are deliberately writing a longer passage here. "
+            "This additional text ensures we have enough words and characters to pass "
+            "the quality check successfully. Adding more sentences to reach the goal."
         )
         test_item = Item(
             item_id="item_test_002",

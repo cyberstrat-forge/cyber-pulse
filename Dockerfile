@@ -50,6 +50,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
@@ -71,6 +72,10 @@ RUN mkdir -p /app/data /app/logs
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/app/.venv/bin:$PATH"
+
+# 构建参数：版本号
+ARG APP_VERSION=latest
+ENV APP_VERSION=$APP_VERSION
 
 # Expose port for API
 EXPOSE 8000

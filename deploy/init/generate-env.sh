@@ -160,6 +160,9 @@ LOG_FILE=logs/cyber_pulse.log
 
 # 环境
 ENVIRONMENT=production
+
+# 镜像版本（运维者模式使用）
+CYBER_PULSE_VERSION=latest
 EOF
 
     # 设置安全权限

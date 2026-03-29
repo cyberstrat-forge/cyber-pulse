@@ -2,21 +2,54 @@
 PostgreSQL 测试配置
 
 使用环境变量 TEST_DATABASE_URL 配置测试数据库。
-默认使用 postgresql://postgres:postgres@localhost:5432/cyberpulse_test
+优先级：
+1. TEST_DATABASE_URL 环境变量
+2. deploy/.env 中的 POSTGRES_* 配置（转换为 localhost）
+3. 默认值 postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse_test
 """
 
 import os
+from pathlib import Path
+
+
+def load_deploy_env() -> dict:
+    """从 deploy/.env 加载配置。"""
+    deploy_env_path = Path(__file__).parent.parent / "deploy" / ".env"
+    env_vars = {}
+    if deploy_env_path.exists():
+        with open(deploy_env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    # 剥离引号（支持单引号和双引号）
+                    value = value.strip().strip('"').strip("'")
+                    env_vars[key] = value
+    return env_vars
+
+
+def get_test_database_url() -> str:
+    """获取测试数据库 URL。"""
+    # 1. 直接使用环境变量
+    if os.environ.get("TEST_DATABASE_URL"):
+        return os.environ["TEST_DATABASE_URL"]
+
+    # 2. 从 deploy/.env 读取并转换为 localhost
+    deploy_env = load_deploy_env()
+    if deploy_env.get("POSTGRES_USER") and deploy_env.get("POSTGRES_PASSWORD"):
+        return (
+            f"postgresql://{deploy_env['POSTGRES_USER']}:{deploy_env['POSTGRES_PASSWORD']}"
+            f"@localhost:5432/cyberpulse_test"
+        )
+
+    # 3. 默认值
+    return "postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse_test"
+
 
 # 在导入任何模块之前设置环境变量
-# 这必须是最先执行的代码
-os.environ["DATABASE_URL"] = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse_test"
-)
-os.environ["TEST_DATABASE_URL"] = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse_test"
-)
+test_db_url = get_test_database_url()
+os.environ["DATABASE_URL"] = test_db_url
+os.environ["TEST_DATABASE_URL"] = test_db_url
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -24,11 +57,6 @@ from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session, sessionmaker
 
 from cyberpulse.database import Base
-
-
-def get_test_database_url() -> str:
-    """获取测试数据库 URL。"""
-    return os.environ["TEST_DATABASE_URL"]
 
 
 def get_admin_database_url(test_db_url: str) -> str:

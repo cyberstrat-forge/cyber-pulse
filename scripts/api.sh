@@ -141,6 +141,41 @@ check_api_error() {
 # ============================================
 
 cmd_configure() {
+    local input_api_url=""
+    local input_admin_key=""
+    local non_interactive="false"
+
+    # 解析参数
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --url)
+                input_api_url="$2"
+                non_interactive="true"
+                shift 2
+                ;;
+            --key)
+                input_admin_key="$2"
+                non_interactive="true"
+                shift 2
+                ;;
+            --help|-h)
+                echo "用法: api.sh configure [选项]"
+                echo ""
+                echo "选项:"
+                echo "  --url URL      API URL (非交互式)"
+                echo "  --key KEY      Admin API Key (非交互式)"
+                echo ""
+                echo "示例:"
+                echo "  api.sh configure                              # 交互式配置"
+                echo "  api.sh configure --url http://localhost:8000 --key cp_live_xxx"
+                return 0
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
     echo -e "${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║           Cyber Pulse API 配置                               ║"
@@ -150,18 +185,28 @@ cmd_configure() {
     # 创建配置目录
     mkdir -p "$CONFIG_DIR"
 
-    # 提示输入 API URL
-    echo -e "${BLUE}API URL${NC} (按 Enter 使用默认值: $DEFAULT_API_URL)"
-    read -r -p "> " input_api_url
-    local final_api_url="${input_api_url:-$DEFAULT_API_URL}"
+    # 交互式模式
+    if [[ "$non_interactive" != "true" ]]; then
+        # 提示输入 API URL
+        echo -e "${BLUE}API URL${NC} (按 Enter 使用默认值: $DEFAULT_API_URL)"
+        read -r -p "> " input_api_url
+        local final_api_url="${input_api_url:-$DEFAULT_API_URL}"
 
-    # 提示输入 Admin Key
-    echo ""
-    echo -e "${BLUE}Admin API Key${NC} (格式: cp_live_xxxx)"
-    read -r -p "> " input_admin_key
+        # 提示输入 Admin Key
+        echo ""
+        echo -e "${BLUE}Admin API Key${NC} (格式: cp_live_xxxx)"
+        read -r -p "> " input_admin_key
 
-    if [[ -z "$input_admin_key" ]]; then
-        die "Admin API Key 不能为空"
+        if [[ -z "$input_admin_key" ]]; then
+            die "Admin API Key 不能为空"
+        fi
+    else
+        # 非交互式模式：使用参数
+        local final_api_url="${input_api_url:-$DEFAULT_API_URL}"
+
+        if [[ -z "$input_admin_key" ]]; then
+            die "非交互式模式需要 --key 参数"
+        fi
     fi
 
     # 验证 Key 格式
@@ -182,10 +227,12 @@ cmd_configure() {
         local detail
         detail=$(echo "$test_response" | jq -r '.detail // "Unknown error"')
         print_warning "连接测试失败: $detail"
-        echo ""
-        read -r -p "仍要保存配置吗? (y/N): " save_anyway
-        if [[ ! "$save_anyway" =~ ^[Yy]$ ]]; then
-            die "配置已取消"
+        if [[ "$non_interactive" != "true" ]]; then
+            echo ""
+            read -r -p "仍要保存配置吗? (y/N): " save_anyway
+            if [[ ! "$save_anyway" =~ ^[Yy]$ ]]; then
+                die "配置已取消"
+            fi
         fi
     fi
 
@@ -1141,7 +1188,7 @@ main() {
 
     case "$command" in
         configure)
-            cmd_configure
+            cmd_configure "$@"
             ;;
         sources)
             load_config
