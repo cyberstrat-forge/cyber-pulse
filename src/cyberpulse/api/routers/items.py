@@ -34,9 +34,8 @@ def calculate_completeness_score(item: Item) -> float:
     """Calculate completeness score for an item."""
     meta = item.meta_completeness or 0.0
     content = item.content_completeness or 0.0
-    noise = item.noise_ratio or 0.0
 
-    score = meta * 0.4 + content * 0.4 + (1 - noise) * 0.2
+    score = meta * 0.5 + content * 0.5
     return round(score, 3)
 
 
