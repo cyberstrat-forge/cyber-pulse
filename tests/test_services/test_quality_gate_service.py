@@ -367,7 +367,6 @@ class TestCalculateMetrics:
 
         assert metrics["content_completeness"] == 0.2
 
-    
 
 class TestQualityResult:
     """Tests for QualityResult dataclass."""
