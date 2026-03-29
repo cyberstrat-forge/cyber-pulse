@@ -1188,7 +1188,7 @@ main() {
 
     case "$command" in
         configure)
-            cmd_configure
+            cmd_configure "$@"
             ;;
         sources)
             load_config

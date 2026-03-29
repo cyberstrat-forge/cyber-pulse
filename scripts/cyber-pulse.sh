@@ -1229,7 +1229,7 @@ cmd_admin_reset() {
     cd "$DEPLOY_DIR"
 
     # Check if API is running
-    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "running"; then
+    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "Up"; then
         print_error "API service is not running"
         print_info "Start the service first: ./scripts/cyber-pulse.sh start"
         exit 1
@@ -1303,7 +1303,7 @@ cmd_admin_get_key() {
     cd "$DEPLOY_DIR"
 
     # Check if API is running
-    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "running"; then
+    if ! $DOCKER_COMPOSE $compose_files ps api 2>/dev/null | grep -q "Up"; then
         print_error "API service is not running"
         exit 1
     fi
