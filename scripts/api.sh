@@ -227,6 +227,7 @@ cmd_sources() {
         export)         cmd_sources_export "$@" ;;
         defaults)       cmd_sources_defaults "$@" ;;
         set-defaults)   cmd_sources_set_defaults "$@" ;;
+        cleanup)        cmd_sources_cleanup "$@" ;;
         *)
             print_error "Unknown sources subcommand: $subcommand"
             print_sources_help
@@ -550,6 +551,22 @@ cmd_sources_set_defaults() {
     echo "$response" | jq .
 }
 
+cmd_sources_cleanup() {
+    print_info "Cleaning up REMOVED sources..."
+
+    local response
+    response=$(api_post "/api/v1/admin/sources/cleanup")
+    check_api_error "$response"
+
+    local deleted_sources deleted_items deleted_jobs
+    deleted_sources=$(echo "$response" | jq -r '.deleted_sources')
+    deleted_items=$(echo "$response" | jq -r '.deleted_items')
+    deleted_jobs=$(echo "$response" | jq -r '.deleted_jobs')
+
+    print_success "Cleaned up $deleted_sources sources, $deleted_items items, $deleted_jobs jobs"
+    echo "$response" | jq .
+}
+
 print_sources_help() {
     echo ""
     echo "Sources commands:"
@@ -568,6 +585,8 @@ print_sources_help() {
     echo ""
     echo "  defaults                                  查看默认配置"
     echo "  set-defaults --interval SECONDS           设置默认采集间隔"
+    echo ""
+    echo "  cleanup                                   清理已删除的源（物理删除）"
 }
 
 # ============================================
@@ -579,9 +598,12 @@ cmd_jobs() {
     shift || true
 
     case "$subcommand" in
-        list)   cmd_jobs_list "$@" ;;
-        get)    cmd_jobs_get "$@" ;;
-        run)    cmd_jobs_run "$@" ;;
+        list)       cmd_jobs_list "$@" ;;
+        get)        cmd_jobs_get "$@" ;;
+        run)        cmd_jobs_run "$@" ;;
+        delete)     cmd_jobs_delete "$@" ;;
+        retry)      cmd_jobs_retry "$@" ;;
+        cleanup)    cmd_jobs_cleanup "$@" ;;
         *)
             print_error "Unknown jobs subcommand: $subcommand"
             print_jobs_help
@@ -660,12 +682,70 @@ cmd_jobs_run() {
     echo "$response" | jq .
 }
 
+cmd_jobs_delete() {
+    local job_id="${1:-}"
+
+    if [[ -z "$job_id" ]]; then
+        die "Usage: api.sh jobs delete <job_id>"
+    fi
+
+    local response
+    response=$(api_delete "/api/v1/admin/jobs/$job_id")
+    check_api_error "$response"
+
+    print_success "Job deleted: $job_id"
+    echo "$response" | jq .
+}
+
+cmd_jobs_retry() {
+    local job_id="${1:-}"
+
+    if [[ -z "$job_id" ]]; then
+        die "Usage: api.sh jobs retry <job_id>"
+    fi
+
+    print_info "Retrying job: $job_id"
+
+    local response
+    response=$(api_post "/api/v1/admin/jobs/${job_id}/retry")
+    check_api_error "$response"
+
+    print_success "Job queued for retry"
+    echo "$response" | jq .
+}
+
+cmd_jobs_cleanup() {
+    local days="30"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --days)  days="$2"; shift 2 ;;
+            *)       shift ;;
+        esac
+    done
+
+    print_info "Cleaning up jobs older than $days days..."
+
+    local response
+    response=$(api_post "/api/v1/admin/jobs/cleanup?days=${days}")
+    check_api_error "$response"
+
+    local deleted_count
+    deleted_count=$(echo "$response" | jq -r '.deleted_count')
+
+    print_success "Deleted $deleted_count old jobs"
+    echo "$response" | jq .
+}
+
 print_jobs_help() {
     echo ""
     echo "Jobs commands:"
     echo "  list [--type TYPE] [--status STATUS] [--source SOURCE_ID]"
     echo "  get <job_id>"
     echo "  run <source_id>"
+    echo "  delete <job_id>              Delete a FAILED job"
+    echo "  retry <job_id>               Retry a FAILED job"
+    echo "  cleanup [--days 30]          Cleanup old completed jobs"
 }
 
 # ============================================
@@ -1017,6 +1097,9 @@ show_help() {
     echo "    list                 列出任务"
     echo "    get <id>             获取任务详情"
     echo "    run <source_id>      运行采集任务"
+    echo "    delete <id>          删除失败任务"
+    echo "    retry <id>           重试失败任务"
+    echo "    cleanup [--days N]   清理旧任务"
     echo ""
     echo "  clients <cmd>          客户端管理"
     echo "    list                 列出客户端"
