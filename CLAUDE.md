@@ -146,7 +146,7 @@ uv run pytest  # 覆盖率 ≥ 80%
 ## 文档索引
 
 ### 运维文档
-- [本地测试环境部署指南](./docs/local-deployment-guide.md) - Worktree 环境部署
+- [开发者部署指南](./docs/developer-deployment-guide.md) - Worktree 环境部署
 - [情报源配置示例](./docs/source-config-examples.md) - 情报源配置说明
 
 ### 变更记录

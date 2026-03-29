@@ -44,12 +44,11 @@ docker volume rm deploy_postgres_data deploy_redis_data 2>/dev/null || true
 Admin API Key 在首次部署时自动生成并显示在终端。如果需要重新获取：
 
 ```bash
-# 方法 1：从日志获取（仅首次部署有效）
-./scripts/cyber-pulse.sh logs api 2>&1 | grep -o "cp_live_[a-f0-9]\{32\}" | tail -1
-
-# 方法 2：重置 Key（旧 Key 失效）
+# 重置 Admin Key（旧 Key 失效）
 ./scripts/cyber-pulse.sh admin reset --force
 ```
+
+> 💡 **提示**：开发模式下，Admin Key 在部署完成后自动显示，无需手动从日志获取。
 
 ## 命令详解
 
@@ -88,9 +87,21 @@ Admin API Key 在首次部署时自动生成并显示在终端。如果需要重
 # 查看当前版本
 cat .version
 
-# 在 main 分支: v1.5.0
-# 在特性分支: feature/auth@abc1234
+# 在 main 分支（有 tag）: v1.4.0
+# 在特性分支: v1.4.0-29-gc535837 (git describe 格式)
 ```
+
+### 端口映射（开发模式）
+
+开发模式默认启用以下端口映射，便于本地调试和测试：
+
+| 服务 | 端口 | 用途 |
+|------|------|------|
+| API | 8000 | REST API 访问 |
+| PostgreSQL | 5432 | 数据库直连（测试/调试） |
+| Redis | 6379 | 缓存直连（调试） |
+
+> ⚠️ **生产环境**：应在 `docker-compose.yml` 中注释掉 5432/6379 端口映射。
 
 ### API 管理
 
@@ -204,6 +215,23 @@ curl http://localhost:8000/health
 # 4. 运行采集任务
 ./scripts/api.sh jobs run <source_id>
 ```
+
+## 运行测试套件
+
+测试套件会自动使用部署环境的数据库配置：
+
+```bash
+# 运行所有测试
+uv run pytest tests/
+
+# 运行特定测试
+uv run pytest tests/test_services/ -v
+
+# 查看测试摘要
+uv run pytest tests/ -q --tb=no
+```
+
+> 💡 **说明**：`tests/conftest.py` 会自动读取 `deploy/.env` 中的数据库配置，无需手动设置环境变量。
 
 ## 配置文件
 
