@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 class JobResponse(BaseModel):
     """Job response."""
     job_id: str
-    type: str  # "ingest" or "import"
-    status: str  # "pending", "running", "completed", "failed"
+    type: str  # "INGEST" or "IMPORT"
+    status: str  # "PENDING", "RUNNING", "COMPLETED", "FAILED"
     source_id: str | None = None
     source_name: str | None = None
     file_name: str | None = None

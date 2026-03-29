@@ -65,8 +65,8 @@ def build_job_response(job: Job, source_name: str | None = None) -> JobResponse:
 
 @router.get("/jobs", response_model=JobListResponse)
 async def list_jobs(
-    type: str | None = Query(None, description="Filter by type: ingest, import"),
-    status: str | None = Query(None, description="Filter by status: pending, running, completed, failed"),
+    type: str | None = Query(None, description="Filter by type: INGEST, IMPORT"),
+    status: str | None = Query(None, description="Filter by status: PENDING, RUNNING, COMPLETED, FAILED"),
     source_id: str | None = Query(None, description="Filter by source ID"),
     since: datetime | None = Query(None, description="Created after this time"),
     limit: int = Query(50, ge=1, le=100, description="Max results"),
@@ -80,22 +80,22 @@ async def list_jobs(
 
     if type:
         try:
-            type_enum = JobType(type.lower())
+            type_enum = JobType(type.upper())
             query = query.filter(Job.type == type_enum)
         except ValueError:
             raise HTTPException(
                 status_code=422,
-                detail=f"Invalid type '{type}'. Must be one of: ingest, import"
+                detail=f"Invalid type '{type}'. Must be one of: INGEST, IMPORT"
             )
 
     if status:
         try:
-            status_enum = JobStatus(status.lower())
+            status_enum = JobStatus(status.upper())
             query = query.filter(Job.status == status_enum)
         except ValueError:
             raise HTTPException(
                 status_code=422,
-                detail=f"Invalid status '{status}'. Must be one of: pending, running, completed, failed"
+                detail=f"Invalid status '{status}'. Must be one of: PENDING, RUNNING, COMPLETED, FAILED"
             )
 
     if source_id:
