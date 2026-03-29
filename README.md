@@ -340,15 +340,18 @@ cyber-pulse/
 │   ├── services/            # 业务逻辑层
 │   │   ├── source_service.py
 │   │   ├── source_score_service.py
+│   │   ├── source_quality_validator.py
 │   │   ├── item_service.py
 │   │   ├── normalization_service.py
 │   │   ├── quality_gate_service.py
+│   │   ├── content_quality_service.py
+│   │   ├── job_lifecycle_service.py
+│   │   ├── full_content_fetch_service.py
+│   │   ├── jina_client.py
 │   │   ├── rss_connector.py
 │   │   ├── api_connector.py
 │   │   ├── web_connector.py
-│   │   ├── media_connector.py
-│   │   ├── full_content_fetch_service.py
-│   │   └── source_quality_validator.py
+│   │   └── media_connector.py
 │   ├── api/                 # FastAPI REST API
 │   │   ├── routers/         # API 路由
 │   │   │   ├── items.py     # 业务 API
