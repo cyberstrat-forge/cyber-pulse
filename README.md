@@ -406,7 +406,8 @@ uv run pytest                      # 测试
 
 | 文档 | 说明 |
 |------|------|
-| [开发者部署指南](./docs/developer-deployment-guide.md) | Worktree 环境部署 |
+| [开发者部署指南](./docs/developer-deployment-guide.md) | 本地开发、测试环境部署 |
+| [运维者部署指南](./docs/ops-deployment-guide.md) | 生产、测试环境部署 |
 | [情报源配置示例](./docs/source-config-examples.md) | 各类情报源配置 |
 | [变更日志](./CHANGELOG.md) | 版本变更记录 |
 
