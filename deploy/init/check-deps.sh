@@ -75,7 +75,7 @@ check_git_repo() {
         branch=$(git -C "$PROJECT_ROOT" branch --show-current 2>/dev/null || echo "unknown")
         print_info "当前分支: $branch"
     else
-        print_error "不是 Git 仓库"
+        print_info "非 Git 仓库（运维者模式）"
     fi
 }
 
