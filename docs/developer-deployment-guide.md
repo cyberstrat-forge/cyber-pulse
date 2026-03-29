@@ -87,8 +87,8 @@ Admin API Key 在首次部署时自动生成并显示在终端。如果需要重
 # 查看当前版本
 cat .version
 
-# 在 main 分支（有 tag）: v1.4.0
-# 在特性分支: v1.4.0-29-gc535837 (git describe 格式)
+# 在 main 分支（有 tag）: v1.5.0
+# 在特性分支: v1.5.0-25-gb596d0b (git describe 格式)
 ```
 
 ### 端口映射（开发模式）
@@ -101,7 +101,7 @@ cat .version
 | PostgreSQL | 5432 | 数据库直连（测试/调试） |
 | Redis | 6379 | 缓存直连（调试） |
 
-> ⚠️ **生产环境**：应在 `docker-compose.yml` 中注释掉 5432/6379 端口映射。
+> ⚠️ **生产环境**：使用 `docker-compose.prod.yml` 部署，端口不对外暴露。
 
 ### API 管理
 

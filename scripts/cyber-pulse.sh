@@ -167,10 +167,21 @@ get_current_version() {
 
 # 获取最新版本
 get_latest_version() {
-    local response tag
-    response=$(curl -sf https://api.github.com/repos/cyberstrat-forge/cyber-pulse/releases/latest 2>/dev/null)
+    local response tag curl_exit curl_stderr
+    curl_stderr=$(curl -sf https://api.github.com/repos/cyberstrat-forge/cyber-pulse/releases/latest 2>&1) || curl_exit=$?
+    if [[ -n "${curl_exit:-}" && "${curl_exit:-0}" -ne 0 ]]; then
+        case "${curl_exit:-0}" in
+            6) echo "error:DNS解析失败，请检查网络连接" ;;
+            7) echo "error:无法连接到GitHub，请检查网络" ;;
+            22) echo "error:HTTP错误，可能是GitHub限流，请稍后重试" ;;
+            28) echo "error:请求超时，请检查网络连接" ;;
+            *) echo "error:网络请求失败(code=${curl_exit}): $curl_stderr" ;;
+        esac
+        return 1
+    fi
+    response="$curl_stderr"
     if [[ -z "$response" ]]; then
-        echo "error:网络请求失败"
+        echo "error:响应为空"
         return 1
     fi
     tag=$(echo "$response" | jq -r '.tag_name' 2>/dev/null)
@@ -433,10 +444,10 @@ cmd_deploy() {
     if $DOCKER_COMPOSE $compose_files exec -T api alembic upgrade head; then
         print_success "数据库迁移完成"
     else
-        print_error "数据库迁移失败，请检查日志"
+        print_error "数据库迁移失败"
         print_info "查看日志: cyber-pulse.sh logs api"
-        # 不退出，因为 entrypoint 会自动重试迁移
-        print_warning "服务将继续启动，迁移可能已在 entrypoint 中完成"
+        print_warning "entrypoint 可能会自动重试迁移，但建议手动检查"
+        # 继续启动服务，允许用户检查迁移状态
     fi
 
     # 8. 写入版本文件
@@ -897,7 +908,9 @@ cmd_upgrade() {
             snapshot_name=$(ls -t "$SNAPSHOTS_DIR" 2>/dev/null | head -1)
             print_success "快照已创建: $snapshot_name"
         else
-            print_warning "快照创建失败，继续升级"
+            print_error "快照创建失败"
+            print_warning "升级中止，请检查快照创建脚本"
+            exit 1
         fi
     else
         print_warning "跳过快照创建"

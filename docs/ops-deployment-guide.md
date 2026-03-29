@@ -255,12 +255,14 @@ docker stop <container_name>
 
 **解决**:
 ```bash
-# 查看备份目录
-ls deploy/backup/
+# 查看快照列表
+./scripts/cyber-pulse.sh snapshot list
 
-# 回滚到上一版本
-./scripts/cyber-pulse.sh upgrade --rollback
+# 手动恢复快照（升级失败时会自动回滚，通常无需手动操作）
+./scripts/cyber-pulse.sh snapshot restore snap_xxxx --force
 ```
+
+> 💡 **说明**：升级失败时会自动触发回滚，无需手动执行。
 
 ## 验证清单
 

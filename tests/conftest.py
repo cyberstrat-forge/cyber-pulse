@@ -22,6 +22,8 @@ def load_deploy_env() -> dict:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
+                    # 剥离引号（支持单引号和双引号）
+                    value = value.strip().strip('"').strip("'")
                     env_vars[key] = value
     return env_vars
 
