@@ -145,6 +145,18 @@ class SourceQualityValidator:
         try:
             async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT) as client:
                 response = await client.get(feed_url, follow_redirects=True)
+
+                # SSRF protection: validate final URL after redirects
+                final_url = str(response.url)
+                if final_url != feed_url:
+                    try:
+                        validate_url_for_ssrf(final_url)
+                    except SSRFError as e:
+                        logger.error(
+                            f"SSRF validation failed for redirect URL {final_url}: {e}"
+                        )
+                        return []
+
                 response.raise_for_status()
                 content = response.content
 
