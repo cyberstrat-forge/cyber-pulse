@@ -157,7 +157,7 @@ class ItemService(BaseService):
             item_id: Item ID to update
             status: New status (NEW, NORMALIZED, MAPPED, REJECTED)
             quality_metrics: Optional quality metrics to set
-                (meta_completeness, content_completeness, noise_ratio)
+                (meta_completeness, content_completeness)
 
         Returns:
             Updated Item or None if not found
@@ -178,8 +178,6 @@ class ItemService(BaseService):
                 item.meta_completeness = quality_metrics["meta_completeness"]
             if "content_completeness" in quality_metrics:
                 item.content_completeness = quality_metrics["content_completeness"]
-            if "noise_ratio" in quality_metrics:
-                item.noise_ratio = quality_metrics["noise_ratio"]
 
         self.db.commit()
         self.db.refresh(item)

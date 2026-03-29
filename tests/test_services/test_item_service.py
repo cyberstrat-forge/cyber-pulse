@@ -270,7 +270,6 @@ class TestUpdateItemStatus:
         quality_metrics = {
             "meta_completeness": 0.95,
             "content_completeness": 0.85,
-            "noise_ratio": 0.05,
         }
 
         updated = item_service.update_item_status(
@@ -281,7 +280,6 @@ class TestUpdateItemStatus:
         assert updated.status == ItemStatus.NORMALIZED
         assert updated.meta_completeness == 0.95
         assert updated.content_completeness == 0.85
-        assert updated.noise_ratio == 0.05
 
     def test_update_item_status_partial_metrics(self, item_service, test_source):
         """Test updating item status with partial quality metrics."""
@@ -307,7 +305,6 @@ class TestUpdateItemStatus:
         assert updated is not None
         assert updated.meta_completeness == 0.90
         assert updated.content_completeness is None
-        assert updated.noise_ratio is None
 
     def test_update_item_status_nonexistent(self, item_service):
         """Test updating a nonexistent item."""

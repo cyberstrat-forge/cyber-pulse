@@ -61,18 +61,6 @@ class QualityGateService:
     BODY_LENGTH_LOW = 50  # >= 50 chars: 0.4
     # < 50 chars: 0.2
 
-    # Noise ratio ad markers (Chinese and English)
-    AD_MARKERS = [
-        "广告",
-        "推广",
-        "推荐阅读",
-        "AD",
-        "advertisement",
-        "sponsored",
-        "赞助",
-        "合作",
-    ]
-
     # Content quality thresholds
     TITLE_BODY_SIMILARITY_THRESHOLD = 0.95  # If title-body similarity >= this, content is suspect
     MIN_BODY_LENGTH = 50  # Minimum body length for valid content
@@ -186,7 +174,6 @@ class QualityGateService:
         - word_count: Word count (from NormalizationResult)
         - meta_completeness: Metadata completeness score (0-1)
         - content_completeness: Content quality score (0-1)
-        - noise_ratio: Estimated noise in content (0-1)
 
         Args:
             item: Item model instance
@@ -212,9 +199,6 @@ class QualityGateService:
 
         # Content completeness (based on body length)
         metrics["content_completeness"] = self._calculate_content_completeness(body)
-
-        # Noise ratio (based on raw_content)
-        metrics["noise_ratio"] = self._calculate_noise_ratio(item.raw_content)
 
         return metrics
 
@@ -326,43 +310,6 @@ class QualityGateService:
             return 0.4
         else:
             return 0.2
-
-    def _calculate_noise_ratio(self, raw_content: str | None) -> float:
-        """Calculate estimated noise ratio in content.
-
-        Formula: (estimated_html_tags + ad_markers) / total_chars
-
-        For clean content after normalization: typically < 0.1
-
-        Args:
-            raw_content: Raw HTML content before normalization
-
-        Returns:
-            Noise ratio between 0 and 1
-        """
-        if not raw_content:
-            return 0.0
-
-        total_chars = len(raw_content)
-        if total_chars == 0:
-            return 0.0
-
-        # Count HTML tags using regex
-        html_tags = re.findall(r"<[^>]+>", raw_content)
-        html_tag_count = len(html_tags)
-
-        # Count ad markers
-        ad_marker_count = 0
-        content_lower = raw_content.lower()
-        for marker in self.AD_MARKERS:
-            ad_marker_count += content_lower.count(marker.lower())
-
-        # Calculate noise ratio
-        noise_score = html_tag_count + ad_marker_count
-        ratio = noise_score / total_chars
-
-        # Cap at 1.0
-        return min(ratio, 1.0)
 
     def _validate_content_quality(
         self, title: str, body: str

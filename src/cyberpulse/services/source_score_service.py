@@ -34,7 +34,7 @@ class SourceScoreService(BaseService):
         - Cs (Stability): min(1.0, updates_in_past_30_days / 30)
         - Cf (Activity): min(1.0, weekly_items / REFERENCE_VALUE)
           REFERENCE_VALUE = 7 (assuming 1 item/day as baseline)
-        - Cq (Quality): meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
+        - Cq (Quality): meta_completeness * 0.5 + content_completeness * 0.5
         - V (Strategic Value): Default 0.5 (reserved for cyber-nexus feedback)
 
     Tier Mapping:
@@ -56,9 +56,8 @@ class SourceScoreService(BaseService):
 
     # Weights for composite quality calculation
     QUALITY_WEIGHTS = {
-        "meta_completeness": 0.4,
-        "content_completeness": 0.4,
-        "noise_ratio": 0.2,  # Applied as (1 - noise_ratio)
+        "meta_completeness": 0.5,
+        "content_completeness": 0.5,
     }
 
     # Default values when data is unavailable
@@ -177,7 +176,7 @@ class SourceScoreService(BaseService):
         """Calculate content quality (Cq).
 
         Quality is based on item quality metrics from normalized items.
-        Cq = meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
+        Cq = meta_completeness * 0.5 + content_completeness * 0.5
 
         Args:
             source_id: Source ID
@@ -190,14 +189,12 @@ class SourceScoreService(BaseService):
             self.db.query(
                 func.avg(Item.meta_completeness).label("avg_meta"),
                 func.avg(Item.content_completeness).label("avg_content"),
-                func.avg(Item.noise_ratio).label("avg_noise"),
                 func.count(Item.item_id).label("count"),
             )
             .filter(
                 Item.source_id == source_id,
                 Item.meta_completeness.isnot(None),
                 Item.content_completeness.isnot(None),
-                Item.noise_ratio.isnot(None),
             )
             .first()
         )
@@ -208,13 +205,11 @@ class SourceScoreService(BaseService):
         # Calculate quality components
         avg_meta = items.avg_meta or 0.0
         avg_content = items.avg_content or 0.0
-        avg_noise = items.avg_noise or 0.0
 
-        # Cq = meta_completeness * 0.4 + content_completeness * 0.4 + (1 - noise_ratio) * 0.2
+        # Cq = meta_completeness * 0.5 + content_completeness * 0.5
         quality = (
             avg_meta * self.QUALITY_WEIGHTS["meta_completeness"]
             + avg_content * self.QUALITY_WEIGHTS["content_completeness"]
-            + (1 - avg_noise) * self.QUALITY_WEIGHTS["noise_ratio"]
         )
 
         # Clamp to valid range
