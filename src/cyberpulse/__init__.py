@@ -13,7 +13,7 @@ def _get_version() -> str:
         if version:
             return version
 
-    return "1.5.0"
+    return "1.6.0"
 
 
 __version__ = _get_version()

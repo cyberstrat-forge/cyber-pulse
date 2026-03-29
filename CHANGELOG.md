@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-03-29
+
+### Added
+
+#### 双模式部署系统
+- **开发者模式**：git clone 完整代码，本地构建镜像
+- **运维者模式**：下载部署包，远程拉取镜像
+- 自动模式检测：基于 `.git` 目录存在性
+- 版本动态解析：`APP_VERSION` 环境变量 → `.version` 文件 → 默认值
+
+#### 升级系统
+- `cyber-pulse.sh upgrade`：一键升级到最新版本
+- 升级前自动创建快照（数据库备份）
+- 升级失败自动回滚
+- 健康检查验证升级成功
+
+#### CI/CD 增强
+- GitHub Actions 自动构建部署包
+- 阿里云容器镜像仓库托管
+- Docker build-time 版本注入
+
+### Changed
+
+- `install.sh` 支持 `--type ops` 参数一键安装
+- `api.sh configure` 支持非交互式参数
+- `cyber-pulse.sh deploy` 完成后显示 Admin Key
+
+### Fixed
+
+- Git 检查在运维者模式下改为非阻塞提示
+- 测试套件动态读取 `deploy/.env` 配置
+- 测试 job_id 格式符合验证规则
+- 内容质量测试阈值更新（500 字符、50 词）
+
+### Documentation
+
+- 新增 `docs/developer-deployment-guide.md`
+- 新增 `docs/ops-deployment-guide.md`
+- 更新 `README.md` 和 `CLAUDE.md` 反映双模式部署
+
 ## [1.5.0] - 2026-03-28
 
 ### Added

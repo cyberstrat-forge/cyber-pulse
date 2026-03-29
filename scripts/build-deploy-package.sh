@@ -25,7 +25,20 @@ NC='\033[0m'
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # 默认版本号
-VERSION="${1:-}"
+VERSION=""
+
+# 解析参数
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --version)
+            VERSION="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 # 输出文件名
 if [[ -n "$VERSION" ]]; then
