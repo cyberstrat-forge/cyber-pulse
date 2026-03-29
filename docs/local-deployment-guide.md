@@ -2,6 +2,17 @@
 
 本文档指导如何在 Git Worktree 环境中部署测试环境，用于 PR 验证和开发测试。
 
+## 开发模式说明
+
+遵循 `superpowers:subagent-driven-development` 工作流，开发者在 Worktree 特性分支上开发：
+
+| 场景 | 分支 | 操作 |
+|------|------|------|
+| **Worktree 开发** | 特性分支 | `deploy --local` 部署当前代码，**不使用 upgrade** |
+| **主分支维护** | main/master | `deploy` 部署，`upgrade` 升级到最新版本 |
+
+> ⚠️ **重要**：在特性分支上执行 `upgrade` 命令会提示退出，建议使用 `deploy --local` 部署当前代码。
+
 ## 前置条件
 
 - Docker 和 Docker Compose 已安装
@@ -62,6 +73,18 @@ docker logs deploy-api-1 2>&1 | grep -A2 "Admin API Key" | head -6
 
 # 重启服务
 ./scripts/cyber-pulse.sh restart --env test
+```
+
+### 版本显示
+
+```bash
+# 在 main 分支
+./scripts/cyber-pulse.sh status
+# 显示版本: v1.5.0
+
+# 在特性分支
+./scripts/cyber-pulse.sh status
+# 显示版本: feature/auth@abc1234
 ```
 
 ### API 管理命令
