@@ -20,7 +20,6 @@ def quality_check_item(
     normalized_title: str,
     normalized_body: str,
     canonical_hash: str,
-    language: str | None = None,
     word_count: int = 0,
     extraction_method: str = "trafilatura",
 ) -> None:
@@ -41,7 +40,6 @@ def quality_check_item(
         normalized_title: Normalized title from normalization.
         normalized_body: Normalized body from normalization.
         canonical_hash: Hash for deduplication.
-        language: Detected language code.
         word_count: Word count of normalized body.
         extraction_method: Method used for extraction.
     """
@@ -60,7 +58,6 @@ def quality_check_item(
             normalized_title=normalized_title,
             normalized_body=normalized_body,
             canonical_hash=canonical_hash,
-            language=language,
             word_count=word_count,
             extraction_method=extraction_method,
         )
@@ -164,11 +161,9 @@ def _handle_pass(
     item.normalized_title = normalization_result.normalized_title
     item.normalized_body = normalization_result.normalized_body
     item.canonical_hash = normalization_result.canonical_hash
-    item.language = normalization_result.language
     item.word_count = normalization_result.word_count
     item.meta_completeness = quality_result.metrics.get("meta_completeness")
     item.content_completeness = quality_result.metrics.get("content_completeness")
-    item.noise_ratio = quality_result.metrics.get("noise_ratio")
 
     # Update source statistics
     if source:
@@ -219,7 +214,6 @@ def _handle_reject(db, item: Item, quality_result) -> None:
     item.status = ItemStatus.REJECTED  # type: ignore[assignment]
     item.meta_completeness = quality_result.metrics.get("meta_completeness")
     item.content_completeness = quality_result.metrics.get("content_completeness")
-    item.noise_ratio = quality_result.metrics.get("noise_ratio")
 
     # Store rejection reason in raw_metadata
     if item.raw_metadata is None:
