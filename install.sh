@@ -225,6 +225,16 @@ install_ops_package() {
     # 清理临时文件
     rm -f "${temp_file}"
 
+    # 自动部署（运维者模式）
+    info "自动执行部署..."
+    cd "${INSTALL_DIR}"
+    if ./scripts/cyber-pulse.sh deploy --env prod; then
+        success "部署完成"
+    else
+        warn "自动部署失败，请手动执行: ./scripts/cyber-pulse.sh deploy --env prod"
+    fi
+    cd - > /dev/null
+
     success "部署包安装完成"
 }
 
