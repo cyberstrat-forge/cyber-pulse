@@ -1,15 +1,16 @@
+from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, Float, Integer, String, Text
+from sqlalchemy import String, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
 from .base import TimestampMixin
 
 if TYPE_CHECKING:
-    pass
+    from .job import Job
 
 
 class SourceTier(StrEnum):
@@ -31,49 +32,52 @@ class Source(Base, TimestampMixin):
     """Intelligence source"""
     __tablename__ = "sources"
 
-    source_id = Column(String(64), primary_key=True, index=True)
-    name = Column(String(255), nullable=False, unique=True)
-    connector_type = Column(String(50), nullable=False)
-    tier = Column(Enum(SourceTier), nullable=False, default=SourceTier.T2)
-    score = Column(Float, nullable=False, default=50.0)
-    status = Column(Enum(SourceStatus), nullable=False, default=SourceStatus.ACTIVE)
-    pending_review = Column(Boolean, nullable=False, default=False)
-    review_reason = Column(Text, nullable=True)
-    config = Column(JSONB, nullable=False, default=dict)
+    source_id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    connector_type: Mapped[str] = mapped_column(String(50))
+    tier: Mapped[SourceTier] = mapped_column(default=SourceTier.T2)
+    score: Mapped[float] = mapped_column(default=50.0)
+    status: Mapped[SourceStatus] = mapped_column(default=SourceStatus.ACTIVE)
+    pending_review: Mapped[bool] = mapped_column(default=False)
+    review_reason: Mapped[str | None] = mapped_column(Text)
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
     # Statistics
-    last_scored_at = Column(DateTime, nullable=True)
-    total_items = Column(Integer, nullable=False, default=0)
+    last_scored_at: Mapped[datetime | None] = mapped_column()
+    total_items: Mapped[int] = mapped_column(default=0)
 
     # Failure tracking
-    consecutive_failures = Column(Integer, nullable=False, default=0)
-    last_error_at = Column(DateTime, nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(default=0)
+    last_error_at: Mapped[datetime | None] = mapped_column()
 
     # Full content fetch configuration
-    needs_full_fetch = Column(Boolean, nullable=False, default=False)
-    full_fetch_threshold = Column(Float, nullable=True, default=0.7)
+    needs_full_fetch: Mapped[bool] = mapped_column(default=False)
+    full_fetch_threshold: Mapped[float | None] = mapped_column(default=0.7)
 
     # Source quality markers
-    content_type = Column(String(20), nullable=True)  # 'full' | 'summary' | 'mixed'
-    avg_content_length = Column(Integer, nullable=True)
-    quality_score = Column(Float, nullable=True, default=50.0)
+    content_type: Mapped[str | None] = mapped_column(String(20))
+    # 'full' | 'summary' | 'mixed'
+    avg_content_length: Mapped[int | None] = mapped_column()
+    quality_score: Mapped[float | None] = mapped_column(default=50.0)
 
     # Full fetch statistics
-    full_fetch_success_count = Column(Integer, nullable=False, default=0)
-    full_fetch_failure_count = Column(Integer, nullable=False, default=0)
+    full_fetch_success_count: Mapped[int] = mapped_column(default=0)
+    full_fetch_failure_count: Mapped[int] = mapped_column(default=0)
 
     # Scheduling fields
-    schedule_interval = Column(Integer, nullable=True)  # seconds, null = not scheduled
-    next_ingest_at = Column(DateTime, nullable=True)
-    last_ingested_at = Column(DateTime, nullable=True)
+    # seconds, null = not scheduled
+    schedule_interval: Mapped[int | None] = mapped_column()
+    next_ingest_at: Mapped[datetime | None] = mapped_column()
+    last_ingested_at: Mapped[datetime | None] = mapped_column()
 
     # Error tracking fields
-    last_error_message = Column(String(255), nullable=True)
-    last_job_id = Column(String(64), nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(String(255))
+    last_job_id: Mapped[str | None] = mapped_column(String(64))
 
     # Collection statistics
-    items_last_7d = Column(Integer, nullable=False, default=0)
-    last_ingest_result = Column(String(20), nullable=True)  # success, partial, failed
+    items_last_7d: Mapped[int] = mapped_column(default=0)
+    last_ingest_result: Mapped[str | None] = mapped_column(String(20))
+    # success, partial, failed
 
     # Relationships
-    jobs = relationship("Job", back_populates="source")
+    jobs: Mapped[list["Job"]] = relationship(back_populates="source")
