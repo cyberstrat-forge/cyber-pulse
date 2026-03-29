@@ -11,6 +11,7 @@ import httpx
 
 from .base import SSRFError, validate_url_for_ssrf
 from .connector_service import BaseConnector, ConnectorError
+from .http_headers import get_browser_headers
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +32,6 @@ class RSSConnector(BaseConnector):
 
     MAX_ITEMS = 50
     REQUIRED_CONFIG_KEYS = ["feed_url"]
-
-    # 默认浏览器 User-Agent
-    DEFAULT_USER_AGENT = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
 
     def validate_config(self) -> bool:
         """Validate that feed_url is present in config.
@@ -84,7 +78,7 @@ class RSSConnector(BaseConnector):
             ) as client:
                 response = await client.get(
                     feed_url,
-                    headers={"User-Agent": self.DEFAULT_USER_AGENT},
+                    headers=get_browser_headers(),
                 )
 
                 # Validate the final URL (in case of redirects)
