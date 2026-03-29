@@ -97,6 +97,7 @@ Create file `tests/test_services/test_job_lifecycle_service.py`:
 """Tests for JobLifecycleService."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import Mock, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -194,11 +195,18 @@ class TestRetryJob:
         db_session.commit()
 
         service = JobLifecycleService(db_session)
-        result = service.retry_job("job_retry01")
 
-        assert result["job_id"] == "job_retry01"
-        assert result["status"] == "PENDING"
-        assert result["retry_count"] == 2
+        # Mock Dramatiq task to avoid Redis dependency
+        with patch("cyberpulse.services.job_lifecycle_service.ingest_source") as mock_task:
+            mock_task.send = Mock()
+            result = service.retry_job("job_retry01")
+
+            assert result["job_id"] == "job_retry01"
+            assert result["status"] == "PENDING"
+            assert result["retry_count"] == 2
+
+            # Verify task was dispatched
+            mock_task.send.assert_called_once_with("src_retry01", job_id="job_retry01")
 
         # Verify job state reset
         db_session.refresh(job)
@@ -221,11 +229,18 @@ class TestRetryJob:
         db_session.commit()
 
         service = JobLifecycleService(db_session)
-        result = service.retry_job("job_import01")
 
-        assert result["job_id"] == "job_import01"
-        assert result["status"] == "PENDING"
-        assert result["retry_count"] == 1
+        # Mock Dramatiq task to avoid Redis dependency
+        with patch("cyberpulse.services.job_lifecycle_service.process_import_job") as mock_task:
+            mock_task.send = Mock()
+            result = service.retry_job("job_import01")
+
+            assert result["job_id"] == "job_import01"
+            assert result["status"] == "PENDING"
+            assert result["retry_count"] == 1
+
+            # Verify task was dispatched
+            mock_task.send.assert_called_once_with("job_import01")
 
     def test_retry_exceeds_limit_fails(self, db_session):
         """Test that retrying job with max retries raises error."""
@@ -719,7 +734,8 @@ class TestJobRetry:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
 
-        with patch("cyberpulse.api.routers.admin.jobs.ingest_source") as mock_task:
+        # Mock at service layer where Dramatiq tasks are called
+        with patch("cyberpulse.services.job_lifecycle_service.ingest_source") as mock_task:
             mock_task.send = Mock()
             try:
                 response = client.post("/api/v1/admin/jobs/job_retry_ingest/retry")
@@ -750,7 +766,8 @@ class TestJobRetry:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
 
-        with patch("cyberpulse.api.routers.admin.jobs.process_import_job") as mock_task:
+        # Mock at service layer where Dramatiq tasks are called
+        with patch("cyberpulse.services.job_lifecycle_service.process_import_job") as mock_task:
             mock_task.send = Mock()
             try:
                 response = client.post("/api/v1/admin/jobs/job_retry_import/retry")
@@ -1047,8 +1064,6 @@ class TestSourceCleanup:
 
     def test_cleanup_sources_with_removed_sources(self, client, db_session, mock_admin_client):
         """Test cleanup removes REMOVED sources and their items/jobs."""
-        from cyberpulse.models import Item, Source, SourceStatus
-
         # Create a REMOVED source with items and jobs
         source = Source(
             source_id="src_removed01",
@@ -1134,10 +1149,10 @@ class TestSourceCleanup:
         assert data["deleted_jobs"] == 0
 ```
 
-Add the necessary imports at the top of the test file:
+Add the necessary imports at the top of the test file (update the existing imports):
 
 ```python
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
 import pytest
@@ -1146,7 +1161,7 @@ from fastapi.testclient import TestClient
 from cyberpulse.api.auth import get_current_client
 from cyberpulse.api.dependencies import get_db
 from cyberpulse.api.main import app
-from cyberpulse.models import ApiClient, ApiClientStatus, Job, JobStatus, JobType
+from cyberpulse.models import ApiClient, ApiClientStatus, Item, Job, JobStatus, JobType, Source, SourceStatus
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
