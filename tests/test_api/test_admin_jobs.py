@@ -1,15 +1,22 @@
 """Tests for Job Admin API."""
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
-from cyberpulse.api.main import app
 from cyberpulse.api.auth import get_current_client
 from cyberpulse.api.dependencies import get_db
-from cyberpulse.models import ApiClient, ApiClientStatus, Job, JobType, JobStatus, Source
+from cyberpulse.api.main import app
+from cyberpulse.models import (
+    ApiClient,
+    ApiClientStatus,
+    Job,
+    JobStatus,
+    JobType,
+    Source,
+)
 
 
 @pytest.fixture
@@ -130,7 +137,7 @@ class TestJobList:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
         # Use Z suffix to avoid URL encoding issues with + sign
-        since_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        since_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         try:
             response = client.get(f"/api/v1/admin/jobs?since={since_time}")
         finally:
@@ -196,8 +203,8 @@ class TestJobCreate:
         data = response.json()
         assert "job_id" in data
         assert data["job_id"].startswith("job_")
-        assert data["type"] == "ingest"
-        assert data["status"] == "pending"
+        assert data["type"] == "INGEST"
+        assert data["status"] == "PENDING"
         assert data["source_id"] == "src_testjob01"
         assert data["source_name"] == "Test Source for Job"
         assert data["message"] == "Job created and queued"
@@ -251,9 +258,9 @@ class TestJobDetail:
             type=JobType.INGEST,
             status=JobStatus.COMPLETED,
             source_id="src_jobdetail01",
-            created_at=datetime.now(timezone.utc) - timedelta(hours=1),
-            started_at=datetime.now(timezone.utc) - timedelta(minutes=30),
-            completed_at=datetime.now(timezone.utc) - timedelta(minutes=25),
+            created_at=datetime.now(UTC) - timedelta(hours=1),
+            started_at=datetime.now(UTC) - timedelta(minutes=30),
+            completed_at=datetime.now(UTC) - timedelta(minutes=25),
         )
         db_session.add(job)
         db_session.commit()
@@ -268,8 +275,8 @@ class TestJobDetail:
         assert response.status_code == 200
         data = response.json()
         assert data["job_id"] == "job_a1b2c3d4"
-        assert data["type"] == "ingest"
-        assert data["status"] == "completed"
+        assert data["type"] == "INGEST"
+        assert data["status"] == "COMPLETED"
         assert data["source_id"] == "src_jobdetail01"
         assert data["source_name"] == "Source for Job Detail Test"
         assert "duration_seconds" in data
@@ -284,7 +291,7 @@ class TestJobDetail:
             source_id=None,
             error_type="ConnectionError",
             error_message="Failed to connect to source",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         db_session.add(job)
         db_session.commit()
@@ -298,7 +305,7 @@ class TestJobDetail:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "failed"
+        assert data["status"] == "FAILED"
         assert data["error"] is not None
         assert data["error"]["type"] == "ConnectionError"
         assert data["error"]["message"] == "Failed to connect to source"
@@ -311,7 +318,7 @@ class TestJobDetail:
             status=JobStatus.RUNNING,
             source_id=None,
             retry_count=3,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         db_session.add(job)
         db_session.commit()

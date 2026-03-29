@@ -1,5 +1,15 @@
-from cyberpulse.models import Source, Item, ApiClient, Job
-from cyberpulse.models import SourceTier, SourceStatus, ItemStatus, ApiClientStatus, JobStatus, JobType
+from cyberpulse.models import (
+    ApiClient,
+    ApiClientStatus,
+    Item,
+    ItemStatus,
+    Job,
+    JobStatus,
+    JobType,
+    Source,
+    SourceStatus,
+    SourceTier,
+)
 
 
 def test_models_import():
@@ -42,21 +52,22 @@ def test_api_client_status_enum():
 
 def test_job_status_enum():
     """Test JobStatus enum values"""
-    assert JobStatus.PENDING == "pending"
-    assert JobStatus.RUNNING == "running"
-    assert JobStatus.COMPLETED == "completed"
-    assert JobStatus.FAILED == "failed"
+    assert JobStatus.PENDING == "PENDING"
+    assert JobStatus.RUNNING == "RUNNING"
+    assert JobStatus.COMPLETED == "COMPLETED"
+    assert JobStatus.FAILED == "FAILED"
 
 
 def test_job_type_enum():
     """Test JobType enum values"""
-    assert JobType.INGEST == "ingest"
+    assert JobType.INGEST == "INGEST"
 
 
 def test_item_status_default_is_enum():
     """Test that Item.status uses ItemStatus enum"""
     # Verify the column type is Enum
     from sqlalchemy import Enum as SAEnum
+
     from cyberpulse.models.item import Item
     status_col = Item.__table__.c.status
     assert isinstance(status_col.type, SAEnum)
@@ -66,6 +77,7 @@ def test_item_status_default_is_enum():
 def test_api_client_status_default_is_enum():
     """Test that ApiClient.status uses ApiClientStatus enum"""
     from sqlalchemy import Enum as SAEnum
+
     from cyberpulse.models.api_client import ApiClient
     status_col = ApiClient.__table__.c.status
     assert isinstance(status_col.type, SAEnum)
@@ -75,6 +87,7 @@ def test_api_client_status_default_is_enum():
 def test_source_uses_enum_types():
     """Test that Source model uses Enum types for tier and status"""
     from sqlalchemy import Enum as SAEnum
+
     from cyberpulse.models.source import Source
     tier_col = Source.__table__.c.tier
     status_col = Source.__table__.c.status
