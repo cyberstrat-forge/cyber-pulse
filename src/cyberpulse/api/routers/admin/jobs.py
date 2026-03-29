@@ -13,7 +13,13 @@ from ....models import Job, JobStatus, JobType, Source
 from ....tasks.ingestion_tasks import ingest_source
 from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
-from ...schemas.job import JobCreate, JobCreatedResponse, JobListResponse, JobResponse
+from ...schemas.job import (
+    JobCreate,
+    JobCreatedResponse,
+    JobDeleteResponse,
+    JobListResponse,
+    JobResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -194,3 +200,29 @@ async def get_job(
         source_name = source.name if source else None
 
     return build_job_response(job, source_name)
+
+
+@router.delete("/jobs/{job_id}", response_model=JobDeleteResponse)
+async def delete_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> JobDeleteResponse:
+    """Delete a FAILED job.
+
+    Only FAILED jobs can be deleted. Running, pending, and completed jobs
+    cannot be deleted through this endpoint.
+    """
+    validate_job_id(job_id)
+
+    from ....services.job_lifecycle_service import JobLifecycleService
+
+    service = JobLifecycleService(db)
+    try:
+        result = service.delete_job(job_id)
+        return JobDeleteResponse(deleted=result["deleted"])
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404 if "not found" in str(e).lower() else 400,
+            detail=str(e)
+        )

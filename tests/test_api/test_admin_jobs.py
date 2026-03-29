@@ -333,3 +333,69 @@ class TestJobDetail:
         assert response.status_code == 200
         data = response.json()
         assert data["retry_count"] == 3
+
+
+class TestJobDelete:
+    """Tests for job delete endpoint."""
+
+    def test_delete_job_no_auth(self, client):
+        """Test that deleting a job requires authentication."""
+        response = client.delete("/api/v1/admin/jobs/job_delete01")
+        assert response.status_code == 401
+
+    def test_delete_job_not_found(self, client, db_session, mock_admin_client):
+        """Test deleting non-existent job returns 404."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.delete("/api/v1/admin/jobs/job_nonexistent")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 404
+
+    def test_delete_non_failed_job_fails(self, client, db_session, mock_admin_client):
+        """Test that deleting non-FAILED job returns 400."""
+        job = Job(
+            job_id="job_running_del",
+            type=JobType.INGEST,
+            status=JobStatus.RUNNING,
+        )
+        db_session.add(job)
+        db_session.commit()
+
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.delete("/api/v1/admin/jobs/job_running_del")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 400
+        assert "Only FAILED jobs" in response.json()["detail"]
+
+    def test_delete_failed_job_success(self, client, db_session, mock_admin_client):
+        """Test deleting a FAILED job."""
+        job = Job(
+            job_id="job_failed_del",
+            type=JobType.INGEST,
+            status=JobStatus.FAILED,
+            error_type="TestError",
+            error_message="Test error",
+        )
+        db_session.add(job)
+        db_session.commit()
+
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.delete("/api/v1/admin/jobs/job_failed_del")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] == "job_failed_del"
+
+        # Verify job is deleted
+        assert db_session.get(Job, "job_failed_del") is None
