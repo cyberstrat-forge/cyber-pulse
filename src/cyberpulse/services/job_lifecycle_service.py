@@ -3,7 +3,7 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..models import Job, JobStatus, JobType
@@ -150,4 +150,54 @@ class JobLifecycleService:
         return {
             "deleted_count": deleted_count,
             "threshold_days": days,
+        }
+
+    def cleanup_sources(self) -> dict:
+        """Clean up REMOVED sources with cascade deletion.
+
+        Deletes all sources with status=REMOVED along with their
+        associated items and jobs.
+
+        Returns:
+            Dict with counts of deleted sources, items, and jobs.
+        """
+        from ..models import Item, Source, SourceStatus
+
+        removed_sources = self.db.scalars(
+            select(Source).where(Source.status == SourceStatus.REMOVED)
+        ).all()
+
+        deleted_sources = 0
+        deleted_items = 0
+        deleted_jobs = 0
+
+        for source in removed_sources:
+            # Order matters: FK constraints require children deleted first
+            # 1. Delete items (items.source_id is not null)
+            items_result = self.db.execute(
+                delete(Item).where(Item.source_id == source.source_id)
+            )
+            deleted_items += items_result.rowcount
+
+            # 2. Delete jobs with this source_id (jobs.source_id is nullable)
+            jobs_result = self.db.execute(
+                delete(Job).where(Job.source_id == source.source_id)
+            )
+            deleted_jobs += jobs_result.rowcount
+
+            # 3. Delete source
+            self.db.delete(source)
+            deleted_sources += 1
+
+        self.db.commit()
+
+        logger.info(
+            f"Cleaned up {deleted_sources} REMOVED sources, "
+            f"{deleted_items} items, {deleted_jobs} jobs"
+        )
+
+        return {
+            "deleted_sources": deleted_sources,
+            "deleted_items": deleted_items,
+            "deleted_jobs": deleted_jobs,
         }
