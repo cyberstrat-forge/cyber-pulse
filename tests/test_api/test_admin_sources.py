@@ -1,6 +1,7 @@
 """Tests for Source Admin API."""
 
 import io
+from datetime import UTC, datetime
 from unittest.mock import Mock
 
 import pytest
@@ -9,7 +10,16 @@ from fastapi.testclient import TestClient
 from cyberpulse.api.auth import get_current_client
 from cyberpulse.api.dependencies import get_db
 from cyberpulse.api.main import app
-from cyberpulse.models import ApiClient, ApiClientStatus
+from cyberpulse.models import (
+    ApiClient,
+    ApiClientStatus,
+    Item,
+    Job,
+    JobStatus,
+    JobType,
+    Source,
+    SourceStatus,
+)
 
 
 @pytest.fixture
@@ -611,3 +621,98 @@ class TestSourceGetUpdateDelete:
             app.dependency_overrides.clear()
 
         assert response.status_code == 400
+
+
+class TestSourceCleanup:
+    """Tests for source cleanup endpoint."""
+
+    def test_cleanup_sources_no_auth(self, client):
+        """Test that cleanup requires authentication."""
+        response = client.post("/api/v1/admin/sources/cleanup")
+        assert response.status_code == 401
+
+    def test_cleanup_sources_with_removed_sources(self, client, db_session, mock_admin_client):
+        """Test cleanup removes REMOVED sources and their items/jobs."""
+        # Create a REMOVED source with items and jobs
+        source = Source(
+            source_id="src_removed01",
+            name="Removed Source",
+            connector_type="rss",
+            status=SourceStatus.REMOVED,
+        )
+        db_session.add(source)
+
+        # Add items
+        item1 = Item(
+            item_id="item_src01_01",
+            source_id="src_removed01",
+            external_id="ext1",
+            url="https://example.com/1",
+            title="Item 1",
+            published_at=datetime.now(UTC),
+            fetched_at=datetime.now(UTC),
+        )
+        item2 = Item(
+            item_id="item_src01_02",
+            source_id="src_removed01",
+            external_id="ext2",
+            url="https://example.com/2",
+            title="Item 2",
+            published_at=datetime.now(UTC),
+            fetched_at=datetime.now(UTC),
+        )
+        db_session.add_all([item1, item2])
+
+        # Add job
+        job = Job(
+            job_id="job_src01",
+            type=JobType.INGEST,
+            status=JobStatus.COMPLETED,
+            source_id="src_removed01",
+        )
+        db_session.add(job)
+
+        # Create an ACTIVE source that should NOT be deleted
+        active_source = Source(
+            source_id="src_active01",
+            name="Active Source",
+            connector_type="rss",
+            status=SourceStatus.ACTIVE,
+        )
+        db_session.add(active_source)
+
+        db_session.commit()
+
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.post("/api/v1/admin/sources/cleanup")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted_sources"] == 1
+        assert data["deleted_items"] == 2
+        assert data["deleted_jobs"] == 1
+
+        # Verify REMOVED source is deleted
+        assert db_session.get(Source, "src_removed01") is None
+
+        # Verify ACTIVE source still exists
+        assert db_session.get(Source, "src_active01") is not None
+
+    def test_cleanup_sources_no_removed_sources(self, client, db_session, mock_admin_client):
+        """Test cleanup when no REMOVED sources exist."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.post("/api/v1/admin/sources/cleanup")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted_sources"] == 0
+        assert data["deleted_items"] == 0
+        assert data["deleted_jobs"] == 0

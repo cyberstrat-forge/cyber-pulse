@@ -14,7 +14,7 @@
 # 1. 进入 worktree 目录
 cd /Users/luoweirong/cyberstrat-forge/cyber-pulse/.worktrees/<branch-name>
 
-# 2. 停止并清理旧环境
+# 2. 停止并清理旧环境（重要：删除数据卷确保干净状态）
 ./scripts/cyber-pulse.sh stop --env test
 docker volume rm deploy_postgres_data deploy_redis_data 2>/dev/null || true
 
@@ -33,6 +33,8 @@ docker logs deploy-api-1 2>&1 | grep -A2 "Admin API Key" | head -6
 # 6. 验证部署
 ./scripts/api.sh diagnose
 ```
+
+> ⚠️ **重要提示**：步骤 2 中的 `docker volume rm` 命令会删除数据库和 Redis 的持久化数据。如果不执行此步骤，重新部署后将保留之前测试的所有数据（源、任务、API Key 等）。对于干净测试，请务必先删除数据卷。
 
 ## 命令详解
 
@@ -75,16 +77,15 @@ docker logs deploy-api-1 2>&1 | grep -A2 "Admin API Key" | head -6
 ./scripts/api.sh sources list
 ./scripts/api.sh sources create --name "名称" --type rss --url "RSS_URL" --tier T0
 ./scripts/api.sh sources get <source_id>
-./scripts/api.sh sources update <source_id>  # 使用 curl 直接调用
+./scripts/api.sh sources delete <source_id>   # 软删除
+./scripts/api.sh sources cleanup              # 物理删除已删除的源
 
 # 任务管理
 ./scripts/api.sh jobs list
 ./scripts/api.sh jobs get <job_id>
-
-# 触发采集任务（使用 curl）
-curl -X POST -H "Authorization: Bearer <admin_key>" -H "Content-Type: application/json" \
-  -d '{"type": "ingest", "source_id": "<source_id>"}' \
-  http://localhost:8000/api/v1/admin/jobs
+./scripts/api.sh jobs delete <job_id>         # 删除失败任务
+./scripts/api.sh jobs retry <job_id>          # 重试失败任务
+./scripts/api.sh jobs cleanup --days 30       # 清理旧任务
 
 # 客户端管理
 ./scripts/api.sh clients list

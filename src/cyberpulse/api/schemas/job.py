@@ -45,3 +45,32 @@ class JobCreatedResponse(BaseModel):
     source_id: str
     source_name: str | None = None
     message: str = "Job created and queued"
+
+
+class JobDeleteResponse(BaseModel):
+    """Job deletion response."""
+    deleted: str
+    message: str = "Job deleted successfully"
+
+
+class JobRetryResponse(BaseModel):
+    """Job retry response."""
+    job_id: str
+    status: str
+    retry_count: int
+    message: str = "Job queued for retry"
+
+
+class JobCleanupResponse(BaseModel):
+    """Job cleanup response."""
+    deleted_count: int
+    threshold_days: int
+    message: str = "Jobs cleaned up successfully"
+
+
+class SourceCleanupResponse(BaseModel):
+    """Source cleanup response."""
+    deleted_sources: int
+    deleted_items: int
+    deleted_jobs: int
+    message: str = "REMOVED sources cleaned up successfully"

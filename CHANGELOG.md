@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 自动重试卡在 PENDING_FULL_FETCH 状态的 Item
 - 任务超时配置：10 分钟（适应 Rate Limiting）
 
+#### Job/Source 生命周期管理
+- `JobLifecycleService`: 任务删除、重试、清理
+- `DELETE /admin/jobs/{job_id}`: 删除失败任务
+- `POST /admin/jobs/{job_id}/retry`: 重试失败任务（最多 3 次）
+- `POST /admin/jobs/cleanup`: 清理旧任务
+- `POST /admin/sources/cleanup`: 物理删除已删除的源（级联删除 items 和 jobs）
+- CLI 命令: `jobs delete/retry/cleanup`, `sources cleanup`
+- 完整错误处理：数据库回滚、任务分发失败恢复
+
 ### Changed
 
 - 内容质量阈值提升：MIN_CONTENT_LENGTH 500（原 100），MIN_WORD_COUNT 50（新增）

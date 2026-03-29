@@ -13,7 +13,15 @@ from ....models import Job, JobStatus, JobType, Source
 from ....tasks.ingestion_tasks import ingest_source
 from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
-from ...schemas.job import JobCreate, JobCreatedResponse, JobListResponse, JobResponse
+from ...schemas.job import (
+    JobCleanupResponse,
+    JobCreate,
+    JobCreatedResponse,
+    JobDeleteResponse,
+    JobListResponse,
+    JobResponse,
+    JobRetryResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +179,38 @@ async def create_job(
     )
 
 
+@router.post("/jobs/cleanup", response_model=JobCleanupResponse)
+async def cleanup_jobs(
+    days: int = Query(30, ge=1, description="Days threshold for cleanup"),
+    status: str = Query("COMPLETED", description="Job status to clean up"),
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> JobCleanupResponse:
+    """Clean up old jobs.
+
+    Deletes jobs with the specified status that completed before the threshold.
+    Default: Delete COMPLETED jobs older than 30 days.
+    """
+    # Validate status
+    try:
+        status_enum = JobStatus(status.upper())
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid status. Must be one of: {[s.value for s in JobStatus]}"
+        )
+
+    from ....services.job_lifecycle_service import JobLifecycleService
+
+    service = JobLifecycleService(db)
+    result = service.cleanup_jobs(days=days, status=status_enum)
+
+    return JobCleanupResponse(
+        deleted_count=result["deleted_count"],
+        threshold_days=result["threshold_days"],
+    )
+
+
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
@@ -194,3 +234,59 @@ async def get_job(
         source_name = source.name if source else None
 
     return build_job_response(job, source_name)
+
+
+@router.delete("/jobs/{job_id}", response_model=JobDeleteResponse)
+async def delete_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> JobDeleteResponse:
+    """Delete a FAILED job.
+
+    Only FAILED jobs can be deleted. Running, pending, and completed jobs
+    cannot be deleted through this endpoint.
+    """
+    validate_job_id(job_id)
+
+    from ....services.job_lifecycle_service import JobLifecycleService
+
+    service = JobLifecycleService(db)
+    try:
+        result = service.delete_job(job_id)
+        return JobDeleteResponse(deleted=result["deleted"])
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404 if "not found" in str(e).lower() else 400,
+            detail=str(e)
+        )
+
+
+@router.post("/jobs/{job_id}/retry", response_model=JobRetryResponse)
+async def retry_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> JobRetryResponse:
+    """Retry a FAILED job.
+
+    Resets the job state and dispatches the appropriate Dramatiq task.
+    Maximum 3 retries allowed per job.
+    """
+    validate_job_id(job_id)
+
+    from ....services.job_lifecycle_service import JobLifecycleService
+
+    service = JobLifecycleService(db)
+    try:
+        result = service.retry_job(job_id)
+        return JobRetryResponse(
+            job_id=result["job_id"],
+            status=result["status"],
+            retry_count=result["retry_count"],
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404 if "not found" in str(e).lower() else 400,
+            detail=str(e)
+        )

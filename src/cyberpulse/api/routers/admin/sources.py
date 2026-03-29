@@ -37,6 +37,7 @@ from ....tasks.import_tasks import process_import_job
 from ....tasks.ingestion_tasks import ingest_source
 from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
+from ...schemas.job import SourceCleanupResponse
 from ...schemas.source import (
     DefaultsResponse,
     DefaultsUpdate,
@@ -469,6 +470,29 @@ async def export_sources(
         headers={
             "Content-Disposition": f"attachment; filename=cyberpulse-sources-{datetime.now().strftime('%Y%m%d')}.opml"
         }
+    )
+
+
+@router.post("/sources/cleanup", response_model=SourceCleanupResponse)
+async def cleanup_sources(
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> SourceCleanupResponse:
+    """Clean up REMOVED sources.
+
+    Permanently deletes all sources with status=REMOVED along with
+    their associated items and jobs. This is a physical delete,
+    unlike DELETE /sources/{source_id} which is a soft delete.
+    """
+    from ....services.job_lifecycle_service import JobLifecycleService
+
+    service = JobLifecycleService(db)
+    result = service.cleanup_sources()
+
+    return SourceCleanupResponse(
+        deleted_sources=result["deleted_sources"],
+        deleted_items=result["deleted_items"],
+        deleted_jobs=result["deleted_jobs"],
     )
 
 
