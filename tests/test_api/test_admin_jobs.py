@@ -596,3 +596,27 @@ class TestJobCleanup:
         data = response.json()
         assert data["deleted_count"] == 1
         assert data["threshold_days"] == 30
+
+    def test_cleanup_jobs_invalid_status(self, client, db_session, mock_admin_client):
+        """Test that invalid status returns 422."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.post("/api/v1/admin/jobs/cleanup?status=INVALID_STATUS")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "Invalid status" in data["detail"]
+
+    def test_cleanup_jobs_invalid_days(self, client, db_session, mock_admin_client):
+        """Test that days parameter below minimum returns 422."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.post("/api/v1/admin/jobs/cleanup?days=0")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 422
