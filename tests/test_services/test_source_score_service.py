@@ -56,7 +56,6 @@ def test_source_with_items(db_session, test_source):
             status=ItemStatus.NORMALIZED,
             meta_completeness=0.8,
             content_completeness=0.7,
-            noise_ratio=0.1,
         )
         items.append(item)
 
@@ -168,11 +167,10 @@ class TestCalculateQuality:
         """Test quality calculation with quality metrics."""
         quality = source_score_service.calculate_quality(test_source_with_items.source_id)
 
-        # Quality = 0.8 * 0.4 + 0.7 * 0.4 + (1 - 0.1) * 0.2
-        #         = 0.32 + 0.28 + 0.18 = 0.78
+        # Quality = 0.8 * 0.5 + 0.7 * 0.5 = 0.75
         assert quality > 0
         assert quality <= 1.0
-        assert abs(quality - 0.78) < 0.01
+        assert abs(quality - 0.75) < 0.01
 
     def test_calculate_quality_no_items(self, source_score_service, test_source):
         """Test quality with no items returns default."""
@@ -223,7 +221,6 @@ class TestCalculateQuality:
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=1.0,
                 content_completeness=1.0,
-                noise_ratio=0.0,
             ),
             Item(
                 item_id="item_q2",
@@ -237,7 +234,6 @@ class TestCalculateQuality:
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=0.5,
                 content_completeness=0.5,
-                noise_ratio=0.5,
             ),
         ]
         db_session.add_all(items)
@@ -245,8 +241,8 @@ class TestCalculateQuality:
 
         quality = source_score_service.calculate_quality(test_source.source_id)
 
-        # Average: meta=0.75, content=0.75, noise=0.25
-        # Quality = 0.75*0.4 + 0.75*0.4 + 0.75*0.2 = 0.75
+        # Average: meta=0.75, content=0.75
+        # Quality = 0.75*0.5 + 0.75*0.5 = 0.75
         assert abs(quality - 0.75) < 0.01
 
 
@@ -322,7 +318,6 @@ class TestUpdateTier:
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=1.0,
                 content_completeness=1.0,
-                noise_ratio=0.0,
             )
             db_session.add(item)
         db_session.commit()
@@ -361,7 +356,6 @@ class TestUpdateTier:
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=0.7,
                 content_completeness=0.7,
-                noise_ratio=0.3,
             )
             db_session.add(item)
         db_session.commit()
@@ -403,7 +397,6 @@ class TestUpdateTier:
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=0.2,
                 content_completeness=0.2,
-                noise_ratio=0.8,
             )
             db_session.add(item)
         db_session.commit()
@@ -469,7 +462,6 @@ class TestTierEvolution:
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=1.0,
                 content_completeness=1.0,
-                noise_ratio=0.0,
             )
             db_session.add(item)
         db_session.commit()
@@ -512,7 +504,6 @@ class TestTierEvolution:
                 status=ItemStatus.NORMALIZED,
                 meta_completeness=0.2,
                 content_completeness=0.2,
-                noise_ratio=0.8,
             )
             db_session.add(item)
         db_session.commit()
