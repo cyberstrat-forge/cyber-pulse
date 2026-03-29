@@ -7,9 +7,9 @@ services:
       POSTGRES_DB: cyberpulse
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Port exposed only for development/debugging - comment out for production
-    # ports:
-    #   - "5432:5432"
+    # Port exposed for development/debugging - comment out for production
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cyberpulse} -d cyberpulse"]
       interval: 10s
@@ -21,9 +21,9 @@ services:
     image: redis:7
     volumes:
       - redis_data:/data
-    # Port exposed only for development/debugging - comment out for production
-    # ports:
-    #   - "6379:6379"
+    # Port exposed for development/debugging - comment out for production
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
