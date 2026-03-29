@@ -99,6 +99,126 @@ die() {
     exit 1
 }
 
+# ============================================
+# 模式检测函数
+# ============================================
+
+# 检测是否为 git 仓库（支持 worktree）
+is_git_repo() {
+    [[ -d "$PROJECT_ROOT/.git" ]] || [[ -f "$PROJECT_ROOT/.git" ]]
+}
+
+# 检测运行模式
+detect_mode() {
+    if [[ -n "${CYBER_PULSE_MODE:-}" ]]; then
+        echo "$CYBER_PULSE_MODE"
+        return
+    fi
+    if is_git_repo; then
+        echo "developer"
+    else
+        echo "ops"
+    fi
+}
+
+# 获取当前版本
+get_current_version() {
+    local mode
+    mode=$(detect_mode)
+
+    case "$mode" in
+        developer)
+            local branch
+            branch=$(git -C "$PROJECT_ROOT" branch --show-current 2>/dev/null || echo "")
+            if [[ -n "$branch" && "$branch" != "main" && "$branch" != "master" ]]; then
+                local commit
+                commit=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+                echo "$branch@$commit"
+                return
+            fi
+            local git_version
+            git_version=$(git -C "$PROJECT_ROOT" describe --tags --always 2>/dev/null || echo "")
+            if [[ -n "$git_version" ]]; then
+                echo "$git_version"
+                return
+            fi
+            ;;
+    esac
+
+    # 共同 fallback 路径
+    if [[ -f "$PROJECT_ROOT/.version" ]]; then
+        local version_content
+        version_content=$(cat "$PROJECT_ROOT/.version" 2>/dev/null)
+        if [[ -n "$version_content" && "$version_content" != "" ]]; then
+            echo "$version_content"
+            return
+        fi
+    fi
+
+    local api_version
+    api_version=$(curl -s localhost:8000/health 2>/dev/null | jq -r '.version' 2>/dev/null)
+    if [[ -n "$api_version" && "$api_version" != "null" ]]; then
+        echo "$api_version"
+        return
+    fi
+
+    echo "unknown"
+}
+
+# 获取最新版本
+get_latest_version() {
+    local response tag
+    response=$(curl -sf https://api.github.com/repos/cyberstrat-forge/cyber-pulse/releases/latest 2>/dev/null)
+    if [[ -z "$response" ]]; then
+        echo "error:网络请求失败"
+        return 1
+    fi
+    tag=$(echo "$response" | jq -r '.tag_name' 2>/dev/null)
+    if [[ -z "$tag" || "$tag" == "null" ]]; then
+        echo "error:解析失败"
+        return 1
+    fi
+    echo "$tag"
+}
+
+# 版本比较函数
+version_compare() {
+    local current="$1"
+    local latest="$2"
+    current=${current#v}
+    latest=${latest#v}
+    if [[ "$current" == "$latest" ]]; then
+        return 0
+    fi
+    local sorted
+    sorted=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+    if [[ "$sorted" == "$current" ]]; then
+        return 1
+    else
+        return 2
+    fi
+}
+
+version_lt() {
+    version_compare "$1" "$2"
+    [[ $? -eq 2 ]]
+}
+
+# 写入 .version 文件
+write_version_file() {
+    local mode version
+    mode=$(detect_mode)
+
+    if [[ "$mode" == "developer" ]]; then
+        version=$(git -C "$PROJECT_ROOT" describe --tags --always 2>/dev/null || echo "unknown")
+    else
+        version="${CYBER_PULSE_VERSION:-latest}"
+    fi
+
+    echo "$version" > "$PROJECT_ROOT/.version"
+    print_info "版本信息已写入: .version ($version)"
+}
+
 # 检查 Docker 是否可用
 check_docker() {
     if ! command -v docker &>/dev/null; then
