@@ -53,7 +53,6 @@ class Item(Base, TimestampMixin):
     # Quality metrics (filled after quality check)
     meta_completeness: Mapped[float | None] = mapped_column()
     content_completeness: Mapped[float | None] = mapped_column()
-    noise_ratio: Mapped[float | None] = mapped_column()
     word_count: Mapped[int | None] = mapped_column()
 
     # Full content fetch status
