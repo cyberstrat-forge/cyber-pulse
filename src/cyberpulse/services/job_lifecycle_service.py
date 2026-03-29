@@ -97,7 +97,7 @@ class JobLifecycleService:
         if job.type == JobType.INGEST:
             if not job.source_id:
                 raise ValueError(
-                    f"Cannot retry INGEST job without source_id"
+                    "Cannot retry INGEST job without source_id"
                 )
             ingest_source.send(job.source_id, job_id=job.job_id)
             logger.info(
@@ -177,13 +177,13 @@ class JobLifecycleService:
             items_result = self.db.execute(
                 delete(Item).where(Item.source_id == source.source_id)
             )
-            deleted_items += items_result.rowcount
+            deleted_items += getattr(items_result, "rowcount", 0)
 
             # 2. Delete jobs with this source_id (jobs.source_id is nullable)
             jobs_result = self.db.execute(
                 delete(Job).where(Job.source_id == source.source_id)
             )
-            deleted_jobs += jobs_result.rowcount
+            deleted_jobs += getattr(jobs_result, "rowcount", 0)
 
             # 3. Delete source
             self.db.delete(source)
