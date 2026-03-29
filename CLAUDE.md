@@ -3,7 +3,7 @@
 ## 项目信息
 
 **仓库**: `cyberstrat-forge/cyber-pulse`
-**版本**: v1.4.0
+**版本**: v1.5.0
 **状态**: 生产就绪
 
 **定位**: 内部战略情报采集与标准化系统，向下游分析系统提供清洗后的数据。
@@ -14,55 +14,74 @@
 
 ---
 
-## 部署与验证
+## 部署模式
 
-### 部署命令
+项目支持两种部署模式，根据用户角色选择：
+
+| 用户类型 | 获取方式 | 镜像来源 | 适用场景 |
+|----------|----------|----------|----------|
+| **开发者** | git clone 完整代码 | 本地构建 | 开发测试、PR 验证 |
+| **运维者** | 下载部署包 | 远程拉取 | 生产环境、测试环境 |
+
+### 开发者模式
 
 ```bash
-# 测试环境
-./scripts/cyber-pulse.sh deploy --env test
+# 克隆仓库
+git clone https://github.com/cyberstrat-forge/cyber-pulse.git
+cd cyber-pulse
 
-# 生产环境
+# 本地构建并部署
+./scripts/cyber-pulse.sh deploy --env dev --local
+```
+
+### 运维者模式
+
+```bash
+# 一键安装
+curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --type ops
+
+# 部署
 ./scripts/cyber-pulse.sh deploy --env prod
-```
-
-### 验证命令
-
-```bash
-./scripts/verify.sh                           # 端到端验证
-./scripts/verify.sh --output report.md        # 生成报告
-```
-
-### 常用管理命令
-
-```bash
-# 部署管理
-./scripts/cyber-pulse.sh status               # 查看状态
-./scripts/cyber-pulse.sh logs                 # 查看日志
-./scripts/cyber-pulse.sh stop                 # 停止服务
-./scripts/cyber-pulse.sh restart              # 重启服务
-
-# API 管理（首次使用需先配置）
-./scripts/api.sh configure                    # 配置 API URL 和 Admin Key
-./scripts/api.sh sources list                 # 列出情报源
-./scripts/api.sh jobs run src_xxx             # 运行采集任务
-./scripts/api.sh clients list                 # 列出客户端
-./scripts/api.sh diagnose                     # 系统诊断
 ```
 
 ---
 
-## 快速开始（开发环境）
+## 常用管理命令
 
 ```bash
-# 环境变量（必需）
-DATABASE_URL=postgresql://cyberpulse:cyberpulse123@localhost:5432/cyberpulse
-REDIS_URL=redis://localhost:6379/0
+# 部署管理
+./scripts/cyber-pulse.sh status               # 查看状态
+./scripts/cyber-pulse.sh logs [service]       # 查看日志
+./scripts/cyber-pulse.sh stop                 # 停止服务
+./scripts/cyber-pulse.sh restart              # 重启服务
+./scripts/cyber-pulse.sh upgrade              # 升级版本（运维者模式）
 
-# 初始化
-uv sync
-uv run alembic upgrade head
+# API 管理（首次使用需先配置）
+./scripts/api.sh configure                    # 配置 API URL 和 Admin Key
+./scripts/api.sh diagnose                     # 系统诊断
+./scripts/api.sh sources list                 # 列出情报源
+./scripts/api.sh jobs run <source_id>         # 运行采集任务
+./scripts/api.sh clients list                 # 列出客户端
 ```
+
+---
+
+## 开发环境
+
+### 快速开始
+
+```bash
+# 安装依赖
+uv sync
+
+# 启动本地服务（需要 Docker）
+./scripts/cyber-pulse.sh deploy --env dev --local
+
+# 配置 API 管理
+./scripts/api.sh configure --url http://localhost:8000 --key <admin_key>
+```
+
+> 测试套件会自动读取 `deploy/.env` 中的数据库配置，无需手动设置环境变量。
 
 ### 开发常用命令
 
@@ -78,6 +97,13 @@ uv run mypy src/ --ignore-missing-imports  # 类型检查
 # 数据库
 uv run alembic upgrade head             # 迁移
 uv run alembic revision --autogenerate -m "description"  # 创建迁移
+```
+
+### 验证命令
+
+```bash
+./scripts/verify.sh                     # 端到端验证
+./scripts/verify.sh --output report.md  # 生成报告
 ```
 
 ---
@@ -103,6 +129,16 @@ src/cyberpulse/
 ├── tasks/           # Dramatiq 异步任务
 ├── database.py      # DB 配置
 └── config.py        # 配置管理
+
+deploy/              # 部署配置
+├── docker-compose.yml
+├── .env             # 环境配置（自动生成）
+├── data/            # 持久化数据
+└── logs/            # 日志文件
+
+scripts/
+├── cyber-pulse.sh   # 部署管理脚本
+└── api.sh           # API 管理脚本
 ```
 
 ---
@@ -112,7 +148,7 @@ src/cyberpulse/
 ### 代码模式
 
 - **Service 层**: 继承 `BaseService`（需 DB 时），独立服务无需继承
-- **ID 格式**: `item_{uuid8}`, `cnt_{YYYYMMDDHHMMSS}_{uuid8}`, `src_{uuid8}`
+- **ID 格式**: `item_{uuid8}`, `src_{uuid8}`, `job_{16_hex}`, `cli_{16_hex}`
 - **API Key 格式**: `cp_live_{32_hex_chars}`（避免 `sk_live_`，触发 GitHub 误报）
 - **去重模式**: `create_or_get` 需处理 `IntegrityError` 竞态条件
 - **类型引用**: 使用 `TYPE_CHECKING` 避免循环导入
