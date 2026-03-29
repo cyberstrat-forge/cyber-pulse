@@ -773,13 +773,28 @@ cmd_upgrade() {
     print_banner
     print_header "升级 Cyber Pulse"
 
+    # 模式和分支检测
+    local mode branch
+    mode=$(detect_mode)
+    print_info "检测到模式: $mode"
+
+    if [[ "$mode" == "developer" ]]; then
+        branch=$(git -C "$PROJECT_ROOT" branch --show-current 2>/dev/null || echo "")
+        if [[ -n "$branch" && "$branch" != "main" && "$branch" != "master" ]]; then
+            print_error "当前在特性分支 '$branch'，upgrade 不适用"
+            print_info "如需部署当前代码，请使用: ./scripts/cyber-pulse.sh deploy --local"
+            exit 1
+        fi
+    fi
+
+    if [[ "$mode" == "ops" ]]; then
+        if [[ ! -f "$PROJECT_ROOT/.version" ]]; then
+            print_warning ".version 文件不存在，无法确定当前版本"
+        fi
+    fi
+
     # 1. 预检查
     print_step "执行预检查..."
-
-    # 检查 git 仓库
-    if [[ ! -d "$PROJECT_ROOT/.git" ]]; then
-        die "当前目录不是 git 仓库，无法使用 upgrade 命令"
-    fi
 
     # 检查 Docker
     check_docker
