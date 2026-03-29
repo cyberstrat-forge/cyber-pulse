@@ -60,22 +60,25 @@ def test_items_only_returns_mapped_status(client, db_session):
     from datetime import UTC, datetime
     from unittest.mock import MagicMock
 
-    from cyberpulse.api.dependencies import get_db, require_permissions
-    from cyberpulse.models import Item, ItemStatus
+    from cyberpulse.api.auth import get_current_client
+    from cyberpulse.api.dependencies import get_db
+    from cyberpulse.models import ApiClient, ApiClientStatus, Item, ItemStatus
 
     # Create a mock client with read permission
-    mock_client = MagicMock()
+    mock_client = MagicMock(spec=ApiClient)
     mock_client.permissions = ["read"]
+    mock_client.status = ApiClientStatus.ACTIVE
 
     # Override dependencies
     app.dependency_overrides[get_db] = lambda: db_session
-    app.dependency_overrides[require_permissions(["read"])] = lambda: mock_client
+    app.dependency_overrides[get_current_client] = lambda: mock_client
 
     # Create a source for the items
     from cyberpulse.models import Source
     source = Source(
         source_id="src_test",
         name="Test Source",
+        connector_type="rss",
         config={"feed_url": "https://example.com/feed"},
     )
     db_session.add(source)

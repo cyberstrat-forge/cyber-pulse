@@ -340,7 +340,7 @@ class TestJobDelete:
 
     def test_delete_job_no_auth(self, client):
         """Test that deleting a job requires authentication."""
-        response = client.delete("/api/v1/admin/jobs/job_delete01")
+        response = client.delete("/api/v1/admin/jobs/job_0000000000000001")
         assert response.status_code == 401
 
     def test_delete_job_not_found(self, client, db_session, mock_admin_client):
@@ -348,7 +348,7 @@ class TestJobDelete:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.delete("/api/v1/admin/jobs/job_nonexistent")
+            response = client.delete("/api/v1/admin/jobs/job_0000000000000002")
         finally:
             app.dependency_overrides.clear()
 
@@ -357,7 +357,7 @@ class TestJobDelete:
     def test_delete_non_failed_job_fails(self, client, db_session, mock_admin_client):
         """Test that deleting non-FAILED job returns 400."""
         job = Job(
-            job_id="job_running_del",
+            job_id="job_0000000000000003",
             type=JobType.INGEST,
             status=JobStatus.RUNNING,
         )
@@ -367,7 +367,7 @@ class TestJobDelete:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.delete("/api/v1/admin/jobs/job_running_del")
+            response = client.delete("/api/v1/admin/jobs/job_0000000000000003")
         finally:
             app.dependency_overrides.clear()
 
@@ -377,7 +377,7 @@ class TestJobDelete:
     def test_delete_failed_job_success(self, client, db_session, mock_admin_client):
         """Test deleting a FAILED job."""
         job = Job(
-            job_id="job_failed_del",
+            job_id="job_0000000000000004",
             type=JobType.INGEST,
             status=JobStatus.FAILED,
             error_type="TestError",
@@ -389,16 +389,16 @@ class TestJobDelete:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.delete("/api/v1/admin/jobs/job_failed_del")
+            response = client.delete("/api/v1/admin/jobs/job_0000000000000004")
         finally:
             app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
-        assert data["deleted"] == "job_failed_del"
+        assert data["deleted"] == "job_0000000000000004"
 
         # Verify job is deleted
-        assert db_session.get(Job, "job_failed_del") is None
+        assert db_session.get(Job, "job_0000000000000004") is None
 
     def test_delete_job_invalid_id_format(self, client, mock_admin_client):
         """Test deleting job with invalid ID format returns 400."""
@@ -417,7 +417,7 @@ class TestJobRetry:
 
     def test_retry_job_no_auth(self, client):
         """Test that retrying a job requires authentication."""
-        response = client.post("/api/v1/admin/jobs/job_retry01/retry")
+        response = client.post("/api/v1/admin/jobs/job_0000000000000005/retry")
         assert response.status_code == 401
 
     def test_retry_job_not_found(self, client, db_session, mock_admin_client):
@@ -425,7 +425,7 @@ class TestJobRetry:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.post("/api/v1/admin/jobs/job_nonexistent/retry")
+            response = client.post("/api/v1/admin/jobs/job_0000000000000002/retry")
         finally:
             app.dependency_overrides.clear()
 
@@ -434,7 +434,7 @@ class TestJobRetry:
     def test_retry_non_failed_job_fails(self, client, db_session, mock_admin_client):
         """Test that retrying non-FAILED job returns 400."""
         job = Job(
-            job_id="job_pending_retry",
+            job_id="job_0000000000000006",
             type=JobType.INGEST,
             status=JobStatus.PENDING,
         )
@@ -444,7 +444,7 @@ class TestJobRetry:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.post("/api/v1/admin/jobs/job_pending_retry/retry")
+            response = client.post("/api/v1/admin/jobs/job_0000000000000006/retry")
         finally:
             app.dependency_overrides.clear()
 
@@ -454,7 +454,7 @@ class TestJobRetry:
     def test_retry_exceeds_limit_fails(self, client, db_session, mock_admin_client):
         """Test that retrying job with max retries returns 400."""
         job = Job(
-            job_id="job_maxretry",
+            job_id="job_0000000000000007",
             type=JobType.INGEST,
             status=JobStatus.FAILED,
             retry_count=3,
@@ -465,7 +465,7 @@ class TestJobRetry:
         app.dependency_overrides[get_current_client] = lambda: mock_admin_client
         app.dependency_overrides[get_db] = lambda: db_session
         try:
-            response = client.post("/api/v1/admin/jobs/job_maxretry/retry")
+            response = client.post("/api/v1/admin/jobs/job_0000000000000007/retry")
         finally:
             app.dependency_overrides.clear()
 
@@ -482,7 +482,7 @@ class TestJobRetry:
         db_session.add(source)
 
         job = Job(
-            job_id="job_retry_ingest",
+            job_id="job_0000000000000008",
             type=JobType.INGEST,
             status=JobStatus.FAILED,
             source_id="src_retry_test",
@@ -500,23 +500,23 @@ class TestJobRetry:
         with patch("cyberpulse.services.job_lifecycle_service.ingest_source") as mock_task:
             mock_task.send = Mock()
             try:
-                response = client.post("/api/v1/admin/jobs/job_retry_ingest/retry")
+                response = client.post("/api/v1/admin/jobs/job_0000000000000008/retry")
             finally:
                 app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
-        assert data["job_id"] == "job_retry_ingest"
+        assert data["job_id"] == "job_0000000000000008"
         assert data["status"] == "PENDING"
         assert data["retry_count"] == 2
 
         # Verify task was dispatched
-        mock_task.send.assert_called_once_with("src_retry_test", job_id="job_retry_ingest")
+        mock_task.send.assert_called_once_with("src_retry_test", job_id="job_0000000000000008")
 
     def test_retry_failed_import_job_success(self, client, db_session, mock_admin_client):
         """Test retrying a FAILED IMPORT job."""
         job = Job(
-            job_id="job_retry_import",
+            job_id="job_0000000000000009",
             type=JobType.IMPORT,
             status=JobStatus.FAILED,
             file_name="test.opml",
@@ -532,18 +532,18 @@ class TestJobRetry:
         with patch("cyberpulse.services.job_lifecycle_service.process_import_job") as mock_task:
             mock_task.send = Mock()
             try:
-                response = client.post("/api/v1/admin/jobs/job_retry_import/retry")
+                response = client.post("/api/v1/admin/jobs/job_0000000000000009/retry")
             finally:
                 app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
-        assert data["job_id"] == "job_retry_import"
+        assert data["job_id"] == "job_0000000000000009"
         assert data["status"] == "PENDING"
         assert data["retry_count"] == 1
 
         # Verify task was dispatched
-        mock_task.send.assert_called_once_with("job_retry_import")
+        mock_task.send.assert_called_once_with("job_0000000000000009")
 
     def test_retry_job_invalid_id_format(self, client, mock_admin_client):
         """Test retrying job with invalid ID format returns 400."""
@@ -569,14 +569,14 @@ class TestJobCleanup:
         """Test cleanup with default parameters."""
         # Create old completed job
         old_job = Job(
-            job_id="job_cleanup_old",
+            job_id="job_0000000000000010",
             type=JobType.INGEST,
             status=JobStatus.COMPLETED,
             completed_at=datetime.now(UTC) - timedelta(days=60),
         )
         # Create recent completed job
         recent_job = Job(
-            job_id="job_cleanup_recent",
+            job_id="job_0000000000000011",
             type=JobType.INGEST,
             status=JobStatus.COMPLETED,
             completed_at=datetime.now(UTC) - timedelta(days=10),
@@ -599,7 +599,7 @@ class TestJobCleanup:
     def test_cleanup_jobs_custom_days(self, client, db_session, mock_admin_client):
         """Test cleanup with custom days parameter."""
         job = Job(
-            job_id="job_cleanup_45",
+            job_id="job_0000000000000012",
             type=JobType.INGEST,
             status=JobStatus.COMPLETED,
             completed_at=datetime.now(UTC) - timedelta(days=45),
