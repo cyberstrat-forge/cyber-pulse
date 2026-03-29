@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from cyberpulse.models import (
+    Item,
     Job,
     JobStatus,
     JobType,
@@ -329,6 +330,36 @@ class TestRetryJob:
         ):
             job_lifecycle_service.retry_job("job_no_source")
 
+    def test_retry_preserves_state_on_task_dispatch_failure(
+        self, job_lifecycle_service, db_session, sample_source
+    ):
+        """Test that job state is rolled back if task dispatch fails."""
+        job = Job(
+            job_id="job_dispatch_fail",
+            type=JobType.INGEST,
+            status=JobStatus.FAILED,
+            source_id=sample_source.source_id,
+            error_type="ConnectionError",
+            error_message="Original error",
+            retry_count=0,
+        )
+        db_session.add(job)
+        db_session.commit()
+
+        # Mock ingest_source to raise an exception
+        with patch(
+            "cyberpulse.services.job_lifecycle_service.ingest_source",
+            side_effect=Exception("Redis connection failed")
+        ):
+            with pytest.raises(ValueError, match="Failed to dispatch retry task"):
+                job_lifecycle_service.retry_job("job_dispatch_fail")
+
+        # Verify job state was rolled back
+        db_session.refresh(job)
+        assert job.status == JobStatus.FAILED
+        assert job.retry_count == 0
+        assert job.error_type == "ConnectionError"
+
 
 class TestCleanupJobs:
     """Tests for cleanup_jobs method."""
@@ -529,3 +560,193 @@ class TestCleanupJobs:
         result = job_lifecycle_service.cleanup_jobs(days=30)
 
         assert result["deleted_count"] == 1
+
+
+class TestCleanupSources:
+    """Tests for cleanup_sources method."""
+
+    def test_cleanup_removed_source_with_items_and_jobs(
+        self, job_lifecycle_service, db_session, sample_source
+    ):
+        """Test cascade deletion of REMOVED source with items and jobs."""
+        # Create a REMOVED source
+        removed_source = Source(
+            source_id="src_removed01",
+            name="Removed Source",
+            connector_type="rss",
+            tier=SourceTier.T2,
+            status=SourceStatus.REMOVED,
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+        db_session.add(removed_source)
+
+        # Add items
+        item1 = Item(
+            item_id="item_removed01",
+            source_id="src_removed01",
+            external_id="ext1",
+            url="https://example.com/1",
+            title="Item 1",
+            published_at=datetime.now(UTC),
+            fetched_at=datetime.now(UTC),
+        )
+        item2 = Item(
+            item_id="item_removed02",
+            source_id="src_removed01",
+            external_id="ext2",
+            url="https://example.com/2",
+            title="Item 2",
+            published_at=datetime.now(UTC),
+            fetched_at=datetime.now(UTC),
+        )
+        db_session.add_all([item1, item2])
+
+        # Add job
+        job = Job(
+            job_id="job_removed01",
+            type=JobType.INGEST,
+            status=JobStatus.COMPLETED,
+            source_id="src_removed01",
+        )
+        db_session.add(job)
+
+        # Add an ACTIVE source that should NOT be deleted
+        active_source = Source(
+            source_id="src_active02",
+            name="Active Source",
+            connector_type="rss",
+            tier=SourceTier.T2,
+            status=SourceStatus.ACTIVE,
+            config={"feed_url": "https://example.com/feed2.xml"},
+        )
+        db_session.add(active_source)
+
+        db_session.commit()
+
+        result = job_lifecycle_service.cleanup_sources()
+
+        assert result["deleted_sources"] == 1
+        assert result["deleted_items"] == 2
+        assert result["deleted_jobs"] == 1
+
+        # Verify REMOVED source and its data are deleted
+        assert db_session.get(Source, "src_removed01") is None
+        assert db_session.get(Item, "item_removed01") is None
+        assert db_session.get(Job, "job_removed01") is None
+
+        # Verify ACTIVE source is kept
+        assert db_session.get(Source, "src_active02") is not None
+
+    def test_cleanup_multiple_removed_sources(
+        self, job_lifecycle_service, db_session
+    ):
+        """Test cleanup of multiple REMOVED sources."""
+        # Create multiple REMOVED sources
+        for i in range(3):
+            source = Source(
+                source_id=f"src_multi{i:02d}",
+                name=f"Removed Source {i}",
+                connector_type="rss",
+                tier=SourceTier.T2,
+                status=SourceStatus.REMOVED,
+                config={"feed_url": f"https://example.com/feed{i}.xml"},
+            )
+            db_session.add(source)
+
+            # Add one item and one job per source
+            item = Item(
+                item_id=f"item_multi{i:02d}",
+                source_id=f"src_multi{i:02d}",
+                external_id=f"ext{i}",
+                url=f"https://example.com/{i}",
+                title=f"Item {i}",
+                published_at=datetime.now(UTC),
+                fetched_at=datetime.now(UTC),
+            )
+            db_session.add(item)
+
+            job = Job(
+                job_id=f"job_multi{i:02d}",
+                type=JobType.INGEST,
+                status=JobStatus.COMPLETED,
+                source_id=f"src_multi{i:02d}",
+            )
+            db_session.add(job)
+
+        db_session.commit()
+
+        result = job_lifecycle_service.cleanup_sources()
+
+        assert result["deleted_sources"] == 3
+        assert result["deleted_items"] == 3
+        assert result["deleted_jobs"] == 3
+
+    def test_cleanup_no_removed_sources(
+        self, job_lifecycle_service, db_session, sample_source
+    ):
+        """Test cleanup when no REMOVED sources exist."""
+        # Only ACTIVE source exists (sample_source)
+        result = job_lifecycle_service.cleanup_sources()
+
+        assert result["deleted_sources"] == 0
+        assert result["deleted_items"] == 0
+        assert result["deleted_jobs"] == 0
+
+        # Verify sample_source still exists
+        assert db_session.get(Source, sample_source.source_id) is not None
+
+    def test_cleanup_removed_source_without_items(
+        self, job_lifecycle_service, db_session
+    ):
+        """Test cleanup of REMOVED source with no items or jobs."""
+        source = Source(
+            source_id="src_empty",
+            name="Empty Removed Source",
+            connector_type="rss",
+            tier=SourceTier.T2,
+            status=SourceStatus.REMOVED,
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        result = job_lifecycle_service.cleanup_sources()
+
+        assert result["deleted_sources"] == 1
+        assert result["deleted_items"] == 0
+        assert result["deleted_jobs"] == 0
+
+    def test_cleanup_preserves_frozen_sources(
+        self, job_lifecycle_service, db_session
+    ):
+        """Test that FROZEN sources are not deleted."""
+        frozen_source = Source(
+            source_id="src_frozen",
+            name="Frozen Source",
+            connector_type="rss",
+            tier=SourceTier.T2,
+            status=SourceStatus.FROZEN,
+            config={"feed_url": "https://example.com/feed.xml"},
+        )
+        db_session.add(frozen_source)
+
+        item = Item(
+            item_id="item_frozen",
+            source_id="src_frozen",
+            external_id="ext_frozen",
+            url="https://example.com/frozen",
+            title="Frozen Item",
+            published_at=datetime.now(UTC),
+            fetched_at=datetime.now(UTC),
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        result = job_lifecycle_service.cleanup_sources()
+
+        assert result["deleted_sources"] == 0
+        assert result["deleted_items"] == 0
+
+        # Verify FROZEN source still exists
+        assert db_session.get(Source, "src_frozen") is not None
+        assert db_session.get(Item, "item_frozen") is not None

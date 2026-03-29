@@ -400,6 +400,17 @@ class TestJobDelete:
         # Verify job is deleted
         assert db_session.get(Job, "job_failed_del") is None
 
+    def test_delete_job_invalid_id_format(self, client, mock_admin_client):
+        """Test deleting job with invalid ID format returns 400."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        try:
+            response = client.delete("/api/v1/admin/jobs/invalid_id")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 400
+        assert "Invalid job_id format" in response.json()["detail"]
+
 
 class TestJobRetry:
     """Tests for job retry endpoint."""
@@ -533,6 +544,17 @@ class TestJobRetry:
 
         # Verify task was dispatched
         mock_task.send.assert_called_once_with("job_retry_import")
+
+    def test_retry_job_invalid_id_format(self, client, mock_admin_client):
+        """Test retrying job with invalid ID format returns 400."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        try:
+            response = client.post("/api/v1/admin/jobs/invalid_id/retry")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 400
+        assert "Invalid job_id format" in response.json()["detail"]
 
 
 class TestJobCleanup:
