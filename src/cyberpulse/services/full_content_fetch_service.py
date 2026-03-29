@@ -9,6 +9,7 @@ import httpx
 import trafilatura
 
 from .base import SSRFError, validate_url_for_ssrf
+from .http_headers import get_browser_headers
 from .jina_client import JinaAIClient
 
 logger = logging.getLogger(__name__)
@@ -33,11 +34,6 @@ class FullContentFetchService:
     """
 
     DEFAULT_TIMEOUT = 30.0
-    DEFAULT_USER_AGENT = (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
     MIN_CONTENT_LENGTH = 100
 
     def __init__(self):
@@ -83,7 +79,7 @@ class FullContentFetchService:
                 response = await client.get(
                     url,
                     follow_redirects=True,
-                    headers={"User-Agent": self.DEFAULT_USER_AGENT},
+                    headers=get_browser_headers(),
                 )
 
                 # Validate final URL after redirects
