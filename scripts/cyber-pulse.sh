@@ -432,7 +432,10 @@ cmd_deploy() {
         print_warning "服务将继续启动，迁移可能已在 entrypoint 中完成"
     fi
 
-    # 8. 显示状态
+    # 8. 写入版本文件
+    write_version_file
+
+    # 9. 显示状态
     print_step "服务状态:"
     $DOCKER_COMPOSE $compose_files ps
 
