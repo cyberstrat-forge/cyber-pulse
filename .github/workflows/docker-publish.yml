@@ -12,7 +12,7 @@ env:
   IMAGE_NAME: cyber-pulse
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
