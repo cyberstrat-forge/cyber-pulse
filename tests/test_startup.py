@@ -1,10 +1,9 @@
 """Tests for API startup initialization."""
 
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
-from cyberpulse.models import ApiClient, ApiClientStatus
 from cyberpulse.api.startup import ensure_admin_client
+from cyberpulse.models import ApiClientStatus
 
 
 class TestEnsureAdminClient:

@@ -5,15 +5,13 @@ Tests the complete data flow:
 Source -> Connector -> Item -> Normalization -> Quality Gate -> API
 """
 
-import hashlib
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from cyberpulse.api.main import app
-from cyberpulse.api.auth import get_current_client
 from cyberpulse.api.routers.health import get_db as health_get_db
 from cyberpulse.models import (
     ApiClient,
@@ -117,7 +115,7 @@ class TestE2EDataFlow:
         assert source.status == SourceStatus.ACTIVE
 
         # Step 2: Create item via ItemService
-        published_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        published_at = datetime.now(UTC) - timedelta(hours=1)
         raw_content = """
         <html>
         <head><title>Test Article</title></head>
@@ -227,7 +225,7 @@ class TestE2EDataFlow:
         )
 
         # Create first item
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
         raw_content = "<p>This is the original content for deduplication testing.</p>"
 
         item1 = item_service.create_item(
@@ -316,7 +314,7 @@ class TestE2EDataFlow:
         )
 
         # Create item with short title (should fail quality gate)
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
         raw_content = "<p>Some content here.</p>"
 
         item = item_service.create_item(
@@ -400,7 +398,7 @@ class TestAPIDataRetrieval:
             tier=SourceTier.T0,
         )
 
-        published_at = datetime.now(timezone.utc)
+        published_at = datetime.now(UTC)
         raw_content = """
         <article>
         <h1>Critical Security Advisory</h1>

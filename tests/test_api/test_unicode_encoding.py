@@ -1,14 +1,23 @@
 """Test that API responses preserve Unicode characters."""
-import pytest
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
-from fastapi.testclient import TestClient
-from datetime import datetime, timezone, timedelta
 
-from cyberpulse.api.main import app
+import pytest
+from fastapi.testclient import TestClient
+
 from cyberpulse.api.auth import get_current_client
-from cyberpulse.api.routers.items import get_db as items_get_db
+from cyberpulse.api.main import app
 from cyberpulse.api.routers.health import get_db as health_get_db
-from cyberpulse.models import ApiClient, ApiClientStatus, Item, ItemStatus, Source, SourceStatus, SourceTier
+from cyberpulse.api.routers.items import get_db as items_get_db
+from cyberpulse.models import (
+    ApiClient,
+    ApiClientStatus,
+    Item,
+    ItemStatus,
+    Source,
+    SourceStatus,
+    SourceTier,
+)
 
 
 @pytest.fixture
@@ -70,7 +79,7 @@ class TestUnicodeEncoding:
 
     def test_chinese_item_unicode(self, client, db_session, mock_api_client, test_source):
         """Test that Chinese characters are preserved in item responses."""
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         # Create item with Chinese characters
         item = Item(
             item_id="item_unicode_test",

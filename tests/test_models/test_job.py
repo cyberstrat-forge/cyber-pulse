@@ -1,7 +1,6 @@
 """Tests for Job model."""
 
-import pytest
-from cyberpulse.models.job import Job, JobType, JobStatus
+from cyberpulse.models.job import Job, JobStatus, JobType
 from cyberpulse.models.source import Source, SourceStatus, SourceTier
 
 
@@ -95,15 +94,15 @@ class TestJobModel:
 
     def test_job_type_enums(self):
         """Test JobType enum values."""
-        assert JobType.INGEST.value == "ingest"
-        assert JobType.IMPORT.value == "import"
+        assert JobType.INGEST.value == "INGEST"
+        assert JobType.IMPORT.value == "IMPORT"
 
     def test_job_status_enums(self):
         """Test JobStatus enum values."""
-        assert JobStatus.PENDING.value == "pending"
-        assert JobStatus.RUNNING.value == "running"
-        assert JobStatus.COMPLETED.value == "completed"
-        assert JobStatus.FAILED.value == "failed"
+        assert JobStatus.PENDING.value == "PENDING"
+        assert JobStatus.RUNNING.value == "RUNNING"
+        assert JobStatus.COMPLETED.value == "COMPLETED"
+        assert JobStatus.FAILED.value == "FAILED"
 
     def test_job_import_type(self, db_session):
         """Test creating an import job."""

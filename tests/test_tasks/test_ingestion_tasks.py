@@ -1,7 +1,6 @@
 """Tests for ingestion tasks."""
 
-import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,7 +28,7 @@ def test_source():
 @pytest.fixture
 def test_items_data():
     """Create test items data as returned by connector."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return [
         {
             "external_id": "ext_001",

@@ -3,8 +3,9 @@
 This module tests the verification scripts and utilities.
 """
 
-import subprocess
 import os
+import subprocess
+
 import pytest
 
 

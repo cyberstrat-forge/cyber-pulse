@@ -3,7 +3,7 @@
 import pytest
 from fastapi import HTTPException
 
-from cyberpulse.api.routers.items import validate_cursor, CURSOR_PATTERN
+from cyberpulse.api.routers.items import CURSOR_PATTERN, validate_cursor
 
 
 class TestCursorPattern:

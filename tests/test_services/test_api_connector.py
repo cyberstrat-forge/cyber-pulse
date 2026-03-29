@@ -1,6 +1,6 @@
 """Tests for API Connector."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -862,7 +862,7 @@ class TestAPIConnectorParseResponse:
         assert dt.day == 15
         assert dt.hour == 10
         assert dt.minute == 30
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_parse_date_iso_format_with_timezone(self):
         """Test parsing ISO format date with timezone offset."""
@@ -871,18 +871,18 @@ class TestAPIConnectorParseResponse:
         dt = connector._parse_date("2024-01-15T10:30:00+08:00")
 
         # Should be converted to UTC
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_parse_date_fallback_to_current_time(self):
         """Test that missing date falls back to current UTC time."""
         connector = APIConnector({"base_url": "https://api.example.com"})
 
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         dt = connector._parse_date(None)
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
 
         assert before <= dt <= after
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
 
 class TestAPIConnectorBuildRequest:

@@ -1,8 +1,9 @@
 # tests/test_tasks/test_ingestion_enhanced.py
 """Tests for enhanced ingestion tasks."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from cyberpulse.models import Source, SourceStatus
 from cyberpulse.services.connector_service import ConnectorError
@@ -33,8 +34,9 @@ class TestIngestionFailureTracking:
 
     def test_increments_consecutive_failures(self, db_engine, db_session_no_rollback):
         """Test that consecutive_failures is incremented on error."""
-        from cyberpulse.tasks.ingestion_tasks import ingest_source
         from sqlalchemy.orm import Session
+
+        from cyberpulse.tasks.ingestion_tasks import ingest_source
 
         source = Source(
             source_id="src_fail01",
@@ -63,8 +65,12 @@ class TestIngestionFailureTracking:
 
     def test_freezes_after_max_failures(self, db_engine, db_session_no_rollback):
         """Test that source is frozen after MAX_CONSECUTIVE_FAILURES."""
-        from cyberpulse.tasks.ingestion_tasks import ingest_source, MAX_CONSECUTIVE_FAILURES
         from sqlalchemy.orm import Session
+
+        from cyberpulse.tasks.ingestion_tasks import (
+            MAX_CONSECUTIVE_FAILURES,
+            ingest_source,
+        )
 
         source = Source(
             source_id="src_freeze01",
@@ -93,9 +99,10 @@ class TestIngestionFailureTracking:
 
     def test_resets_failures_on_success(self, db_engine, db_session_no_rollback):
         """Test that consecutive_failures is reset on successful fetch."""
-        from cyberpulse.tasks.ingestion_tasks import ingest_source
-        from cyberpulse.services.rss_connector import FetchResult
         from sqlalchemy.orm import Session
+
+        from cyberpulse.services.rss_connector import FetchResult
+        from cyberpulse.tasks.ingestion_tasks import ingest_source
 
         source = Source(
             source_id="src_success01",
@@ -122,9 +129,10 @@ class TestIngestionFailureTracking:
 
     def test_updates_feed_url_on_redirect(self, db_engine, db_session_no_rollback):
         """Test that feed_url is updated on permanent redirect."""
-        from cyberpulse.tasks.ingestion_tasks import ingest_source
-        from cyberpulse.services.rss_connector import FetchResult
         from sqlalchemy.orm import Session
+
+        from cyberpulse.services.rss_connector import FetchResult
+        from cyberpulse.tasks.ingestion_tasks import ingest_source
 
         source = Source(
             source_id="src_redirect01",
@@ -156,9 +164,10 @@ class TestIngestionFailureTracking:
 
     def test_temporary_redirect_does_not_update_url(self, db_engine, db_session_no_rollback):
         """Test that 302/307 redirects are followed but URL is not updated."""
-        from cyberpulse.tasks.ingestion_tasks import ingest_source
-        from cyberpulse.services.rss_connector import FetchResult
         from sqlalchemy.orm import Session
+
+        from cyberpulse.services.rss_connector import FetchResult
+        from cyberpulse.tasks.ingestion_tasks import ingest_source
 
         source = Source(
             source_id="src_temp_redirect01",
@@ -192,8 +201,12 @@ class TestIngestionFailureTracking:
 
     def test_consecutive_failures_boundary(self, db_engine, db_session_no_rollback):
         """Test consecutive_failures at boundary values (4 and 5)."""
-        from cyberpulse.tasks.ingestion_tasks import ingest_source, MAX_CONSECUTIVE_FAILURES
         from sqlalchemy.orm import Session
+
+        from cyberpulse.tasks.ingestion_tasks import (
+            MAX_CONSECUTIVE_FAILURES,
+            ingest_source,
+        )
 
         # Test at MAX - 1 (should not freeze)
         source = Source(

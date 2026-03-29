@@ -2,8 +2,13 @@
 
 from unittest.mock import MagicMock
 
-from cyberpulse.models import ApiClient, ApiClientStatus
-from cyberpulse.api.auth import ApiClientService, generate_api_key, hash_api_key, verify_api_key
+from cyberpulse.api.auth import (
+    ApiClientService,
+    generate_api_key,
+    hash_api_key,
+    verify_api_key,
+)
+from cyberpulse.models import ApiClientStatus
 
 
 class TestResetAdminKey:

@@ -1,11 +1,16 @@
 """Tests for the scheduler service."""
 
-import pytest
-from unittest.mock import patch, MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from cyberpulse.scheduler.jobs import (
+    collect_source,
+    run_scheduled_collection,
+    update_source_scores,
+)
 from cyberpulse.scheduler.scheduler import SchedulerService, get_scheduler
-from cyberpulse.scheduler.jobs import collect_source, run_scheduled_collection, update_source_scores
 
 
 class TestSchedulerService:

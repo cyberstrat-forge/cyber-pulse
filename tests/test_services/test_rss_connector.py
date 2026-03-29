@@ -1,13 +1,13 @@
 """Tests for RSS Connector."""
 
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock, AsyncMock
 import time
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import httpx
+import pytest
 
-from cyberpulse.services import RSSConnector, ConnectorError
+from cyberpulse.services import ConnectorError, RSSConnector
 
 
 class MockFeedEntry(dict):
@@ -364,7 +364,7 @@ class TestRSSConnectorParseDate:
         assert result.day == 15
         assert result.hour == 14
         assert result.minute == 30
-        assert result.tzinfo == timezone.utc
+        assert result.tzinfo == UTC
 
     def test_parse_date_from_published_string(self):
         """Test parsing date from published string."""
@@ -388,12 +388,12 @@ class TestRSSConnectorParseDate:
 
         entry = MockFeedEntry(published_parsed=None)
 
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         result = connector._parse_date(entry)
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
 
         assert before <= result <= after
-        assert result.tzinfo == timezone.utc
+        assert result.tzinfo == UTC
 
 
 class TestRSSConnectorGetContent:

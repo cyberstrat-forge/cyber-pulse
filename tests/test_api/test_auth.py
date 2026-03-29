@@ -2,19 +2,20 @@
 Tests for API key authentication module.
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.testclient import TestClient
 
 from cyberpulse.api.auth import (
-    generate_api_key,
-    hash_api_key,
-    verify_api_key,
-    get_current_client,
-    require_permissions,
     ApiClientService,
+    generate_api_key,
+    get_current_client,
+    hash_api_key,
+    require_permissions,
+    verify_api_key,
 )
 from cyberpulse.api.main import app
 from cyberpulse.models.api_client import ApiClient, ApiClientStatus
@@ -457,7 +458,8 @@ class TestAuthIntegration:
     def test_protected_endpoint_without_auth_returns_401(self, client):
         """Test that protected endpoints require authentication."""
         # Create a test endpoint
-        from fastapi import FastAPI, Depends
+        from fastapi import Depends, FastAPI
+
         from cyberpulse.api.auth import get_current_client
 
         test_app = FastAPI()
@@ -474,7 +476,8 @@ class TestAuthIntegration:
 
     def test_protected_endpoint_with_invalid_key_returns_401(self, db_session):
         """Test that invalid API key returns 401."""
-        from fastapi import FastAPI, Depends
+        from fastapi import Depends, FastAPI
+
         from cyberpulse.api.auth import get_current_client
 
         test_app = FastAPI()
@@ -494,7 +497,8 @@ class TestAuthIntegration:
 
     def test_protected_endpoint_with_malformed_auth_header(self, db_session):
         """Test that malformed Authorization header returns 401."""
-        from fastapi import FastAPI, Depends
+        from fastapi import Depends, FastAPI
+
         from cyberpulse.api.auth import get_current_client
 
         test_app = FastAPI()
@@ -521,7 +525,8 @@ class TestAuthIntegration:
 
     def test_protected_endpoint_with_empty_auth_header(self, db_session):
         """Test that empty Authorization header returns 401."""
-        from fastapi import FastAPI, Depends
+        from fastapi import Depends, FastAPI
+
         from cyberpulse.api.auth import get_current_client
 
         test_app = FastAPI()

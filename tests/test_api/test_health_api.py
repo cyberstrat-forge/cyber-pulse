@@ -1,14 +1,15 @@
 """
 Tests for health check API endpoint.
 """
-import pytest
 from unittest.mock import Mock
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
+from cyberpulse import __version__
 from cyberpulse.api.main import app
 from cyberpulse.api.routers.health import get_db as health_get_db
-from cyberpulse import __version__
 
 
 @pytest.fixture
@@ -84,7 +85,7 @@ class TestRouterRegistration:
     def test_routers_included(self):
         """Test that all routers are included in the app."""
         # Check that the app has the expected routers by checking the routes
-        from cyberpulse.api.routers import health, sources, clients
+        from cyberpulse.api.routers import clients, health, sources
 
         # Health router should have routes
         assert len(health.router.routes) == 1  # /health endpoint

@@ -1,14 +1,14 @@
 """Tests for Source Admin API."""
 
 import io
-import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 
-from cyberpulse.api.main import app
 from cyberpulse.api.auth import get_current_client
 from cyberpulse.api.dependencies import get_db
+from cyberpulse.api.main import app
 from cyberpulse.models import ApiClient, ApiClientStatus
 
 
@@ -422,7 +422,7 @@ class TestSourceImport:
         assert response.status_code == 200
         data = response.json()
         assert "job_id" in data
-        assert data["status"] == "pending"
+        assert data["status"] == "PENDING"
 
     def test_import_sources_with_options(self, client, db_session, mock_admin_client):
         """Test importing sources with force and skip_invalid options."""

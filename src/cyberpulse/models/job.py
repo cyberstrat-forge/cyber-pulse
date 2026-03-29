@@ -1,18 +1,18 @@
 """Job model for tracking async task execution."""
 
+from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
 from .base import TimestampMixin
 
 if TYPE_CHECKING:
-    pass
+    from .source import Source
 
 
 class JobType(StrEnum):
@@ -33,29 +33,27 @@ class Job(Base, TimestampMixin):
     """Job tracks async task execution."""
     __tablename__ = "jobs"
 
-    job_id = Column(String(64), primary_key=True, index=True)
-    type = Column(SAEnum(JobType, name="jobtype"), nullable=False)
-    status = Column(
-        SAEnum(JobStatus, name="jobstatus"),
-        nullable=False,
-        default=JobStatus.PENDING,
-    )
+    job_id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    type: Mapped[JobType] = mapped_column()
+    status: Mapped[JobStatus] = mapped_column(default=JobStatus.PENDING)
 
     # For ingest jobs
-    source_id = Column(String(64), ForeignKey("sources.source_id"), nullable=True)
+    source_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("sources.source_id")
+    )
 
     # For import jobs
-    file_name = Column(String(255), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(255))
 
     # Results and error info
-    result = Column(JSONB, nullable=True)
-    error_type = Column(String(50), nullable=True)
-    error_message = Column(Text, nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    error_type: Mapped[str | None] = mapped_column(String(50))
+    error_message: Mapped[str | None] = mapped_column(Text)
 
     # Tracking
-    retry_count = Column(Integer, nullable=False, default=0)
-    started_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
+    retry_count: Mapped[int] = mapped_column(default=0)
+    started_at: Mapped[datetime | None] = mapped_column()
+    completed_at: Mapped[datetime | None] = mapped_column()
 
     # Relationships
-    source = relationship("Source", back_populates="jobs")
+    source: Mapped["Source | None"] = relationship(back_populates="jobs")

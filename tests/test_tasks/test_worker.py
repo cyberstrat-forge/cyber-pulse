@@ -1,6 +1,6 @@
 """Tests for the Dramatiq worker configuration."""
 
-from cyberpulse.tasks.worker import broker, dramatiq, result_backend, _mask_url
+from cyberpulse.tasks.worker import _mask_url, broker, dramatiq, result_backend
 
 
 class TestWorkerConfiguration:
@@ -64,8 +64,8 @@ class TestWorkerIntegration:
     def test_broker_configuration_with_custom_url(self):
         """Test broker can be configured with custom URL."""
         from dramatiq.brokers.redis import RedisBroker
-        from dramatiq.results.backends import RedisBackend
         from dramatiq.results import Results
+        from dramatiq.results.backends import RedisBackend
 
         custom_url = "redis://custom:6379/5"
         test_broker = RedisBroker(url=custom_url)

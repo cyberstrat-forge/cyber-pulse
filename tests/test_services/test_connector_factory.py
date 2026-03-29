@@ -5,11 +5,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from cyberpulse.services import (
-    RSSConnector,
-    APIConnector,
-    WebScraperConnector,
-    MediaAPIConnector,
     CONNECTOR_REGISTRY,
+    APIConnector,
+    MediaAPIConnector,
+    RSSConnector,
+    WebScraperConnector,
     get_connector,
     get_connector_for_source,
 )

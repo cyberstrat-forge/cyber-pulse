@@ -1,12 +1,12 @@
 """Tests for Media API Connector."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from cyberpulse.services import MediaAPIConnector, ConnectorError
+from cyberpulse.services import ConnectorError, MediaAPIConnector
 from cyberpulse.services.media_connector import YouTubeRetryableError
 
 
@@ -468,7 +468,7 @@ class TestMediaAPIConnectorParseVideo:
         assert result["author"] == "Parse Test Channel"
         assert result["tags"] == ["test", "parsing"]
         assert isinstance(result["published_at"], datetime)
-        assert result["published_at"].tzinfo == timezone.utc
+        assert result["published_at"].tzinfo == UTC
 
     def test_parse_youtube_video_without_tags(self):
         """Test parsing a YouTube video without tags."""
