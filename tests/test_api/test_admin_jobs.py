@@ -533,3 +533,66 @@ class TestJobRetry:
 
         # Verify task was dispatched
         mock_task.send.assert_called_once_with("job_retry_import")
+
+
+class TestJobCleanup:
+    """Tests for job cleanup endpoint."""
+
+    def test_cleanup_jobs_no_auth(self, client):
+        """Test that cleanup requires authentication."""
+        response = client.post("/api/v1/admin/jobs/cleanup")
+        assert response.status_code == 401
+
+    def test_cleanup_jobs_default_params(self, client, db_session, mock_admin_client):
+        """Test cleanup with default parameters."""
+        # Create old completed job
+        old_job = Job(
+            job_id="job_cleanup_old",
+            type=JobType.INGEST,
+            status=JobStatus.COMPLETED,
+            completed_at=datetime.now(UTC) - timedelta(days=60),
+        )
+        # Create recent completed job
+        recent_job = Job(
+            job_id="job_cleanup_recent",
+            type=JobType.INGEST,
+            status=JobStatus.COMPLETED,
+            completed_at=datetime.now(UTC) - timedelta(days=10),
+        )
+        db_session.add_all([old_job, recent_job])
+        db_session.commit()
+
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.post("/api/v1/admin/jobs/cleanup")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted_count"] == 1
+        assert data["threshold_days"] == 30
+
+    def test_cleanup_jobs_custom_days(self, client, db_session, mock_admin_client):
+        """Test cleanup with custom days parameter."""
+        job = Job(
+            job_id="job_cleanup_45",
+            type=JobType.INGEST,
+            status=JobStatus.COMPLETED,
+            completed_at=datetime.now(UTC) - timedelta(days=45),
+        )
+        db_session.add(job)
+        db_session.commit()
+
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            response = client.post("/api/v1/admin/jobs/cleanup?days=30")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted_count"] == 1
+        assert data["threshold_days"] == 30

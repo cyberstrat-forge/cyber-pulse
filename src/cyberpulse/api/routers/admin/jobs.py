@@ -14,6 +14,7 @@ from ....tasks.ingestion_tasks import ingest_source
 from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
 from ...schemas.job import (
+    JobCleanupResponse,
     JobCreate,
     JobCreatedResponse,
     JobDeleteResponse,
@@ -175,6 +176,38 @@ async def create_job(
         source_id=request.source_id,
         source_name=source.name,
         message="Job created and queued" if task_enqueued else "Job created but task queue unavailable. Job may need manual trigger.",
+    )
+
+
+@router.post("/jobs/cleanup", response_model=JobCleanupResponse)
+async def cleanup_jobs(
+    days: int = Query(30, ge=1, description="Days threshold for cleanup"),
+    status: str = Query("COMPLETED", description="Job status to clean up"),
+    db: Session = Depends(get_db),
+    _admin: ApiClient = Depends(require_permissions(["admin"])),
+) -> JobCleanupResponse:
+    """Clean up old jobs.
+
+    Deletes jobs with the specified status that completed before the threshold.
+    Default: Delete COMPLETED jobs older than 30 days.
+    """
+    # Validate status
+    try:
+        status_enum = JobStatus(status.upper())
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid status. Must be one of: {[s.value for s in JobStatus]}"
+        )
+
+    from ....services.job_lifecycle_service import JobLifecycleService
+
+    service = JobLifecycleService(db)
+    result = service.cleanup_jobs(days=days, status=status_enum)
+
+    return JobCleanupResponse(
+        deleted_count=result["deleted_count"],
+        threshold_days=result["threshold_days"],
     )
 
 
