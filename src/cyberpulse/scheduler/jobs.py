@@ -76,49 +76,74 @@ def run_scheduled_collection() -> dict[str, Any]:
     logger.info("Running scheduled collection for all active sources")
 
     db = SessionLocal()
+    queued_count = 0
+    failed_count = 0
+    job_ids = []
+
     try:
-        # Query all active sources
+        # Query all active sources and extract IDs before processing
+        # This avoids DetachedInstanceError after rollback
         sources = db.query(Source).filter(
             Source.status == SourceStatus.ACTIVE
         ).all()
+        source_ids = [s.source_id for s in sources]
 
-        queued_count = 0
-        failed_count = 0
-        job_ids = []
-
-        for source in sources:
+        for source_id in source_ids:
             try:
                 # Create job record
                 job = Job(
                     job_id=f"job_{secrets.token_hex(8)}",
                     type=JobType.INGEST,
                     status=JobStatus.PENDING,
-                    source_id=source.source_id,
+                    source_id=source_id,
                     trigger=JobTrigger.SCHEDULER,
                 )
                 db.add(job)
                 db.flush()  # Get job_id without committing
 
                 # Queue task with job_id
-                ingest_source.send(source.source_id, job_id=job.job_id)
+                ingest_source.send(source_id, job_id=job.job_id)
                 job_ids.append(job.job_id)
                 queued_count += 1
             except (OSError, ConnectionError) as e:
                 # Catch broker/connection errors specifically
-                logger.error(f"Failed to queue source {source.source_id}: {e}")
+                # Rollback uncommitted job record but continue with other sources
+                db.rollback()
+                logger.error(f"Failed to queue source {source_id}: {e}")
                 failed_count += 1
-                continue
+                # Note: rollback detaches all pending objects, but we use
+                # extracted source_ids list, not source objects, so we can continue
 
-        db.commit()
+        # Only commit if we have successfully queued at least one job
+        # or if no errors occurred
+        if queued_count > 0 or failed_count == 0:
+            db.commit()
 
-        logger.info(f"Queued {queued_count} sources for collection ({failed_count} failed)")
+        logger.info(
+            f"Queued {queued_count} sources for collection "
+            f"({failed_count} failed)"
+        )
 
         return {
             "status": "completed",
             "sources_count": queued_count,
             "failed_count": failed_count,
             "job_ids": job_ids,
-            "message": f"Queued {queued_count} sources for collection ({failed_count} failed)",
+            "message": (
+                f"Queued {queued_count} sources for collection "
+                f"({failed_count} failed)"
+            ),
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Scheduled collection failed with unexpected error: {e}")
+        return {
+            "status": "failed",
+            "sources_count": queued_count,
+            "failed_count": failed_count,
+            "job_ids": job_ids,
+            "error": str(e),
+            "message": f"Scheduled collection failed: {e}",
         }
     finally:
         db.close()
@@ -135,30 +160,57 @@ def update_source_scores() -> dict[str, Any]:
     logger.info("Updating source scores")
 
     db = SessionLocal()
+    updated_count = 0
+    failed_count = 0
+
     try:
+        # Query all active sources and extract IDs before processing
+        # This avoids DetachedInstanceError after rollback
         sources = db.query(Source).filter(
             Source.status == SourceStatus.ACTIVE
         ).all()
+        source_ids = [s.source_id for s in sources]
 
         score_service = SourceScoreService(db)
-        updated_count = 0
-        failed_count = 0
 
-        for source in sources:
+        for source_id in source_ids:
             try:
-                score_service.update_tier(source.source_id)
+                score_service.update_tier(source_id)
                 updated_count += 1
             except ValueError as e:
-                logger.warning(f"Could not update score for {source.source_id}: {e}")
+                # Value errors indicate missing data for scoring
+                logger.warning(f"Could not update score for {source_id}: {e}")
+                failed_count += 1
+            except Exception as e:
+                # Log unexpected errors but continue processing other sources
+                logger.error(f"Unexpected error updating score for {source_id}: {e}")
                 failed_count += 1
 
-        logger.info(f"Updated scores for {updated_count} sources ({failed_count} failed)")
+        db.commit()
+
+        logger.info(
+            f"Updated scores for {updated_count} sources "
+            f"({failed_count} failed)"
+        )
 
         return {
             "status": "completed",
             "sources_updated": updated_count,
             "failed_count": failed_count,
-            "message": f"Updated scores for {updated_count} sources ({failed_count} failed)",
+            "message": (
+                f"Updated scores for {updated_count} sources "
+                f"({failed_count} failed)"
+            ),
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Source score update failed with unexpected error: {e}")
+        return {
+            "status": "failed",
+            "sources_updated": updated_count,
+            "failed_count": failed_count,
+            "error": str(e),
+            "message": f"Source score update failed: {e}",
         }
     finally:
         db.close()
