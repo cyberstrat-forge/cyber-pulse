@@ -4,7 +4,7 @@ from ..database import Base
 from .api_client import ApiClient, ApiClientStatus
 from .base import TimestampMixin
 from .item import Item, ItemStatus
-from .job import Job, JobStatus, JobType
+from .job import Job, JobStatus, JobType, JobTrigger
 from .settings import Settings
 from .source import Source, SourceStatus, SourceTier
 
@@ -23,5 +23,6 @@ __all__ = [
     "Job",
     "JobType",
     "JobStatus",
+    "JobTrigger",  # 新增
     "Settings",
 ]
