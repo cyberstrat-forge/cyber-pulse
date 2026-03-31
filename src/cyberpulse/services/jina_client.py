@@ -18,6 +18,14 @@ JINA_BASE_URL = "https://r.jina.ai/"
 DEFAULT_TIMEOUT = 30.0
 MIN_CONTENT_LENGTH = 100
 
+# Error patterns that Jina AI may return in successful HTTP responses
+JINA_ERROR_PATTERNS = [
+    "Warning: Target URL returned error",
+    "error 403: Forbidden",
+    "403 Forbidden",
+    "Access Denied",
+]
+
 # Redis key for distributed rate limiting
 RATE_LIMIT_KEY = "jina:rate_limit"
 RATE_LIMIT_PER_MINUTE = 20
@@ -219,6 +227,19 @@ class JinaAIClient:
             )
 
         content = response.text
+
+        # Check for error patterns that Jina AI may return in successful responses
+        # (e.g., "Warning: Target URL returned error 403: Forbidden")
+        content_lower = content.lower()
+        for pattern in JINA_ERROR_PATTERNS:
+            if pattern.lower() in content_lower:
+                logger.warning(f"Jina AI returned error pattern: {pattern}")
+                return JinaResult(
+                    content="",
+                    success=False,
+                    error=f"Jina AI error: {pattern}",
+                )
+
         if len(content) >= MIN_CONTENT_LENGTH:
             return JinaResult(content=content, success=True)
         else:
