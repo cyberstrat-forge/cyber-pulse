@@ -14,15 +14,26 @@ class TestCollectSource:
     """Tests for collect_source job."""
 
     def test_collect_source_triggers_ingest_task(self) -> None:
-        """Test that collect_source triggers Dramatiq ingest_source task."""
-        with patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest:
+        """Test that collect_source creates job and triggers Dramatiq ingest_source task."""
+        with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local, \
+             patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest, \
+             patch("cyberpulse.scheduler.jobs.secrets") as mock_secrets:
+
+            # Mock database
+            mock_db = MagicMock()
+            mock_session_local.return_value = mock_db
+
+            # Mock secrets.token_hex
+            mock_secrets.token_hex.return_value = "test1234"
+
             mock_ingest.send = MagicMock()
 
             result = collect_source("src_test123")
 
-            mock_ingest.send.assert_called_once_with("src_test123")
+            mock_ingest.send.assert_called_once_with("src_test123", job_id="job_test1234")
             assert result["status"] == "queued"
             assert result["source_id"] == "src_test123"
+            assert result["job_id"] == "job_test1234"
 
 
 class TestRunScheduledCollection:
