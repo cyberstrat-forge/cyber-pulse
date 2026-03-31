@@ -229,33 +229,6 @@ class ApiClientService:
 
         return None
 
-    def revoke_client(self, client_id: str) -> bool:
-        """
-        Revoke an API client's access.
-
-        Args:
-            client_id: The client ID to revoke
-
-        Returns:
-            True if revoked, False if client not found
-        """
-        client = self.db.query(ApiClient).filter(
-            ApiClient.client_id == client_id
-        ).first()
-
-        if not client:
-            return False
-
-        client.status = ApiClientStatus.REVOKED  # type: ignore[assignment]
-        try:
-            self.db.commit()
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to revoke client {client_id}: {e}")
-            self.db.rollback()
-            raise
-        logger.info(f"Revoked API client: {client_id}")
-        return True
-
     def activate_client(self, client_id: str) -> bool:
         """
         Activate (or reactivate) an API client.
