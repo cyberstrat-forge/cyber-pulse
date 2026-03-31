@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-03-31
+
+### Added
+
+#### API 参考文档
+- `docs/admin-api-reference.md` - 管理 API 参考手册（29 个端点）
+- `docs/business-api-reference.md` - 业务 API 参考手册（2 个端点）
+- 设计文档和实现计划（`docs/superpowers/specs/`, `docs/superpowers/plans/`）
+
+### Changed
+
+- `api.sh` 移除 `items` 命令（调用不存在的端点）
+- `api.sh` 新增 `sources validate` 子命令
+- 部署指南改进：一步式清理命令 `docker compose down -v`
+
+### Fixed
+
+- **Worker Redis 连接错误**：`tasks/__init__.py` 导入顺序修复，确保 broker 在任务模块之前初始化
+- **RSS 解析失败 (Brotli)**：`http_headers.py` 移除 `br` 编码，httpx 不原生支持 Brotli
+- **Jina AI 错误检测**：新增 `JINA_ERROR_PATTERNS` 检测 HTTP 200 响应中的错误消息
+- **内容质量误判**：`INVALID_CONTENT_PATTERNS` 修复，避免 "Forbidden" 误匹配正常内容
+
 ## [1.6.0] - 2026-03-29
 
 ### Added
@@ -275,6 +297,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.6.1]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.6.1
+[1.6.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.6.0
 [1.5.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.5.0
 [1.4.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.4.0
 [1.3.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.3.0
