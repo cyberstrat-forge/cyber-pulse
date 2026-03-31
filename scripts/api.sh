@@ -275,6 +275,7 @@ cmd_sources() {
         defaults)       cmd_sources_defaults "$@" ;;
         set-defaults)   cmd_sources_set_defaults "$@" ;;
         cleanup)        cmd_sources_cleanup "$@" ;;
+        validate)       cmd_sources_validate "$@" ;;
         *)
             print_error "Unknown sources subcommand: $subcommand"
             print_sources_help
@@ -614,6 +615,32 @@ cmd_sources_cleanup() {
     echo "$response" | jq .
 }
 
+cmd_sources_validate() {
+    local source_id="${1:-}"
+
+    if [[ -z "$source_id" ]]; then
+        die "Usage: api.sh sources validate <source_id>"
+    fi
+
+    print_info "Validating source: $source_id"
+
+    local response
+    response=$(api_post "/api/v1/admin/sources/${source_id}/validate")
+    check_api_error "$response"
+
+    local is_valid
+    is_valid=$(echo "$response" | jq -r '.is_valid')
+
+    if [[ "$is_valid" == "true" ]]; then
+        print_success "Validation passed"
+    else
+        print_warning "Validation failed"
+    fi
+
+    echo ""
+    echo "$response" | jq .
+}
+
 print_sources_help() {
     echo ""
     echo "Sources commands:"
@@ -624,6 +651,7 @@ print_sources_help() {
     echo "  delete <source_id>"
     echo ""
     echo "  test <source_id>                          测试源连接"
+    echo "  validate <source_id>                      验证源配置"
     echo "  schedule <source_id> --interval SECONDS   设置采集调度"
     echo "  unschedule <source_id>                    取消采集调度"
     echo ""
@@ -1034,83 +1062,6 @@ cmd_diagnose() {
     echo "$response" | jq .
 }
 
-# ============================================
-# Items 命令 (content)
-# ============================================
-
-cmd_items() {
-    local subcommand="${1:-list}"
-    shift || true
-
-    case "$subcommand" in
-        list)   cmd_items_list "$@" ;;
-        get)    cmd_items_get "$@" ;;
-        *)
-            print_error "Unknown items subcommand: $subcommand"
-            print_items_help
-            exit 1
-            ;;
-    esac
-}
-
-cmd_items_list() {
-    local status_filter=""
-    local source_id=""
-    local limit="50"
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --status)   status_filter="$2"; shift 2 ;;
-            --source)   source_id="$2"; shift 2 ;;
-            --limit)    limit="$2"; shift 2 ;;
-            *)          shift ;;
-        esac
-    done
-
-    local endpoint="/api/v1/items"
-    local params=("limit=$limit")
-
-    [[ -n "$status_filter" ]] && params+=("status=$status_filter")
-    [[ -n "$source_id" ]] && params+=("source_id=$source_id")
-
-    endpoint="${endpoint}?$(IFS='&'; echo "${params[*]}")"
-
-    local response
-    response=$(api_get "$endpoint")
-    check_api_error "$response"
-
-    echo "$response" | jq -r '
-        if .data then
-            ["ID", "Title", "Status", "Source", "Published"],
-            ["--", "-----", "------", "------", "---------"],
-            (.data[] | [.item_id[:20], (.title[:40] // "-"), .status, (.source_id[:12] // "-"), (.published_at[:10] // "-")])
-            | @tsv
-        else
-            .[]
-        end
-    ' | column -t -s $'\t'
-}
-
-cmd_items_get() {
-    local item_id="${1:-}"
-
-    if [[ -z "$item_id" ]]; then
-        die "Usage: api.sh items get <item_id>"
-    fi
-
-    local response
-    response=$(api_get "/api/v1/items/$item_id")
-    check_api_error "$response"
-
-    echo "$response" | jq .
-}
-
-print_items_help() {
-    echo ""
-    echo "Items commands:"
-    echo "  list [--status STATUS] [--source SOURCE_ID] [--limit N]"
-    echo "  get <item_id>"
-}
 
 # ============================================
 # 帮助信息
@@ -1157,10 +1108,6 @@ show_help() {
     echo "    activate <id>        激活客户端"
     echo "    delete <id>          删除客户端"
     echo ""
-    echo "  items <cmd>            内容管理"
-    echo "    list                 列出内容"
-    echo "    get <id>             获取内容详情"
-    echo ""
     echo "  logs [选项]            查看日志"
     echo "    --level LEVEL        日志级别过滤"
     echo "    --source SOURCE_ID   情报源过滤"
@@ -1201,10 +1148,6 @@ main() {
         clients)
             load_config
             cmd_clients "$@"
-            ;;
-        items)
-            load_config
-            cmd_items "$@"
             ;;
         logs)
             load_config

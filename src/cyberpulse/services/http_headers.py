@@ -10,7 +10,9 @@ DEFAULT_HEADERS = {
     "User-Agent": DEFAULT_USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    # Note: Only include encodings that httpx supports natively (gzip, deflate)
+    # Brotli (br) requires additional dependencies (brotli/brotlicffi)
+    "Accept-Encoding": "gzip, deflate",
     "Connection": "keep-alive",
 }
 

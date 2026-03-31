@@ -16,6 +16,7 @@ import dramatiq
 from ..database import SessionLocal
 from ..models import Item, ItemStatus
 from ..services.full_content_fetch_service import FullContentFetchService
+from .worker import broker
 
 logger = logging.getLogger(__name__)
 

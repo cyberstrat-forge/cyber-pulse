@@ -27,8 +27,8 @@ INVALID_CONTENT_PATTERNS = [
     "Checking your browser",
     "404 Not Found",
     "Access Denied",
-    "error 403",
-    "Forbidden",
+    "error 403: Forbidden",
+    "Warning: Target URL returned error",
 ]
 
 

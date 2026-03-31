@@ -20,22 +20,34 @@
 
 ## 快速开始
 
-```bash
-# 1. 停止并清理旧环境（首次部署跳过此步骤）
-./scripts/cyber-pulse.sh stop
-docker volume rm deploy_postgres_data deploy_redis_data 2>/dev/null || true
+### 首次部署
 
-# 2. 部署开发环境（本地构建）
+```bash
+# 1. 部署开发环境（本地构建）
 ./scripts/cyber-pulse.sh deploy --env dev --local
 ```
+
+### 清除旧环境重新部署
+
+如果需要完全清除测试数据（数据库、Redis、业务数据）重新部署：
+
+```bash
+# 一步式清理（推荐）
+cd deploy && docker compose down -v && cd ..
+
+# 然后重新部署
+./scripts/cyber-pulse.sh deploy --env dev --local
+```
+
+> 💡 **说明**：`docker compose down -v` 会停止服务、移除容器、删除数据卷。这是清除测试环境的最完整方式。
 
 部署成功后，终端会显示 **Admin API Key**，请立即保存！
 
 ```bash
-# 3. 配置 API 管理（使用部署输出的 Key）
+# 2. 配置 API 管理（使用部署输出的 Key）
 ./scripts/api.sh configure --url http://localhost:8000 --key cp_live_xxxxx
 
-# 4. 验证部署
+# 3. 验证部署
 ./scripts/api.sh diagnose
 ```
 
@@ -130,17 +142,45 @@ cat .version
 
 ## 清理环境
 
+### 方法一：一步式清理（推荐）
+
+清除所有数据并重新部署的最完整方式：
+
 ```bash
-# 停止服务
+# 停止服务、移除容器、删除数据卷
+cd deploy && docker compose down -v && cd ..
+```
+
+此命令执行以下操作：
+- 停止所有运行中的容器
+- 移除容器（api、worker、scheduler、postgres、redis）
+- 删除数据卷（postgres_data、redis_data）
+- 移除网络
+
+执行后数据库和 Redis 数据完全清空，重新部署将从空白状态开始。
+
+### 方法二：分步清理
+
+如果只想清空数据但保留网络配置：
+
+```bash
+# 1. 停止服务
 ./scripts/cyber-pulse.sh stop
 
-# 删除数据卷（清空数据库和 Redis）
+# 2. 删除数据卷（清空数据库和 Redis）
 docker volume rm deploy_postgres_data deploy_redis_data
 
-# 完全清理（包括镜像）
+# 3. 清理悬空镜像（可选）
 docker rmi cyber-pulse:dev 2>/dev/null || true
 docker image prune -f
 ```
+
+### 对比
+
+| 方法 | 命令 | 适用场景 |
+|------|------|----------|
+| **一步式** | `docker compose down -v` | 完全重新部署、端到端测试 |
+| **分步式** | `stop` + `volume rm` | 清空数据但保留容器配置 |
 
 ## 常见问题
 
