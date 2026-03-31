@@ -5,9 +5,10 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import delete  # 新增
 from sqlalchemy.orm import Session
 
-from ....models import ApiClientStatus
+from ....models import ApiClient, ApiClientStatus  # 添加 ApiClient
 from ...auth import ApiClient, ApiClientService, require_permissions
 from ...dependencies import get_db
 from ...schemas.client import (
@@ -175,20 +176,27 @@ async def activate_client(
 
 
 @router.delete("/clients/{client_id}", status_code=200)
-async def revoke_client(
+async def delete_client(
     client_id: str,
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> dict:
-    """Revoke an API client (soft delete)."""
+    """Delete an API client (permanent deletion).
+
+    This is a hard delete. The client will be permanently removed
+    from the database and cannot be recovered.
+    """
     validate_client_id(client_id)
 
-    logger.info(f"Revoking API client: {client_id}")
+    logger.info(f"Deleting API client: {client_id}")
 
-    service = ApiClientService(db)
-    success = service.revoke_client(client_id)
+    result = db.execute(
+        delete(ApiClient).where(ApiClient.client_id == client_id)
+    )
 
-    if not success:
+    if result.rowcount == 0:
         raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
 
-    return {"message": f"Client {client_id} revoked"}
+    db.commit()
+
+    return {"message": f"Client {client_id} deleted"}
