@@ -2,13 +2,19 @@
 
 This module contains the job functions that are scheduled by APScheduler.
 These jobs trigger Dramatiq tasks for actual processing.
+
+Import order note:
+- models imports are safe (no broker dependency)
+- ingestion_tasks import triggers worker.py which configures broker
 """
 
 import logging
+import secrets
 from typing import Any
 
 from ..database import SessionLocal
-from ..models import Item, ItemStatus, Source, SourceStatus
+from ..models import Item, ItemStatus, Job, JobStatus, JobType, Source, SourceStatus
+from ..models.job import JobTrigger
 from ..services.source_score_service import SourceScoreService
 from ..tasks.ingestion_tasks import ingest_source
 
@@ -18,29 +24,51 @@ logger = logging.getLogger(__name__)
 def collect_source(source_id: str) -> dict[str, Any]:
     """Collect items from a source via Dramatiq task.
 
+    Creates a job record for tracking before queuing the task.
+
     Args:
         source_id: The ID of the source to collect from.
 
     Returns:
         Dictionary with job result status.
     """
-    logger.info(f"Queueing collection for source: {source_id}")
+    db = SessionLocal()
+    try:
+        # Create job record for tracking
+        job = Job(
+            job_id=f"job_{secrets.token_hex(8)}",
+            type=JobType.INGEST,
+            status=JobStatus.PENDING,
+            source_id=source_id,
+            trigger=JobTrigger.SCHEDULER,
+        )
+        db.add(job)
+        db.commit()
 
-    # Send to Dramatiq task queue
-    ingest_source.send(source_id)
+        # Send to Dramatiq task queue with job_id
+        ingest_source.send(source_id, job_id=job.job_id)
 
-    return {
-        "source_id": source_id,
-        "status": "queued",
-        "message": "Collection job queued successfully",
-    }
+        logger.info(f"Created scheduler job {job.job_id} for source {source_id}")
+
+        return {
+            "source_id": source_id,
+            "job_id": job.job_id,
+            "status": "queued",
+            "message": "Collection job queued successfully",
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to create job for source {source_id}: {e}")
+        raise
+    finally:
+        db.close()
 
 
 def run_scheduled_collection() -> dict[str, Any]:
     """Run scheduled collection for all active sources.
 
     Queries database for active sources and queues collection
-    jobs for each.
+    jobs for each, creating job records for tracking.
 
     Returns:
         Dictionary with job result status.
@@ -56,16 +84,32 @@ def run_scheduled_collection() -> dict[str, Any]:
 
         queued_count = 0
         failed_count = 0
+        job_ids = []
+
         for source in sources:
             try:
-                ingest_source.send(source.source_id)
+                # Create job record
+                job = Job(
+                    job_id=f"job_{secrets.token_hex(8)}",
+                    type=JobType.INGEST,
+                    status=JobStatus.PENDING,
+                    source_id=source.source_id,
+                    trigger=JobTrigger.SCHEDULER,
+                )
+                db.add(job)
+                db.flush()  # Get job_id without committing
+
+                # Queue task with job_id
+                ingest_source.send(source.source_id, job_id=job.job_id)
+                job_ids.append(job.job_id)
                 queued_count += 1
             except (OSError, ConnectionError) as e:
                 # Catch broker/connection errors specifically
-                # Let system errors (MemoryError, etc.) propagate
                 logger.error(f"Failed to queue source {source.source_id}: {e}")
                 failed_count += 1
                 continue
+
+        db.commit()
 
         logger.info(f"Queued {queued_count} sources for collection ({failed_count} failed)")
 
@@ -73,6 +117,7 @@ def run_scheduled_collection() -> dict[str, Any]:
             "status": "completed",
             "sources_count": queued_count,
             "failed_count": failed_count,
+            "job_ids": job_ids,
             "message": f"Queued {queued_count} sources for collection ({failed_count} failed)",
         }
     finally:
