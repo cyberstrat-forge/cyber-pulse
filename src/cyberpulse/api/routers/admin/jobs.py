@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from ....models import Job, JobStatus, JobType, Source
+from ....models import Job, JobStatus, JobType, JobTrigger, Source
 from ....tasks.ingestion_tasks import ingest_source
 from ...auth import ApiClient, require_permissions
 from ...dependencies import get_db
@@ -60,6 +60,7 @@ def build_job_response(job: Job, source_name: str | None = None) -> JobResponse:
         status=job.status.value,
         source_id=job.source_id,
         source_name=source_name,
+        trigger=job.trigger,  # 新增
         file_name=job.file_name,
         result=job.result,
         error=error,
@@ -149,6 +150,7 @@ async def create_job(
         type=JobType.INGEST,
         status=JobStatus.PENDING,
         source_id=request.source_id,
+        trigger=JobTrigger.MANUAL,  # 新增：手动触发
     )
 
     db.add(job)
