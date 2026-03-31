@@ -13,6 +13,7 @@ class JobResponse(BaseModel):
     status: str  # "PENDING", "RUNNING", "COMPLETED", "FAILED"
     source_id: str | None = None
     source_name: str | None = None
+    trigger: str | None = None  # 新增：触发来源 (manual/scheduler/create)
     file_name: str | None = None
     result: dict[str, Any] | None = None
     error: dict[str, str] | None = None
