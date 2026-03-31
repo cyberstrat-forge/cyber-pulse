@@ -181,16 +181,46 @@ Admin API Key 在首次部署时自动生成并显示在终端。如果需要重
 
 ## 清理环境
 
+### 方法一：一步式清理（推荐）
+
+清除所有数据并重新部署的最完整方式：
+
 ```bash
-# 停止服务
+# 停止服务、移除容器、删除数据卷
+cd deploy && docker compose down -v && cd ..
+```
+
+此命令执行以下操作：
+- 停止所有运行中的容器
+- 移除容器（api、worker、scheduler、postgres、redis）
+- 删除数据卷（postgres_data、redis_data）
+- 移除网络
+
+> ⚠️ **警告**：生产环境执行此操作将丢失所有业务数据，请谨慎操作！
+
+### 方法二：分步清理
+
+如果只想清空数据但保留网络配置：
+
+```bash
+# 1. 停止服务
 ./scripts/cyber-pulse.sh stop
 
-# 删除数据卷（清空数据库和 Redis）
+# 2. 删除数据卷（清空数据库和 Redis）
 docker volume rm deploy_postgres_data deploy_redis_data
 
-# 完全清理（包括镜像）
+# 3. 清理悬空镜像（可选）
 docker image prune -f
 ```
+
+### 对比
+
+| 方法 | 命令 | 适用场景 |
+|------|------|----------|
+| **一步式** | `docker compose down -v` | 测试环境完全重置 |
+| **分步式** | `stop` + `volume rm` | 清空数据但保留配置 |
+
+> 💡 **说明**：生产环境通常不需要清理数据卷，升级时系统会自动备份和迁移。
 
 ## 常见问题
 
