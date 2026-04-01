@@ -96,17 +96,28 @@ get_current_env() {
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local project_root="$(cd "$script_dir/../.." && pwd)"
     local env_file="$project_root/.cyber-pulse-env"
+    local mode=$(detect_mode)
 
+    # 优先使用环境变量
     if [[ -n "${CYBER_PULSE_ENV:-}" ]]; then
         echo "$CYBER_PULSE_ENV"
         return
     fi
+
+    # 读取环境覆盖文件
     if [[ -f "$env_file" ]]; then
         cat "$env_file"
-    else
-        echo "prod"
+        return
     fi
+
+    # 根据模式返回默认环境
+    case "$mode" in
+        ops)      echo "prod" ;;  # 运维者默认 prod
+        developer) echo "dev" ;;   # 开发者默认 dev
+    esac
 }
+
+**Why**: 当前 `cyber-pulse.sh` 中的 `get_current_env()` 默认返回 `dev`，这对于运维者模式不合理。运维者通常部署生产环境，应默认 `prod`。此修复确保不同模式有正确的默认环境。
 
 # 生成项目名
 generate_project_name() {
@@ -231,6 +242,38 @@ services:
 ```
 
 **Why**: Docker Compose overlay 机制是合并配置而非替换。如果不显式设置 `ports: []`，生产环境会继承 `docker-compose.yml` 中的端口暴露配置，导致 PostgreSQL 和 Redis 端口对外暴露的安全隐患。
+
+#### cyber-pulse.sh 修改
+
+修复 `get_current_env()` 函数，根据运行模式返回正确的默认环境：
+
+```bash
+# 获取当前环境
+get_current_env() {
+    local env_file="$PROJECT_ROOT/.cyber-pulse-env"
+    local mode=$(detect_mode)
+
+    # 优先使用环境变量
+    if [[ -n "${CYBER_PULSE_ENV:-}" ]]; then
+        echo "$CYBER_PULSE_ENV"
+        return
+    fi
+
+    # 读取环境覆盖文件
+    if [[ -f "$env_file" ]]; then
+        cat "$env_file"
+        return
+    fi
+
+    # 根据模式返回默认环境
+    case "$mode" in
+        ops)      echo "prod" ;;  # 运维者默认 prod
+        developer) echo "dev" ;;   # 开发者默认 dev
+    esac
+}
+```
+
+**Why**: 当前 `cyber-pulse.sh` 中 `get_current_env()` 默认返回 `dev`，这对运维者模式不合理。运维者通常部署生产环境，应默认 `prod`。
 
 #### docker-compose.test.yml 和 docker-compose.dev.yml 修改
 
@@ -441,6 +484,7 @@ docker compose config | grep project_name
 | 文件 | 修改内容 | 优先级 |
 |------|---------|--------|
 | `deploy/init/generate-env.sh` | 新增项目名检测、端口分配逻辑 | 高 |
+| `scripts/cyber-pulse.sh` | 修复 `get_current_env()` 根据模式返回默认环境 | 高 |
 | `deploy/docker-compose.yml` | 端口改为变量 | 高 |
 | `deploy/docker-compose.prod.yml` | 添加 `ports: []` 覆盖 | 高（安全） |
 | `deploy/docker-compose.test.yml` | 移除端口硬编码 | 中 |
