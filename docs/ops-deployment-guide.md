@@ -89,6 +89,37 @@ cyber-pulse/                    # 安装目录
 └── install-ops.sh              # 安装脚本
 ```
 
+## 端口分配
+
+| 环境 | API | PostgreSQL | Redis |
+|------|-----|------------|-------|
+| prod | 8000 | 不暴露 | 不暴露 |
+| test | 8001 | 5433 | 6380 |
+
+**生产环境安全**：PostgreSQL 和 Redis 端口不对外暴露，仅 API 服务暴露。
+
+## 多环境部署
+
+可在同一台服务器部署多套环境：
+
+```bash
+# 生产环境
+./scripts/cyber-pulse.sh deploy --env prod
+# 项目名: cyber-pulse-prod, API: 8000
+
+# 测试环境
+./scripts/cyber-pulse.sh deploy --env test
+# 项目名: cyber-pulse-test, API: 8001
+```
+
+两套环境的容器、数据卷完全隔离。
+
+### 查看当前项目名
+
+```bash
+cd deploy && docker compose config | grep project_name && cd ..
+```
+
 ## 命令详解
 
 ### 部署命令
@@ -363,3 +394,36 @@ ls deploy/logs/
 | v1.3.0 | 基础功能稳定版 |
 
 详细变更记录请查看 [CHANGELOG.md](https://github.com/cyberstrat-forge/cyber-pulse/blob/main/CHANGELOG.md)。
+
+## 从旧版本迁移
+
+如果您已有运行中的环境（项目名 `deploy`），升级后建议迁移：
+
+### 迁移步骤
+
+1. **备份数据**：
+   ```bash
+   ./scripts/cyber-pulse.sh snapshot create --name pre-migration
+   ```
+
+2. **停止旧环境**：
+   ```bash
+   cd deploy && docker compose down && cd ..
+   ```
+
+3. **重新生成配置**：
+   ```bash
+   ./scripts/cyber-pulse.sh config generate --force
+   ```
+
+4. **重新部署**：
+   ```bash
+   ./scripts/cyber-pulse.sh deploy --env prod
+   ```
+
+5. **删除旧数据卷**（可选，如不需要旧数据）：
+   ```bash
+   docker volume rm deploy_postgres_data deploy_redis_data
+   ```
+
+> ⚠️ **注意**：迁移后项目名会从 `deploy` 变为 `cyber-pulse-prod`，需要重新初始化数据。
