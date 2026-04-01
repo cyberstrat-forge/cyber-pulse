@@ -41,7 +41,9 @@ def calculate_completeness_score(item: Item) -> float:
 
 @router.get("/items", response_model=ItemListResponse)
 async def list_items(
-    since: str | None = Query(None, description="beginning or ISO 8601 datetime for incremental sync"),
+    since: str | None = Query(
+        None, description="'beginning' or ISO 8601 datetime for incremental sync"
+    ),
     cursor: str | None = Query(None, description="Pagination cursor (item_id)"),
     limit: int = Query(50, ge=1, le=100, description="Page size"),
     db: Session = Depends(get_db),
@@ -79,7 +81,8 @@ async def list_items(
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid since format: {since}. Use 'beginning' or ISO 8601 datetime."
+                detail=f"Invalid since format: {since}. "
+                "Use 'beginning' or ISO 8601 datetime.",
             )
 
     # Build query - only expose MAPPED items to downstream systems
