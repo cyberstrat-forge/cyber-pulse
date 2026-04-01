@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-04-01
+
+### Added
+
+- **Docker Compose 项目名隔离**：不同环境自动获得独立的容器和数据卷
+- **端口偏移机制**：`基础端口 + 环境偏移量`（prod=0, test=+1, dev=+2）
+- **脚本自检测**：自动识别开发者/运维者模式，生成正确的项目名和端口配置
+- **生产环境安全**：PostgreSQL 和 Redis 端口不再对外暴露
+
+### Changed
+
+- `generate-env.sh` 新增 `detect_mode`、`get_current_env`、`generate_project_name`、`generate_ports` 函数
+- `cyber-pulse.sh` 的 `get_current_env` 函数根据运行模式返回正确的默认环境
+- `docker-compose.yml` 端口改为变量配置
+- `docker-compose.prod.yml` 使用 `ports: !reset []` 确保数据库端口不暴露
+
+### Fixed
+
+- Issue #94: Docker Compose 项目名冲突导致 worktree 覆盖生产环境数据
+- 密码同步问题：不同环境共享同一套 Docker volume 导致密码不一致
+
 ## [1.6.2] - 2026-03-31
 
 ### Added
