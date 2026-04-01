@@ -8,7 +8,7 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc
+from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session
 
 from ...models import Item, ItemStatus, Source
@@ -41,12 +41,10 @@ def calculate_completeness_score(item: Item) -> float:
 
 @router.get("/items", response_model=ItemListResponse)
 async def list_items(
-    cursor: str | None = Query(None, description="Pagination cursor"),
-    since: datetime | None = Query(None, description="Start time"),
-    until: datetime | None = Query(None, description="End time"),
-    from_param: str | None = Query(
-        None, alias="from", description="Start position: latest or beginning"
+    since: str | None = Query(
+        None, description="'beginning' or ISO 8601 datetime for incremental sync"
     ),
+    cursor: str | None = Query(None, description="Pagination cursor (item_id)"),
     limit: int = Query(50, ge=1, le=100, description="Page size"),
     db: Session = Depends(get_db),
     _client: ApiClient = Depends(require_permissions(["read"])),
@@ -54,42 +52,64 @@ async def list_items(
     """
     Fetch intelligence items.
 
-    Supports cursor-based pagination for incremental sync.
+    Supports timestamp-based incremental sync.
+
+    Args:
+        since: "beginning" for full sync, or ISO 8601 datetime for incremental sync
+        cursor: Pagination cursor (must be used with since)
+        limit: Page size (1-100)
     """
-    # Validate cursor and from are not both provided
-    if cursor and from_param:
+    # Validate: cursor must be used with since
+    if cursor and not since:
         raise HTTPException(
-            status_code=400, detail="Cannot specify both cursor and from parameters"
+            status_code=400, detail="cursor must be used with since parameter"
         )
 
     # Validate cursor format
     if cursor:
         validate_cursor(cursor)
 
+    # Parse since parameter
+    since_datetime = None
+    if since and since != "beginning":
+        try:
+            # Handle Z suffix (UTC)
+            if since.endswith("Z"):
+                since_datetime = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            else:
+                since_datetime = datetime.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid since format: {since}. "
+                "Use 'beginning' or ISO 8601 datetime.",
+            )
+
     # Build query - only expose MAPPED items to downstream systems
     query = db.query(Item).filter(Item.status == ItemStatus.MAPPED)
 
-    # Apply time filters
-    if since:
-        query = query.filter(Item.published_at >= since)
-    if until:
-        query = query.filter(Item.published_at < until)
+    # Apply time filter (based on fetched_at, not published_at)
+    if since_datetime:
+        query = query.filter(Item.fetched_at >= since_datetime)
 
-    # Apply cursor/pagination
+    # Apply cursor skip
     if cursor:
-        # Find item with this cursor
         cursor_item = db.query(Item).filter(Item.item_id == cursor).first()
         if not cursor_item:
             raise HTTPException(
                 status_code=404, detail=f"Cursor item not found: {cursor}"
             )
-        query = query.filter(Item.fetched_at < cursor_item.fetched_at)
-        query = query.order_by(desc(Item.fetched_at))
-    elif from_param == "beginning":
-        # Start from earliest
-        query = query.order_by(Item.fetched_at.asc())
+        if cursor_item.fetched_at is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cursor item has no fetched_at timestamp: {cursor}",
+            )
+        query = query.filter(Item.fetched_at > cursor_item.fetched_at)
+
+    # Apply ordering: ascending if since provided, descending otherwise
+    if since:
+        query = query.order_by(asc(Item.fetched_at))
     else:
-        # Default: latest first
         query = query.order_by(desc(Item.fetched_at))
 
     # Fetch items
@@ -131,13 +151,14 @@ async def list_items(
             source=source_info,
         ))
 
-    next_cursor = None
-    if has_more and items:
-        next_cursor = items[-1].item_id
+    # Build pagination fields
+    last_item_id = items[-1].item_id if items else None
+    last_fetched_at = items[-1].fetched_at if items else None
 
     return ItemListResponse(
         data=data,
-        next_cursor=next_cursor,
+        last_item_id=last_item_id,
+        last_fetched_at=last_fetched_at,
         has_more=has_more,
         count=len(data),
         server_timestamp=datetime.now(UTC),
