@@ -240,12 +240,39 @@ async def list_items(
     )
 ```
 
-- [ ] **Step 5: 运行测试**
+- [ ] **Step 5: 组合完整函数**
+
+将 Step 2-4 的代码片段按顺序组合到函数体中。完整函数体结构：
+
+```
+def list_items(...):
+    # === Step 2: 参数验证和时间戳解析 ===
+    if cursor and not since: ...
+    if cursor: validate_cursor(cursor)
+    since_datetime = None
+    if since and since != "beginning": ...
+    
+    # === Step 3: 查询构建 ===
+    query = db.query(Item).filter(Item.status == ItemStatus.MAPPED)
+    if since_datetime: query = query.filter(Item.fetched_at >= since_datetime)
+    if cursor: ...
+    if since: query = query.order_by(asc(Item.fetched_at))
+    else: query = query.order_by(desc(Item.fetched_at))
+    items = query.limit(limit + 1).all()
+    ...
+    
+    # === Step 4: 响应构建 ===
+    source_ids = {item.source_id for item in items if item.source_id}
+    ...
+    return ItemListResponse(...)
+```
+
+- [ ] **Step 6: 运行测试**
 
 Run: `uv run pytest tests/test_api/test_items.py -v`
 Expected: 部分测试可能失败，需要更新测试
 
-- [ ] **Step 6: 提交 API 重构**
+- [ ] **Step 7: 提交 API 重构**
 
 ```bash
 git add src/cyberpulse/api/routers/items.py
@@ -614,92 +641,30 @@ git commit -m "test(api): add tests for incremental sync scenarios"
 
 - [ ] **Step 2: 更新获取方式示例章节**
 
-找到 `### 获取方式示例` 章节，替换为：
+找到 `### 获取方式示例` 章节，将现有内容（方式一到方式五）全部删除，替换为以下三个方式：
 
-```markdown
-### 获取方式示例
+**方式一：全量同步**
+- 参数：`since=beginning`
+- 场景：首次使用、数据迁移
+- 示例 curl：`curl "http://localhost:8000/api/v1/items?since=beginning&limit=50" -H "Authorization: Bearer cp_live_xxx"`
+- 说明：返回最旧数据开始，正序排列，保存 `last_fetched_at` 和 `last_item_id` 用于增量同步
 
-#### 方式一：全量同步
+**方式二：增量同步**
+- 参数：`since={last_fetched_at}`
+- 场景：日常同步、获取新数据
+- 示例 curl：`curl "http://localhost:8000/api/v1/items?since=2026-04-01T10:00:00Z&limit=50" -H "Authorization: Bearer cp_live_xxx"`
+- 说明：返回指定时间之后入库的新数据
 
-适用场景：首次使用、数据迁移
+**方式三：检查最新数据**
+- 参数：无（默认）
+- 场景：查看最新情报
+- 示例 curl：`curl "http://localhost:8000/api/v1/items?limit=50" -H "Authorization: Bearer cp_live_xxx"`
+- 说明：返回最新数据，倒序排列
 
-**TypeScript:**
-```typescript
-// 首次请求
-const response = await fetch(
-  "http://localhost:8000/api/v1/items?since=beginning&limit=50",
-  { headers: { Authorization: "Bearer cp_live_xxx" } }
-);
-const data = await response.json();
-
-// 保存 last_fetched_at 和 last_item_id 用于后续增量同步
-const { last_fetched_at, last_item_id } = data;
-
-// 分页继续
-if (data.has_more) {
-  const nextResponse = await fetch(
-    `http://localhost:8000/api/v1/items?since=beginning&cursor=${last_item_id}&limit=50`,
-    { headers: { Authorization: "Bearer cp_live_xxx" } }
-  );
-}
-```
-
-**curl:**
-```bash
-curl "http://localhost:8000/api/v1/items?since=beginning&limit=50" \
-  -H "Authorization: Bearer cp_live_xxx"
-```
-
-#### 方式二：增量同步
-
-适用场景：日常同步、获取新数据
-
-**TypeScript:**
-```typescript
-// 使用上次保存的 last_fetched_at
-const response = await fetch(
-  `http://localhost:8000/api/v1/items?since=${last_fetched_at}&limit=50`,
-  { headers: { Authorization: "Bearer cp_live_xxx" } }
-);
-const data = await response.json();
-
-// 更新 last_fetched_at 和 last_item_id
-last_fetched_at = data.last_fetched_at;
-last_item_id = data.last_item_id;
-```
-
-**curl:**
-```bash
-curl "http://localhost:8000/api/v1/items?since=2026-04-01T10:00:00Z&limit=50" \
-  -H "Authorization: Bearer cp_live_xxx"
-```
-
-#### 方式三：检查最新数据
-
-适用场景：查看最新情报
-
-**TypeScript:**
-```typescript
-const response = await fetch(
-  "http://localhost:8000/api/v1/items?limit=50",
-  { headers: { Authorization: "Bearer cp_live_xxx" } }
-);
-const data = await response.json();
-// data.data 按倒序排列，最新的在前
-```
-
-**curl:**
-```bash
-curl "http://localhost:8000/api/v1/items?limit=50" \
-  -H "Authorization: Bearer cp_live_xxx"
-```
-
-### 注意事项
-
+**新增注意事项**：
 - `cursor` 必须与 `since` 配合使用，不支持单独使用
 - `cursor` 格式必须为 `item_{8位hex}`
 - 时间过滤基于 `fetched_at` 字段（入库时间）
-```
 
 - [ ] **Step 3: 更新 Endpoints 章节的参数表**
 
