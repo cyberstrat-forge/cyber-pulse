@@ -593,11 +593,18 @@ get_current_env() {
 }
 ```
 
-修改为（使用现有 `detect_mode` 函数）：
+修改为（与设计文档一致，支持 CYBER_PULSE_ENV 环境变量）：
 
 ```bash
 # 获取当前环境
 get_current_env() {
+    # 优先使用环境变量（支持 CI/CD 场景）
+    if [[ -n "${CYBER_PULSE_ENV:-}" ]]; then
+        echo "$CYBER_PULSE_ENV"
+        return
+    fi
+
+    # 读取环境覆盖文件
     if [[ -f "$ENV_OVERRIDE_FILE" ]]; then
         cat "$ENV_OVERRIDE_FILE"
         return
@@ -1026,3 +1033,14 @@ EOF
 | 不推送 main | ✅ | Task 10 创建功能分支 |
 | 功能分支命名 | ✅ | `feat/docker-compose-project-isolation` |
 | PR 关联 Issue | ✅ | `Fixes #94` |
+
+### 6. 设计文档一致性检查
+
+| 检查项 | 状态 | 说明 |
+|--------|------|------|
+| generate-env.sh detect_mode() | ✅ | 与设计文档一致 |
+| generate-env.sh get_current_env() | ✅ | 支持 CYBER_PULSE_ENV 环境变量 |
+| cyber-pulse.sh get_current_env() | ✅ | 已修复，支持 CYBER_PULSE_ENV 环境变量 |
+| 项目名命名规则 | ✅ | developer: `cyber-pulse-dev-{hash}`, ops: `cyber-pulse-{env}` |
+| 端口分配规则 | ✅ | prod=基础, test=+1, dev=+2 |
+| 生产环境端口不暴露 | ✅ | Task 2 添加 `ports: []` |
