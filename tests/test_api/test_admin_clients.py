@@ -1,11 +1,12 @@
 """Tests for Client Admin API."""
 
 from datetime import UTC, datetime
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from cyberpulse.api.auth import get_current_client
 from cyberpulse.api.dependencies import get_db
@@ -60,6 +61,34 @@ class TestClientDelete:
 
         assert response.status_code == 400
         assert "invalid" in response.json()["detail"].lower()
+
+    def test_delete_client_database_exception(
+            self, client, db_session, mock_admin_client
+        ):
+        """Test database exception during deletion returns generic error message."""
+        from unittest.mock import patch
+
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+
+        try:
+            # Mock db.execute to raise database exception
+            with patch.object(db_session, 'execute') as mock_execute:
+                mock_execute.side_effect = OperationalError(
+                    "Database connection failed", {}, None
+                )
+
+                response = client.delete("/api/v1/admin/clients/cli_0000000000000003")
+
+            # Should return 500 with generic message (not expose db error details)
+            assert response.status_code == 500
+            detail = response.json()["detail"]
+            assert "internal error" in detail.lower()
+            # Ensure no database error details leaked
+            assert "OperationalError" not in detail
+            assert "connection" not in detail.lower()
+        finally:
+            app.dependency_overrides.clear()
 
     def test_delete_client_success(self, client, db_session, mock_admin_client):
         """Test successful hard delete of an API client."""

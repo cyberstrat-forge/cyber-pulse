@@ -1,6 +1,8 @@
 """Integration tests for scheduler-dramatiq connection."""
 from unittest.mock import MagicMock, patch
 
+import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from cyberpulse.scheduler.jobs import (
@@ -40,6 +42,29 @@ class TestCollectSource:
             assert result["status"] == "queued"
             assert result["source_id"] == "src_test123"
             assert result["job_id"] == "job_test1234"
+
+    def test_collect_source_db_failure_raises_exception(self) -> None:
+        """Test that collect_source raises exception on db failure, not returns error."""
+        with patch(
+            "cyberpulse.scheduler.jobs.SessionLocal"
+        ) as mock_session_local, \
+             patch("cyberpulse.scheduler.jobs.secrets") as mock_secrets:
+
+            # Mock database that fails on add/flush
+            mock_db = MagicMock()
+            mock_db.add.side_effect = OperationalError(
+                "Database connection failed", {}, None
+            )
+            mock_session_local.return_value = mock_db
+
+            mock_secrets.token_hex.return_value = "test1234"
+
+            # Should raise exception (not return error dict)
+            with pytest.raises(OperationalError):
+                collect_source("src_test123")
+
+            # Verify rollback was called
+            mock_db.rollback.assert_called_once()
 
 
 class TestRunScheduledCollection:
@@ -134,6 +159,23 @@ class TestRunScheduledCollection:
                 mock_score_instance.update_tier.assert_called_once_with(
                     source_id
                 )
+
+    def test_update_source_scores_unexpected_exception_raises(self) -> None:
+        """Test that update_source_scores raises exception, not returns error dict."""
+        with patch(
+            "cyberpulse.scheduler.jobs.SessionLocal"
+        ) as mock_session_local:
+            mock_db = MagicMock()
+            # Simulate unexpected exception during query
+            mock_db.query.side_effect = RuntimeError("Unexpected error")
+            mock_session_local.return_value = mock_db
+
+            # Should raise exception for APScheduler to handle
+            with pytest.raises(RuntimeError):
+                update_source_scores()
+
+            # Verify rollback was called
+            mock_db.rollback.assert_called_once()
 
     def test_update_source_scores_handles_value_error(
             self, db_session: Session

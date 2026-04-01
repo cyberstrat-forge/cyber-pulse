@@ -10,6 +10,7 @@ from cyberpulse.models import (
     SourceStatus,
     SourceTier,
 )
+from cyberpulse.models.job import JobTrigger
 
 
 def test_models_import():
@@ -61,6 +62,22 @@ def test_job_status_enum():
 def test_job_type_enum():
     """Test JobType enum values"""
     assert JobType.INGEST == "INGEST"
+
+
+def test_job_trigger_enum():
+    """Test JobTrigger enum values"""
+    assert JobTrigger.MANUAL == "manual"
+    assert JobTrigger.SCHEDULER == "scheduler"
+    assert JobTrigger.CREATE == "create"
+
+
+def test_job_trigger_field_is_enum():
+    """Test that Job.trigger uses JobTrigger enum type."""
+    from sqlalchemy import Enum as SAEnum
+
+    trigger_col = Job.__table__.c.trigger
+    assert isinstance(trigger_col.type, SAEnum)
+    assert trigger_col.type.name == "jobtrigger"
 
 
 def test_item_status_default_is_enum():

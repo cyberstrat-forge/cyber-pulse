@@ -218,8 +218,9 @@ async def delete_client(
         raise
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to delete client {client_id}: {e}")
+        logger.error(f"Failed to delete client {client_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to delete client: {e}"
+            detail="An internal error occurred while deleting the client. "
+                   "Please try again or contact support."
         )
