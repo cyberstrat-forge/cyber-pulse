@@ -181,7 +181,7 @@ curl "http://localhost:8000/api/v1/items?limit=50" \
   "last_item_id": "item_b2c3d4e5",
   "last_fetched_at": "2026-03-30T10:00:00.123Z",
   "has_more": true,
-  "count": 50,
+  "count": 1,
   "server_timestamp": "2026-03-30T10:00:00Z"
 }
 ```
