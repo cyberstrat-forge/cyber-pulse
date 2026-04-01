@@ -212,8 +212,6 @@ curl "http://localhost:8000/api/v1/items?limit=50" \
 | word_count | int | 正文字数 |
 | fetched_at | datetime | 采集时间 |
 | source | object | 来源信息 |
-| full_fetch_attempted | boolean | 是否尝试了全文采集 |
-| full_fetch_succeeded | boolean | 全文采集是否成功 |
 
 **source 对象字段：**
 
