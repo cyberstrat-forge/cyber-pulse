@@ -258,11 +258,26 @@ ensure_env_file() {
 
 # 获取当前环境
 get_current_env() {
+    # 优先使用环境变量（支持 CI/CD 场景）
+    if [[ -n "${CYBER_PULSE_ENV:-}" ]]; then
+        echo "$CYBER_PULSE_ENV"
+        return
+    fi
+
+    # 读取环境覆盖文件
     if [[ -f "$ENV_OVERRIDE_FILE" ]]; then
         cat "$ENV_OVERRIDE_FILE"
-    else
-        echo "dev"  # 默认开发环境
+        return
     fi
+
+    local mode
+    mode=$(detect_mode)
+
+    # 根据模式返回默认环境
+    case "$mode" in
+        ops)      echo "prod" ;;  # 运维者默认 prod
+        developer) echo "dev" ;;   # 开发者默认 dev
+    esac
 }
 
 # 设置环境

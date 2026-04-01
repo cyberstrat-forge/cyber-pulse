@@ -24,6 +24,97 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="$PROJECT_ROOT/deploy/.env"
 BACKUP_SUFFIX=".backup.$(date +%Y%m%d%H%M%S)"
 
+# 检测运行模式
+detect_mode() {
+    # 优先使用环境变量
+    if [[ -n "${CYBER_PULSE_MODE:-}" ]]; then
+        echo "$CYBER_PULSE_MODE"
+        return
+    fi
+    # 检测是否为 git 仓库
+    if [[ -d "$PROJECT_ROOT/.git" ]] || [[ -f "$PROJECT_ROOT/.git" ]]; then
+        echo "developer"
+    else
+        echo "ops"
+    fi
+}
+
+# 获取环境
+get_current_env() {
+    local env_file="$PROJECT_ROOT/.cyber-pulse-env"
+    local mode=$(detect_mode)
+
+    # 优先使用环境变量
+    if [[ -n "${CYBER_PULSE_ENV:-}" ]]; then
+        echo "$CYBER_PULSE_ENV"
+        return
+    fi
+
+    # 读取环境覆盖文件
+    if [[ -f "$env_file" ]]; then
+        cat "$env_file"
+        return
+    fi
+
+    # 根据模式返回默认环境
+    case "$mode" in
+        ops)      echo "prod" ;;  # 运维者默认 prod
+        developer) echo "dev" ;;   # 开发者默认 dev
+        *)        echo "dev" ;;   # 未知模式默认 dev
+    esac
+}
+
+# 生成项目名
+generate_project_name() {
+    local mode=$(detect_mode)
+    local env=$(get_current_env)
+
+    case "$mode" in
+        developer)
+            # 开发者模式：使用分支名哈希
+            local branch
+            branch=$(git -C "$PROJECT_ROOT" branch --show-current 2>/dev/null || echo "main")
+            # macOS 兼容：使用 md5 替代 md5sum
+            if command -v md5sum &>/dev/null; then
+                local hash=$(echo -n "$branch" | md5sum | cut -c1-8)
+            else
+                local hash=$(echo -n "$branch" | md5 | cut -c1-8)
+            fi
+            echo "cyber-pulse-dev-${hash}"
+            ;;
+        ops)
+            # 运维者模式：根据环境命名
+            echo "cyber-pulse-${env}"
+            ;;
+        *)
+            # 未知模式：使用默认命名
+            echo "cyber-pulse-${env}"
+            ;;
+    esac
+}
+
+# 生成端口配置
+generate_ports() {
+    local env="$1"
+
+    case "$env" in
+        prod)
+            echo "API_PORT=8000"
+            echo "# 生产环境不暴露数据库端口"
+            ;;
+        test)
+            echo "API_PORT=8001"
+            echo "POSTGRES_PORT=5433"
+            echo "REDIS_PORT=6380"
+            ;;
+        dev|*)
+            echo "API_PORT=8002"
+            echo "POSTGRES_PORT=5434"
+            echo "REDIS_PORT=6381"
+            ;;
+    esac
+}
+
 # 生成安全密码的函数
 generate_password() {
     local length="${1:-32}"
@@ -79,6 +170,9 @@ extract_existing_value() {
 # 生成 .env 文件
 generate_env_file() {
     local force="${1:-false}"
+    local mode=$(detect_mode)
+    local env=$(get_current_env)
+    local project_name=$(generate_project_name)
     local postgres_password=""
     local secret_key=""
     local db_user="cyberpulse"
@@ -89,6 +183,10 @@ generate_env_file() {
     echo "║           Cyber Pulse 配置文件生成器                          ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
+    echo -e "${BLUE}检测到模式: ${mode}${NC}"
+    echo -e "${BLUE}目标环境: ${env}${NC}"
+    echo -e "${BLUE}项目名: ${project_name}${NC}"
+    echo ""
 
     # 检查是否已存在配置
     if [[ -f "$ENV_FILE" && "$force" != "true" ]]; then
@@ -130,6 +228,12 @@ generate_env_file() {
 # 自动生成于: $(date '+%Y-%m-%d %H:%M:%S')
 # ==============================================
 
+# Docker Compose 项目名（环境隔离）
+COMPOSE_PROJECT_NAME=${project_name}
+
+# 端口配置
+$(generate_ports "$env")
+
 # 数据库配置
 POSTGRES_USER=${db_user}
 POSTGRES_PASSWORD=${postgres_password}
@@ -146,7 +250,6 @@ DRAMATIQ_BROKER_URL=redis://redis:6379/1
 
 # API 配置
 API_HOST=0.0.0.0
-API_PORT=8000
 API_WORKERS=4
 
 # JWT 安全配置
@@ -159,7 +262,7 @@ LOG_LEVEL=INFO
 LOG_FILE=logs/cyber_pulse.log
 
 # 环境
-ENVIRONMENT=production
+ENVIRONMENT=${env}
 
 # 镜像版本（运维者模式使用）
 CYBER_PULSE_VERSION=latest
@@ -172,6 +275,9 @@ EOF
     echo -e "${GREEN}✓ 配置文件已生成: $ENV_FILE${NC}"
     echo ""
     echo -e "${BLUE}配置摘要:${NC}"
+    echo -e "  运行模式:     ${mode}"
+    echo -e "  目标环境:     ${env}"
+    echo -e "  项目名:       ${project_name}"
     echo -e "  数据库用户:   ${db_user}"
     echo -e "  数据库名称:   ${db_name}"
     echo -e "  数据库密码:   ${YELLOW}********${NC} (${#postgres_password} 字符)"
