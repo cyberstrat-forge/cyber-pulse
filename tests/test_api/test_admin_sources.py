@@ -16,6 +16,7 @@ from cyberpulse.models import (
     Item,
     Job,
     JobStatus,
+    JobTrigger,
     JobType,
     Source,
     SourceStatus,
@@ -716,3 +717,71 @@ class TestSourceCleanup:
         assert data["deleted_sources"] == 0
         assert data["deleted_items"] == 0
         assert data["deleted_jobs"] == 0
+
+
+class TestSourceUpdateURLTrigger:
+    """Tests for URL change triggering ingestion jobs."""
+
+    def test_update_source_url_triggers_ingestion(self, client, db_session, mock_admin_client):
+        """Test that updating source URL triggers ingestion job."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+
+        # Create source
+        source = Source(
+            source_id="src_test001",
+            name="Test Source",
+            connector_type="rss",
+            config={"feed_url": "https://old.example.com/feed"},
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        try:
+            # Update URL
+            response = client.put(
+                "/api/v1/admin/sources/src_test001",
+                json={"config": {"feed_url": "https://new.example.com/feed"}},
+            )
+            assert response.status_code == 200
+
+            # Verify job was created with URL_UPDATE trigger
+            job = db_session.query(Job).filter(
+                Job.source_id == "src_test001",
+                Job.trigger == JobTrigger.URL_UPDATE
+            ).first()
+            assert job is not None
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_update_source_same_url_no_job(self, client, db_session, mock_admin_client):
+        """Test that updating with same URL does not trigger job."""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+
+        # Create source
+        source = Source(
+            source_id="src_test002",
+            name="Test Source 2",
+            connector_type="rss",
+            config={"feed_url": "https://example.com/feed"},
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        try:
+            # Update with same URL
+            response = client.put(
+                "/api/v1/admin/sources/src_test002",
+                json={"config": {"feed_url": "https://example.com/feed"}},
+            )
+            assert response.status_code == 200
+
+            # Verify no job was created
+            job = db_session.query(Job).filter(
+                Job.source_id == "src_test002",
+                Job.trigger == JobTrigger.URL_UPDATE
+            ).first()
+            assert job is None
+        finally:
+            app.dependency_overrides.clear()
