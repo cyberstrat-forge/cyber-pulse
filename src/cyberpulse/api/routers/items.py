@@ -99,6 +99,11 @@ async def list_items(
             raise HTTPException(
                 status_code=404, detail=f"Cursor item not found: {cursor}"
             )
+        if cursor_item.fetched_at is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cursor item has no fetched_at timestamp: {cursor}",
+            )
         query = query.filter(Item.fetched_at > cursor_item.fetched_at)
 
     # Apply ordering: ascending if since provided, descending otherwise
