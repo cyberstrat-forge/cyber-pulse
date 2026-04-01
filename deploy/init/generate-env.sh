@@ -60,6 +60,7 @@ get_current_env() {
     case "$mode" in
         ops)      echo "prod" ;;  # 运维者默认 prod
         developer) echo "dev" ;;   # 开发者默认 dev
+        *)        echo "dev" ;;   # 未知模式默认 dev
     esac
 }
 
@@ -83,6 +84,10 @@ generate_project_name() {
             ;;
         ops)
             # 运维者模式：根据环境命名
+            echo "cyber-pulse-${env}"
+            ;;
+        *)
+            # 未知模式：使用默认命名
             echo "cyber-pulse-${env}"
             ;;
     esac
