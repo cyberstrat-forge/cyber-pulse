@@ -6,23 +6,13 @@
 #   - 挂载本地代码支持热重载
 #   - DEBUG 日志级别
 #   - 单进程模式
-#   - 所有端口对外暴露（便于调试）
+#   - 端口配置继承 docker-compose.yml 的变量配置
 
 services:
-  postgres:
-    ports:
-      - "5432:5432"
-
-  redis:
-    ports:
-      - "6379:6379"
-
   api:
     environment:
       LOG_LEVEL: DEBUG
       DEBUG: "true"
-    ports:
-      - "8000:8000"
     volumes:
       # 挂载本地代码支持热重载
       - ../src:/app/src:ro
