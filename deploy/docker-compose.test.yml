@@ -10,8 +10,7 @@
 
 services:
   postgres:
-    ports:
-      - "5432:5432"
+    # 移除 ports 配置，继承 docker-compose.yml 的变量配置
     deploy:
       resources:
         limits:
@@ -22,8 +21,7 @@ services:
           memory: 256M
 
   redis:
-    ports:
-      - "6379:6379"
+    # 移除 ports 配置，继承 docker-compose.yml 的变量配置
     deploy:
       resources:
         limits:
@@ -36,8 +34,7 @@ services:
   api:
     environment:
       LOG_LEVEL: INFO
-    ports:
-      - "8000:8000"
+    # 移除 ports 配置，继承 docker-compose.yml 的变量配置
     deploy:
       resources:
         limits:
