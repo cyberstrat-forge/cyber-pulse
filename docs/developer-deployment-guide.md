@@ -103,17 +103,19 @@ cat .version
 # 在特性分支: v1.5.0-25-gb596d0b (git describe 格式)
 ```
 
-### 端口映射（开发模式）
+### 端口分配
 
-开发模式默认启用以下端口映射，便于本地调试和测试：
+端口基于环境自动分配，规则：`基础端口 + 环境偏移量`
 
-| 服务 | 端口 | 用途 |
-|------|------|------|
-| API | 8000 | REST API 访问 |
-| PostgreSQL | 5432 | 数据库直连（测试/调试） |
-| Redis | 6379 | 缓存直连（调试） |
+| 服务 | 基础端口 | dev 环境 |
+|------|---------|---------|
+| API | 8000 | 8002 |
+| PostgreSQL | 5432 | 5434 |
+| Redis | 6379 | 6381 |
 
-> ⚠️ **生产环境**：使用 `docker-compose.prod.yml` 部署，端口不对外暴露。
+> **为什么 dev 端口偏移 +2？** 为了支持在同一台机器同时运行 prod、test、dev 三套环境。
+
+> ⚠️ **生产环境**：使用 `docker-compose.prod.yml` 部署，PostgreSQL 和 Redis 端口不对外暴露。
 
 ### API 管理
 
@@ -167,13 +169,14 @@ cd deploy && docker compose down -v && cd ..
 # 1. 停止服务
 ./scripts/cyber-pulse.sh stop
 
-# 2. 删除数据卷（清空数据库和 Redis）
-docker volume rm deploy_postgres_data deploy_redis_data
+# 2. 删除数据卷（使用项目名前缀）
+cd deploy && docker compose down -v && cd ..
 
 # 3. 清理悬空镜像（可选）
-docker rmi cyber-pulse:dev 2>/dev/null || true
 docker image prune -f
 ```
+
+> 💡 **说明**：使用 `docker compose down -v` 会自动使用正确的项目名，无需手动指定卷名。
 
 ### 对比
 
@@ -272,6 +275,22 @@ uv run pytest tests/ -q --tb=no
 ```
 
 > 💡 **说明**：`tests/conftest.py` 会自动读取 `deploy/.env` 中的数据库配置，无需手动设置环境变量。
+
+## 环境隔离
+
+每个 worktree 自动获得独立的项目名（基于分支哈希），不同 worktree 的容器和数据完全隔离。
+
+### 查看当前项目名
+
+```bash
+cd deploy && docker compose config | grep project_name && cd ..
+```
+
+### 已知限制
+
+如果在主仓库和 worktree 都在同一分支部署，项目名会相同，容器会冲突。解决方法：
+- 使用不同的 `.cyber-pulse-env` 文件设置不同环境
+- 或设置 `CYBER_PULSE_ENV` 环境变量
 
 ## 配置文件
 
