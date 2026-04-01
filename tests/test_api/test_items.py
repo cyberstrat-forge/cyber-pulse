@@ -40,10 +40,15 @@ class TestItemsAPI:
 
     @patch("cyberpulse.api.auth.get_current_client")
     def test_list_items_with_time_filter(self, mock_auth, client, mock_read_client):
-        """Test listing items with time range filter."""
+        """Test listing items with since parameter."""
         mock_auth.return_value = mock_read_client
 
+        # Test with ISO 8601 datetime (Z suffix)
         response = client.get("/api/v1/items?since=2026-01-01T00:00:00Z")
+        assert response.status_code in [200, 401]
+
+        # Test with 'beginning'
+        response = client.get("/api/v1/items?since=beginning")
         assert response.status_code in [200, 401]
 
     @patch("cyberpulse.api.auth.get_current_client")
@@ -53,6 +58,52 @@ class TestItemsAPI:
 
         response = client.get("/api/v1/items?limit=10")
         assert response.status_code in [200, 401]
+
+
+def test_cursor_without_since_returns_400(client, db_session):
+    """Test that cursor without since returns 400."""
+    from cyberpulse.api.auth import get_current_client
+    from cyberpulse.api.dependencies import get_db
+    from cyberpulse.models import ApiClient, ApiClientStatus
+
+    # Create a mock client with read permission
+    mock_client = MagicMock(spec=ApiClient)
+    mock_client.permissions = ["read"]
+    mock_client.status = ApiClientStatus.ACTIVE
+
+    # Override dependencies
+    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+
+    response = client.get("/api/v1/items?cursor=item_abc12345")
+    assert response.status_code == 400
+    assert "cursor must be used with since" in response.json()["detail"]
+
+    # Clean up dependency overrides
+    app.dependency_overrides.clear()
+
+
+def test_invalid_since_format_returns_400(client, db_session):
+    """Test that invalid since format returns 400."""
+    from cyberpulse.api.auth import get_current_client
+    from cyberpulse.api.dependencies import get_db
+    from cyberpulse.models import ApiClient, ApiClientStatus
+
+    # Create a mock client with read permission
+    mock_client = MagicMock(spec=ApiClient)
+    mock_client.permissions = ["read"]
+    mock_client.status = ApiClientStatus.ACTIVE
+
+    # Override dependencies
+    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+
+    response = client.get("/api/v1/items?since=invalid-format")
+    assert response.status_code == 400
+    assert "Invalid since format" in response.json()["detail"]
+
+    # Clean up dependency overrides
+    app.dependency_overrides.clear()
 
 
 def test_items_only_returns_mapped_status(client, db_session):
