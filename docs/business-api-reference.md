@@ -71,33 +71,58 @@ Authorization: Bearer cp_live_xxx
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| cursor | string | - | 游标位置，格式 `item_{8位hex}` |
-| from | string | `latest` | 起始方向：`latest` 或 `beginning` |
+| since | string | - | `beginning` 或 ISO 8601 时间戳 |
+| cursor | string | - | 分页游标（`item_{8位hex}`） |
 | limit | int | 50 | 每页数量，范围 1-100 |
 
-### 时间过滤参数
+### 参数语义
 
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| since | datetime | 发布时间起点（ISO 8601） |
-| until | datetime | 发布时间终点（ISO 8601） |
+| since 值 | 行为 | 排序方向 | 用途 |
+|----------|------|---------|------|
+| 不传 | 返回最新一页 | 倒序（新→旧） | 检查最新数据 |
+| `beginning` | 从最早数据开始 | 正序（旧→新） | 全量同步起点 |
+| `{datetime}` | 从指定时间开始 | 正序（旧→新） | 增量同步 |
+
+### 参数组合规则
+
+| 参数组合 | 排序 | 用途 |
+|---------|------|------|
+| 无参数 | 倒序 | 检查最新 |
+| `since=beginning` | 正序 | 全量同步起点 |
+| `since={ts}` | 正序 | 增量同步起点 |
+| `since={ts}&cursor={id}` | 正序 | 分页继续 |
+
+**约束**：`cursor` 必须与 `since` 配合使用。
 
 ### 获取方式示例
 
-#### 方式一：获取最新数据（默认）
+#### 方式一：全量同步
 
-适用场景：首次获取、查看最新情报
+适用场景：首次使用、数据迁移
 
-**TypeScript:**
-```typescript
-const response = await fetch(
-  "http://localhost:8000/api/v1/items?limit=50",
-  {
-    headers: { Authorization: "Bearer cp_live_xxx" },
-  }
-);
-const data = await response.json();
+**curl:**
+```bash
+curl "http://localhost:8000/api/v1/items?since=beginning&limit=50" \
+  -H "Authorization: Bearer cp_live_xxx"
 ```
+
+**说明：** 返回最旧数据开始，正序排列，保存 `last_fetched_at` 和 `last_item_id` 用于增量同步。
+
+#### 方式二：增量同步
+
+适用场景：日常同步、获取新数据
+
+**curl:**
+```bash
+curl "http://localhost:8000/api/v1/items?since=2026-04-01T10:00:00Z&limit=50" \
+  -H "Authorization: Bearer cp_live_xxx"
+```
+
+**说明：** 返回指定时间之后入库的新数据。
+
+#### 方式三：检查最新数据
+
+适用场景：查看最新情报
 
 **curl:**
 ```bash
@@ -105,73 +130,13 @@ curl "http://localhost:8000/api/v1/items?limit=50" \
   -H "Authorization: Bearer cp_live_xxx"
 ```
 
-#### 方式二：增量同步（使用 cursor）
-
-适用场景：持续同步、断点续传
-
-**TypeScript:**
-```typescript
-const response = await fetch(
-  `http://localhost:8000/api/v1/items?cursor=${lastCursor}&limit=50`,
-  {
-    headers: { Authorization: "Bearer cp_live_xxx" },
-  }
-);
-const data = await response.json();
-// 保存 data.next_cursor 用于下次请求
-```
-
-**curl:**
-```bash
-curl "http://localhost:8000/api/v1/items?cursor=item_abc12345&limit=50" \
-  -H "Authorization: Bearer cp_live_xxx"
-```
-
-#### 方式三：从头遍历（from=beginning）
-
-适用场景：全量同步、数据迁移
-
-**TypeScript:**
-```typescript
-const response = await fetch(
-  "http://localhost:8000/api/v1/items?from=beginning&limit=50",
-  {
-    headers: { Authorization: "Bearer cp_live_xxx" },
-  }
-);
-```
-
-**curl:**
-```bash
-curl "http://localhost:8000/api/v1/items?from=beginning&limit=50" \
-  -H "Authorization: Bearer cp_live_xxx"
-```
-
-#### 方式四：按时间范围获取
-
-适用场景：获取特定时间段数据
-
-**curl:**
-```bash
-curl "http://localhost:8000/api/v1/items?since=2026-03-01T00:00:00Z&until=2026-03-15T00:00:00Z&limit=50" \
-  -H "Authorization: Bearer cp_live_xxx"
-```
-
-#### 方式五：时间范围 + 增量同步
-
-适用场景：时间段内的分页获取
-
-**curl:**
-```bash
-curl "http://localhost:8000/api/v1/items?since=2026-03-01T00:00:00Z&cursor=item_abc12345&limit=50" \
-  -H "Authorization: Bearer cp_live_xxx"
-```
+**说明：** 返回最新数据，倒序排列。
 
 ### 注意事项
 
-- `cursor` 和 `from` 不能同时使用
+- `cursor` 必须与 `since` 配合使用，不支持单独使用
 - `cursor` 格式必须为 `item_{8位hex}`
-- 时间过滤基于 `published_at` 字段
+- 时间过滤基于 `fetched_at` 字段（入库时间）
 
 ## Endpoints
 
@@ -185,10 +150,8 @@ curl "http://localhost:8000/api/v1/items?since=2026-03-01T00:00:00Z&cursor=item_
 
 | 参数 | 类型 | 位置 | 必填 | 说明 |
 |------|------|------|------|------|
-| cursor | string | query | 否 | 游标位置 |
-| since | datetime | query | 否 | 发布时间起点 |
-| until | datetime | query | 否 | 发布时间终点 |
-| from | string | query | 否 | 起始方向 |
+| since | string | query | 否 | `beginning` 或 ISO 8601 时间戳 |
+| cursor | string | query | 否 | 分页游标 |
 | limit | int | query | 否 | 每页数量（1-100，默认 50） |
 
 **响应示例：**
@@ -200,10 +163,10 @@ curl "http://localhost:8000/api/v1/items?since=2026-03-01T00:00:00Z&cursor=item_
       "title": "某APT组织近期攻击活动分析",
       "author": "安全研究员",
       "published_at": "2026-03-30T08:00:00Z",
-      "body": "本文分析了某APT组织近期的攻击活动...",
+      "body": "本文分析了...",
       "url": "https://example.com/article/123",
       "completeness_score": 0.85,
-      "tags": ["APT", "威胁情报", "攻击分析"],
+      "tags": ["APT", "威胁情报"],
       "word_count": 1500,
       "fetched_at": "2026-03-30T09:00:00Z",
       "source": {
@@ -212,14 +175,13 @@ curl "http://localhost:8000/api/v1/items?since=2026-03-01T00:00:00Z&cursor=item_
         "source_url": "https://example.com/feed.xml",
         "source_tier": "T1",
         "source_score": 75.0
-      },
-      "full_fetch_attempted": true,
-      "full_fetch_succeeded": true
+      }
     }
   ],
-  "next_cursor": "item_b2c3d4e5",
+  "last_item_id": "item_b2c3d4e5",
+  "last_fetched_at": "2026-03-30T10:00:00.123Z",
   "has_more": true,
-  "count": 1,
+  "count": 50,
   "server_timestamp": "2026-03-30T10:00:00Z"
 }
 ```
@@ -229,7 +191,8 @@ curl "http://localhost:8000/api/v1/items?since=2026-03-01T00:00:00Z&cursor=item_
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | data | array | 情报列表 |
-| next_cursor | string | 下一页游标（null 表示无更多数据） |
+| last_item_id | string | 本页最后一条的 ID，用于 cursor 分页 |
+| last_fetched_at | string | 本页最后一条的 fetched_at，用于增量同步 |
 | has_more | boolean | 是否有更多数据 |
 | count | int | 当前页数据数量 |
 | server_timestamp | datetime | 服务器时间戳 |
@@ -266,7 +229,7 @@ curl "http://localhost:8000/api/v1/items?since=2026-03-01T00:00:00Z&cursor=item_
 
 | 状态码 | 说明 |
 |--------|------|
-| 400 | cursor 和 from 同时使用，或 cursor 格式无效 |
+| 400 | cursor 未配合 since 使用，或 cursor/since 格式无效 |
 | 401 | API Key 无效或权限不足 |
 | 404 | cursor 指定的 item 不存在 |
 
