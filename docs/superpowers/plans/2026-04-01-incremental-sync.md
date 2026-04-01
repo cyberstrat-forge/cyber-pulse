@@ -28,6 +28,8 @@
 
 - [ ] **Step 1: 更新 ItemListResponse 模型**
 
+将 `next_cursor` 替换为 `last_item_id` 和 `last_fetched_at`：
+
 ```python
 class ItemListResponse(BaseModel):
     """Item list response with pagination."""
@@ -58,9 +60,53 @@ git commit -m "refactor(api): rename next_cursor to last_item_id, add last_fetch
 **Files:**
 - Modify: `src/cyberpulse/api/routers/items.py`
 
-- [ ] **Step 1: 更新参数定义**
+- [ ] **Step 1: 更新导入和参数定义**
 
-将现有参数替换为新设计：
+更新文件头部的导入：
+
+```python
+"""Items API router.
+
+Business API for downstream systems to fetch intelligence items.
+"""
+
+import logging
+import re
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import asc, desc
+from sqlalchemy.orm import Session
+
+from ...models import Item, ItemStatus, Source
+from ..auth import ApiClient, require_permissions
+from ..dependencies import get_db
+from ..schemas.item import ItemListResponse, ItemResponse, SourceInItem
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# Cursor format: item_{uuid8}
+CURSOR_PATTERN = re.compile(r"^item_[a-f0-9]{8}$")
+
+
+def validate_cursor(cursor: str) -> None:
+    """Validate cursor format."""
+    if not CURSOR_PATTERN.match(cursor):
+        raise HTTPException(status_code=400, detail=f"Invalid cursor format: {cursor}")
+
+
+def calculate_completeness_score(item: Item) -> float:
+    """Calculate completeness score for an item."""
+    meta = item.meta_completeness or 0.0
+    content = item.content_completeness or 0.0
+
+    score = meta * 0.5 + content * 0.5
+    return round(score, 3)
+```
+
+替换参数定义：
 
 ```python
 @router.get("/items", response_model=ItemListResponse)
@@ -71,9 +117,19 @@ async def list_items(
     db: Session = Depends(get_db),
     _client: ApiClient = Depends(require_permissions(["read"])),
 ) -> ItemListResponse:
+    """
+    Fetch intelligence items.
+
+    Supports timestamp-based incremental sync.
+    
+    Args:
+        since: "beginning" for full sync, or ISO 8601 datetime for incremental sync
+        cursor: Pagination cursor (must be used with since)
+        limit: Page size (1-100)
+    """
 ```
 
-- [ ] **Step 2: 添加参数验证逻辑**
+- [ ] **Step 2: 添加参数验证和时间戳解析逻辑**
 
 ```python
     # Validate: cursor must be used with since
@@ -86,14 +142,19 @@ async def list_items(
     if cursor:
         validate_cursor(cursor)
 
-    # Validate since format (beginning or ISO 8601 datetime)
+    # Parse since parameter
     since_datetime = None
     if since and since != "beginning":
         try:
-            since_datetime = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            # Handle Z suffix (UTC)
+            if since.endswith("Z"):
+                since_datetime = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            else:
+                since_datetime = datetime.fromisoformat(since)
         except ValueError:
             raise HTTPException(
-                status_code=400, detail=f"Invalid since format: {since}. Use 'beginning' or ISO 8601 datetime."
+                status_code=400,
+                detail=f"Invalid since format: {since}. Use 'beginning' or ISO 8601 datetime."
             )
 ```
 
@@ -118,15 +179,54 @@ async def list_items(
 
     # Apply ordering: ascending if since provided, descending otherwise
     if since:
-        query = query.order_by(Item.fetched_at.asc())
+        query = query.order_by(asc(Item.fetched_at))
     else:
         query = query.order_by(desc(Item.fetched_at))
+
+    # Fetch items
+    items = query.limit(limit + 1).all()
+    has_more = len(items) > limit
+    if has_more:
+        items = items[:limit]
 ```
 
 - [ ] **Step 4: 更新响应构建逻辑**
 
 ```python
+    # Prefetch sources in a single query to avoid N+1
+    source_ids = {item.source_id for item in items if item.source_id}
+    sources = db.query(Source).filter(Source.source_id.in_(source_ids)).all()
+    source_map = {s.source_id: s for s in sources}
+
     # Build response
+    data = []
+    for item in items:
+        source = source_map.get(item.source_id)
+        source_info = None
+        if source:
+            source_info = SourceInItem(
+                source_id=source.source_id,
+                source_name=source.name,
+                source_url=source.config.get("feed_url") if source.config else None,
+                source_tier=source.tier.value if source.tier else None,
+                source_score=source.score,
+            )
+
+        data.append(ItemResponse(
+            id=item.item_id,
+            title=item.normalized_title or item.title,
+            author=item.raw_metadata.get("author") if item.raw_metadata else None,
+            published_at=item.published_at,
+            body=item.normalized_body,
+            url=item.url,
+            completeness_score=calculate_completeness_score(item),
+            tags=item.raw_metadata.get("tags", []) if item.raw_metadata else [],
+            word_count=item.word_count,
+            fetched_at=item.fetched_at,
+            source=source_info,
+        ))
+
+    # Build pagination fields
     last_item_id = items[-1].item_id if items else None
     last_fetched_at = items[-1].fetched_at if items else None
 
@@ -140,19 +240,12 @@ async def list_items(
     )
 ```
 
-- [ ] **Step 5: 移除未使用的导入**
-
-```python
-# Remove: since we no longer use since/until as datetime parameters from FastAPI
-# Keep: from datetime import UTC, datetime (still needed)
-```
-
-- [ ] **Step 6: 运行测试**
+- [ ] **Step 5: 运行测试**
 
 Run: `uv run pytest tests/test_api/test_items.py -v`
 Expected: 部分测试可能失败，需要更新测试
 
-- [ ] **Step 7: 提交 API 重构**
+- [ ] **Step 6: 提交 API 重构**
 
 ```bash
 git add src/cyberpulse/api/routers/items.py
@@ -176,7 +269,7 @@ git commit -m "refactor(api): implement incremental sync with since parameter"
         """Test listing items with since parameter."""
         mock_auth.return_value = mock_read_client
 
-        # Test with ISO 8601 datetime
+        # Test with ISO 8601 datetime (Z suffix)
         response = client.get("/api/v1/items?since=2026-01-01T00:00:00Z")
         assert response.status_code in [200, 401]
 
@@ -486,7 +579,7 @@ git commit -m "test(api): add tests for incremental sync scenarios"
 
 - [ ] **Step 1: 更新分页参数章节**
 
-将现有的 Pagination & Filtering 章节替换为：
+找到 `## Pagination & Filtering` 章节，将整个章节替换为：
 
 ```markdown
 ## Pagination & Filtering
@@ -521,7 +614,7 @@ git commit -m "test(api): add tests for incremental sync scenarios"
 
 - [ ] **Step 2: 更新获取方式示例章节**
 
-替换现有的示例为：
+找到 `### 获取方式示例` 章节，替换为：
 
 ```markdown
 ### 获取方式示例
@@ -551,6 +644,12 @@ if (data.has_more) {
 }
 ```
 
+**curl:**
+```bash
+curl "http://localhost:8000/api/v1/items?since=beginning&limit=50" \
+  -H "Authorization: Bearer cp_live_xxx"
+```
+
 #### 方式二：增量同步
 
 适用场景：日常同步、获取新数据
@@ -569,6 +668,12 @@ last_fetched_at = data.last_fetched_at;
 last_item_id = data.last_item_id;
 ```
 
+**curl:**
+```bash
+curl "http://localhost:8000/api/v1/items?since=2026-04-01T10:00:00Z&limit=50" \
+  -H "Authorization: Bearer cp_live_xxx"
+```
+
 #### 方式三：检查最新数据
 
 适用场景：查看最新情报
@@ -583,6 +688,12 @@ const data = await response.json();
 // data.data 按倒序排列，最新的在前
 ```
 
+**curl:**
+```bash
+curl "http://localhost:8000/api/v1/items?limit=50" \
+  -H "Authorization: Bearer cp_live_xxx"
+```
+
 ### 注意事项
 
 - `cursor` 必须与 `since` 配合使用，不支持单独使用
@@ -592,13 +703,9 @@ const data = await response.json();
 
 - [ ] **Step 3: 更新 Endpoints 章节的参数表**
 
+找到 `#### GET /api/v1/items` 下方的参数表，替换为：
+
 ```markdown
-### Items
-
-#### GET /api/v1/items
-
-获取情报列表。
-
 **参数：**
 
 | 参数 | 类型 | 位置 | 必填 | 说明 |
@@ -610,7 +717,7 @@ const data = await response.json();
 
 - [ ] **Step 4: 更新响应示例**
 
-更新响应示例，添加 `last_item_id` 和 `last_fetched_at`：
+找到响应示例 JSON，替换为：
 
 ```json
 {
@@ -645,7 +752,7 @@ const data = await response.json();
 
 - [ ] **Step 5: 更新响应字段说明表**
 
-添加 `last_item_id` 和 `last_fetched_at` 的说明：
+找到响应字段说明表，替换为：
 
 ```markdown
 | 字段 | 类型 | 说明 |
@@ -660,6 +767,8 @@ const data = await response.json();
 
 - [ ] **Step 6: 更新错误响应表**
 
+找到错误响应表，替换为：
+
 ```markdown
 **错误：**
 
@@ -670,9 +779,40 @@ const data = await response.json();
 | 404 | cursor 指定的 item 不存在 |
 ```
 
-- [ ] **Step 7: 移除废弃参数的文档**
+- [ ] **Step 7: 删除废弃参数的文档**
 
-删除 `since` 和 `until` 作为时间范围过滤的说明，删除 `from` 参数说明。
+删除以下内容：
+
+1. **删除时间过滤参数表**：
+   ```markdown
+   ### 时间过滤参数
+
+   | 参数 | 类型 | 说明 |
+   |------|------|------|
+   | since | datetime | 发布时间起点（ISO 8601） |
+   | until | datetime | 发布时间终点（ISO 8601） |
+   ```
+
+2. **删除方式四**：
+   ```markdown
+   #### 方式四：按时间范围获取
+   ...
+   ```
+
+3. **删除方式五**：
+   ```markdown
+   #### 方式五：时间范围 + 增量同步
+   ...
+   ```
+
+4. **删除注意事项中的旧内容**：
+   ```markdown
+   ### 注意事项
+
+   - `cursor` 和 `from` 不能同时使用
+   - `cursor` 格式必须为 `item_{8位hex}`
+   - 时间过滤基于 `published_at` 字段
+   ```
 
 - [ ] **Step 8: 提交文档更新**
 
@@ -734,3 +874,7 @@ git push origin feat/incremental-sync
 - ✅ `last_item_id` 类型一致（str | None）
 - ✅ `last_fetched_at` 类型一致（datetime | None）
 - ✅ `since` 参数类型一致（str | None）
+
+**4. Import Consistency:**
+- ✅ Task 2 Step 1 明确导入 `asc` from sqlalchemy
+- ✅ 移除废弃的 `from_param`、`since`（datetime 类型）、`until` 参数
