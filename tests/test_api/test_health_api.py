@@ -85,11 +85,10 @@ class TestRouterRegistration:
     def test_routers_included(self):
         """Test that all routers are included in the app."""
         # Check that the app has the expected routers by checking the routes
-        from cyberpulse.api.routers import clients, health, sources
+        from cyberpulse.api.routers import health, sources
 
         # Health router should have routes
         assert len(health.router.routes) == 1  # /health endpoint
 
-        # Placeholder routers should exist but have no routes yet
+        # Sources router should exist
         assert sources.router is not None
-        assert clients.router is not None

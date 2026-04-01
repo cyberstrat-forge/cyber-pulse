@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-03-31
+
+### Added
+
+- `JobTrigger` 枚举：区分 job 触发来源（manual/scheduler/create）
+- Job 创建审计：所有采集触发点统一创建 job 记录
+- `trigger` 字段：Job 模型和 API 响应新增触发来源字段
+
+### Changed
+
+- **Client DELETE 端点**：从软删除改为硬删除（物理删除）
+- **Scheduler job 创建**：`collect_source` 和 `run_scheduled_collection` 创建 job 记录用于审计追踪
+
+### Removed
+
+- `routers/clients.py`：未使用的遗留文件
+- `full_fetch_attempted`/`full_fetch_succeeded`：Items API 移除内部字段
+- `sources.yaml`：部署包不再包含，改为创建空示例文件
+- `revoke_client` 方法：auth.py 中不再使用
+
+### Fixed
+
+- Issue #91: Client 删除改为物理删除
+- Issue #92: Scheduler 创建 job 记录用于审计追踪
+
 ## [1.6.1] - 2026-03-31
 
 ### Added

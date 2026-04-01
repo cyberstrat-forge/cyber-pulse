@@ -27,13 +27,7 @@ class ItemResponse(BaseModel):
     word_count: int | None = Field(None, description="Word count of normalized body")
     fetched_at: datetime | None = None
     source: SourceInItem | None = None
-    # Full content fetch status
-    full_fetch_attempted: bool = Field(
-        default=False, description="Whether full content fetch was attempted"
-    )
-    full_fetch_succeeded: bool | None = Field(
-        None, description="Whether full content fetch succeeded"
-    )
+    # Removed: full_fetch_attempted and full_fetch_succeeded (internal fields)
 
 
 class ItemListResponse(BaseModel):

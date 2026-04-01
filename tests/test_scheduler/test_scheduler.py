@@ -285,27 +285,70 @@ class TestJobFunctions:
     """Tests for job functions."""
 
     def test_collect_source(self):
-        """Test collect_source job function."""
-        with patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest:
+        """Test collect_source job function creates a job record."""
+        with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local, \
+             patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest, \
+             patch("cyberpulse.scheduler.jobs.secrets") as mock_secrets:
+
+            # Mock database
+            mock_db = MagicMock()
+            mock_session_local.return_value = mock_db
+
+            # Mock job
+            mock_job = MagicMock()
+            mock_job.job_id = "job_test1234"
+
+            # Mock secrets.token_hex
+            mock_secrets.token_hex.return_value = "test1234"
+
+            # Mock ingest_source.send
             mock_ingest.send = MagicMock()
 
             result = collect_source("src_test123")
 
-            assert result["source_id"] == "src_test123"
             assert result["status"] == "queued"
-            mock_ingest.send.assert_called_once_with("src_test123")
+            assert result["job_id"] == "job_test1234"
+            assert result["source_id"] == "src_test123"
+
+            # Verify job was added to database
+            mock_db.add.assert_called_once()
+            mock_db.commit.assert_called_once()
+
+            # Verify ingest_source.send was called with job_id
+            mock_ingest.send.assert_called_once_with("src_test123", job_id="job_test1234")
 
     def test_run_scheduled_collection(self):
-        """Test run_scheduled_collection job function."""
-        with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local:
-            mock_session = MagicMock()
-            mock_session_local.return_value = mock_session
-            mock_session.query.return_value.filter.return_value.all.return_value = []
+        """Test run_scheduled_collection creates job records."""
+        with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local, \
+             patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest, \
+             patch("cyberpulse.scheduler.jobs.secrets") as mock_secrets:
+
+            # Mock database
+            mock_db = MagicMock()
+            mock_session_local.return_value = mock_db
+
+            # Mock sources
+            mock_source = MagicMock()
+            mock_source.source_id = "src_test123"
+            mock_source.status = MagicMock()
+            from cyberpulse.models import SourceStatus
+            mock_source.status = SourceStatus.ACTIVE
+            mock_db.query.return_value.filter.return_value.all.return_value = [mock_source]
+
+            # Mock secrets.token_hex
+            mock_secrets.token_hex.return_value = "test1234"
+
+            # Mock ingest_source.send
+            mock_ingest.send = MagicMock()
 
             result = run_scheduled_collection()
 
             assert result["status"] == "completed"
-            assert result["sources_count"] == 0
+            assert result["sources_count"] == 1
+            assert len(result["job_ids"]) == 1
+
+            # Verify commit was called
+            mock_db.commit.assert_called_once()
 
     def test_update_source_scores(self):
         """Test update_source_scores job function."""

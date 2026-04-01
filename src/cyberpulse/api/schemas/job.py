@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ...models.job import JobTrigger
+
 
 class JobResponse(BaseModel):
     """Job response."""
@@ -13,6 +15,7 @@ class JobResponse(BaseModel):
     status: str  # "PENDING", "RUNNING", "COMPLETED", "FAILED"
     source_id: str | None = None
     source_name: str | None = None
+    trigger: JobTrigger | None = None  # Trigger source (manual/scheduler/create)
     file_name: str | None = None
     result: dict[str, Any] | None = None
     error: dict[str, str] | None = None

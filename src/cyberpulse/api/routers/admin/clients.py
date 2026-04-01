@@ -5,6 +5,7 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import delete  # 新增
 from sqlalchemy.orm import Session
 
 from ....models import ApiClientStatus
@@ -30,7 +31,10 @@ def validate_client_id(client_id: str) -> None:
     if not CLIENT_ID_PATTERN.match(client_id):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid client_id format: {client_id}. Expected format: cli_xxxxxxxx"
+            detail=(
+                f"Invalid client_id format: {client_id}. "
+                "Expected format: cli_xxxxxxxx"
+            )
         )
 
 
@@ -62,7 +66,9 @@ async def create_client(
 
 @router.get("/clients", response_model=ClientListResponse)
 async def list_clients(
-    status: str | None = Query(None, description="Filter by status: ACTIVE, SUSPENDED, REVOKED"),
+    status: str | None = Query(
+        None, description="Filter by status: ACTIVE, SUSPENDED, REVOKED"
+    ),
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> ClientListResponse:
@@ -132,7 +138,10 @@ async def rotate_client_key(
     return ClientCreatedResponse(
         client=ClientResponse.model_validate(client),
         api_key=plain_key,
-        warning="The new API key will only be shown once. Store it securely immediately.",
+        warning=(
+            "The new API key will only be shown once. "
+            "Store it securely immediately."
+        ),
     )
 
 
@@ -175,20 +184,43 @@ async def activate_client(
 
 
 @router.delete("/clients/{client_id}", status_code=200)
-async def revoke_client(
+async def delete_client(
     client_id: str,
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> dict:
-    """Revoke an API client (soft delete)."""
+    """Delete an API client (permanent deletion).
+
+    This is a hard delete. The client will be permanently removed
+    from the database and cannot be recovered.
+    """
     validate_client_id(client_id)
 
-    logger.info(f"Revoking API client: {client_id}")
+    logger.info(f"Deleting API client: {client_id}")
 
-    service = ApiClientService(db)
-    success = service.revoke_client(client_id)
+    try:
+        result = db.execute(
+            delete(ApiClient).where(ApiClient.client_id == client_id)
+        )
 
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Client not found: {client_id}")
+        if result.rowcount == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Client not found: {client_id}"
+            )
 
-    return {"message": f"Client {client_id} revoked"}
+        db.commit()
+        logger.info(f"Successfully deleted API client: {client_id}")
+
+        return {"message": f"Client {client_id} deleted"}
+    except HTTPException:
+        # Re-raise HTTP exceptions without rollback (no changes made)
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete client {client_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred while deleting the client. "
+                   "Please try again or contact support."
+        )

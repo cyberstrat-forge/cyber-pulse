@@ -43,7 +43,7 @@ class TestGetVersion:
             import cyberpulse as fresh_module
 
             result = fresh_module._get_version()
-            assert result == "1.5.0"
+            assert result == "1.6.0"
 
 
 class TestVersionExport:
@@ -73,8 +73,8 @@ class TestVersionExport:
         """__version__ should match project version."""
         from cyberpulse import __version__
 
-        # Should be 1.5.0 or v1.5.0 or git describe format
-        assert "1.5.0" in __version__ or __version__ == "1.5.0"
+        # Should be 1.6.0 or v1.6.0 or git describe format
+        assert "1.6.0" in __version__ or __version__ == "1.6.0"
 
 
 class TestVersionLogic:

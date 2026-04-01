@@ -27,6 +27,7 @@ from ....models import (
     Job,
     JobStatus,
     JobType,
+    JobTrigger,  # 新增
     Settings,
     Source,
     SourceStatus,
@@ -264,12 +265,27 @@ async def create_source(
 
     logger.info(f"Created source: {new_source.source_id}")
 
-    # Trigger initial ingestion
+    # Trigger initial ingestion with job tracking
     warnings: list[str] = []
     try:
-        ingest_source.send(new_source.source_id)
-        logger.info(f"Triggered initial ingestion for source: {new_source.source_id}")
+        # Create job record for tracking
+        job = Job(
+            job_id=f"job_{secrets.token_hex(8)}",
+            type=JobType.INGEST,
+            status=JobStatus.PENDING,
+            source_id=new_source.source_id,
+            trigger=JobTrigger.CREATE,
+        )
+        db.add(job)
+        db.commit()
+
+        # Trigger Dramatiq task with job_id
+        ingest_source.send(new_source.source_id, job_id=job.job_id)
+        logger.info(
+            f"Triggered initial ingestion for source: {new_source.source_id}, job: {job.job_id}"
+        )
     except Exception as e:
+        db.rollback()
         logger.error(f"Failed to trigger initial ingestion: {e}", exc_info=True)
         warnings.append("源已创建，但初始采集任务触发失败，请手动检查")
 

@@ -52,7 +52,7 @@ DEPLOY_FILES=(
     "scripts/cyber-pulse.sh"
     "scripts/api.sh"
     "deploy/"
-    "sources.yaml"
+    # sources.yaml removed - users should configure via API
     "install-ops.sh"
 )
 
@@ -111,15 +111,23 @@ copy_files() {
         fi
     done
 
-    # 创建 sources.yaml 示例文件（如果不存在）
-    if [[ ! -f "$TEMP_DIR/cyber-pulse/sources.yaml" ]]; then
-        cat > "$TEMP_DIR/cyber-pulse/sources.yaml" << 'EOF'
+    # 创建 sources.yaml 示例文件（空配置）
+    cat > "$TEMP_DIR/cyber-pulse/sources.yaml" << 'EOF'
 # Cyber Pulse 情报源配置
-# 格式参考: docs/source-config-examples.md
+#
+# 配置方式：
+#   1. 通过 API 导入: ./scripts/api.sh sources import < opml_file
+#   2. 手动配置: 参考 https://github.com/cyberstrat-forge/cyber-pulse/blob/main/docs/source-config-examples.md
+#
+# 示例格式：
+# sources:
+#   - name: "示例 RSS 源"
+#     connector_type: rss
+#     config:
+#       feed_url: "https://example.com/feed.xml"
 
 sources: []
 EOF
-    fi
 
     # 创建 .version 文件
     if [[ -n "$VERSION" ]]; then

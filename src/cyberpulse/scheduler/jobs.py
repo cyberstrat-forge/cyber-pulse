@@ -2,13 +2,19 @@
 
 This module contains the job functions that are scheduled by APScheduler.
 These jobs trigger Dramatiq tasks for actual processing.
+
+Import order note:
+- models imports are safe (no broker dependency)
+- ingestion_tasks import triggers worker.py which configures broker
 """
 
 import logging
+import secrets
 from typing import Any
 
 from ..database import SessionLocal
-from ..models import Item, ItemStatus, Source, SourceStatus
+from ..models import Item, ItemStatus, Job, JobStatus, JobType, Source, SourceStatus
+from ..models.job import JobTrigger
 from ..services.source_score_service import SourceScoreService
 from ..tasks.ingestion_tasks import ingest_source
 
@@ -18,63 +24,129 @@ logger = logging.getLogger(__name__)
 def collect_source(source_id: str) -> dict[str, Any]:
     """Collect items from a source via Dramatiq task.
 
+    Creates a job record for tracking before queuing the task.
+
     Args:
         source_id: The ID of the source to collect from.
 
     Returns:
         Dictionary with job result status.
+
+    Raises:
+        Exception: If job creation or task queuing fails.
     """
-    logger.info(f"Queueing collection for source: {source_id}")
+    db = SessionLocal()
+    try:
+        # Create job record for tracking
+        job = Job(
+            job_id=f"job_{secrets.token_hex(8)}",
+            type=JobType.INGEST,
+            status=JobStatus.PENDING,
+            source_id=source_id,
+            trigger=JobTrigger.SCHEDULER,
+        )
+        db.add(job)
+        db.flush()  # Get job_id without committing
 
-    # Send to Dramatiq task queue
-    ingest_source.send(source_id)
+        # Send to Dramatiq task queue with job_id
+        # Do this before commit so if it fails, we can rollback
+        ingest_source.send(source_id, job_id=job.job_id)
 
-    return {
-        "source_id": source_id,
-        "status": "queued",
-        "message": "Collection job queued successfully",
-    }
+        # Only commit after task is successfully queued
+        db.commit()
+
+        logger.info(f"Created scheduler job {job.job_id} for source {source_id}")
+
+        return {
+            "source_id": source_id,
+            "job_id": job.job_id,
+            "status": "queued",
+            "message": "Collection job queued successfully",
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            f"Failed to create scheduler-triggered collection job "
+            f"for source {source_id}: {e}"
+        )
+        raise
+    finally:
+        db.close()
 
 
 def run_scheduled_collection() -> dict[str, Any]:
     """Run scheduled collection for all active sources.
 
     Queries database for active sources and queues collection
-    jobs for each.
+    jobs for each, creating job records for tracking.
 
     Returns:
         Dictionary with job result status.
+
+    Raises:
+        Exception: If an unexpected error occurs during processing.
     """
     logger.info("Running scheduled collection for all active sources")
 
     db = SessionLocal()
+    queued_count = 0
+    failed_count = 0
+    job_ids = []
+
     try:
-        # Query all active sources
+        # Query all active sources and extract IDs before processing
+        # This avoids DetachedInstanceError after rollback
         sources = db.query(Source).filter(
             Source.status == SourceStatus.ACTIVE
         ).all()
+        source_ids = [s.source_id for s in sources]
 
-        queued_count = 0
-        failed_count = 0
-        for source in sources:
+        for source_id in source_ids:
+            # Use nested transaction (savepoint) for each source
+            # This ensures one failure doesn't rollback all previous work
             try:
-                ingest_source.send(source.source_id)
-                queued_count += 1
-            except (OSError, ConnectionError) as e:
-                # Catch broker/connection errors specifically
-                # Let system errors (MemoryError, etc.) propagate
-                logger.error(f"Failed to queue source {source.source_id}: {e}")
-                failed_count += 1
-                continue
+                with db.begin_nested():
+                    job = Job(
+                        job_id=f"job_{secrets.token_hex(8)}",
+                        type=JobType.INGEST,
+                        status=JobStatus.PENDING,
+                        source_id=source_id,
+                        trigger=JobTrigger.SCHEDULER,
+                    )
+                    db.add(job)
+                    db.flush()  # Get job_id without committing
 
-        logger.info(f"Queued {queued_count} sources for collection ({failed_count} failed)")
+                    # Queue task with job_id
+                    ingest_source.send(source_id, job_id=job.job_id)
+                    job_ids.append(job.job_id)
+                    queued_count += 1
+            except (OSError, ConnectionError) as e:
+                # Savepoint automatically rolled back, main transaction intact
+                logger.error(f"Failed to queue source {source_id}: {e}")
+                failed_count += 1
+
+        # Commit all successfully queued jobs
+        db.commit()
+
+        logger.info(
+            f"Queued {queued_count} sources for collection "
+            f"({failed_count} failed)"
+        )
 
         return {
             "status": "completed",
             "sources_count": queued_count,
             "failed_count": failed_count,
-            "message": f"Queued {queued_count} sources for collection ({failed_count} failed)",
+            "job_ids": job_ids,
+            "message": (
+                f"Queued {queued_count} sources for collection "
+                f"({failed_count} failed)"
+            ),
         }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Scheduled collection failed with unexpected error: {e}")
+        raise
     finally:
         db.close()
 
@@ -86,35 +158,55 @@ def update_source_scores() -> dict[str, Any]:
 
     Returns:
         Dictionary with job result status.
+
+    Raises:
+        Exception: If an unexpected error occurs during processing.
     """
     logger.info("Updating source scores")
 
     db = SessionLocal()
+    updated_count = 0
+    failed_count = 0
+
     try:
+        # Query all active sources and extract IDs before processing
+        # This avoids DetachedInstanceError after rollback
         sources = db.query(Source).filter(
             Source.status == SourceStatus.ACTIVE
         ).all()
+        source_ids = [s.source_id for s in sources]
 
         score_service = SourceScoreService(db)
-        updated_count = 0
-        failed_count = 0
 
-        for source in sources:
+        for source_id in source_ids:
             try:
-                score_service.update_tier(source.source_id)
+                score_service.update_tier(source_id)
                 updated_count += 1
             except ValueError as e:
-                logger.warning(f"Could not update score for {source.source_id}: {e}")
+                # Value errors indicate missing data for scoring
+                logger.warning(f"Could not update score for {source_id}: {e}")
                 failed_count += 1
 
-        logger.info(f"Updated scores for {updated_count} sources ({failed_count} failed)")
+        db.commit()
+
+        logger.info(
+            f"Updated scores for {updated_count} sources "
+            f"({failed_count} failed)"
+        )
 
         return {
             "status": "completed",
             "sources_updated": updated_count,
             "failed_count": failed_count,
-            "message": f"Updated scores for {updated_count} sources ({failed_count} failed)",
+            "message": (
+                f"Updated scores for {updated_count} sources "
+                f"({failed_count} failed)"
+            ),
         }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Source score update failed with unexpected error: {e}")
+        raise
     finally:
         db.close()
 

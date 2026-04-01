@@ -326,30 +326,14 @@ class TestApiClientService:
 
         assert validated is None
 
-    def test_validate_client_revoked_client(self, service, db_session):
-        """Test that revoked clients cannot authenticate."""
+    def test_validate_client_suspended_client(self, service, db_session):
+        """Test that suspended clients cannot authenticate."""
         client, plain_key = service.create_client(name="Test Client")
-        service.revoke_client(client.client_id)
+        service.suspend_client(client.client_id)
 
         validated = service.validate_client(plain_key)
 
         assert validated is None
-
-    def test_revoke_client_success(self, service, db_session):
-        """Test revoking a client."""
-        client, _ = service.create_client(name="Test Client")
-
-        result = service.revoke_client(client.client_id)
-
-        assert result is True
-        db_session.refresh(client)
-        assert client.status == ApiClientStatus.REVOKED
-
-    def test_revoke_client_not_found(self, service, db_session):
-        """Test revoking a non-existent client."""
-        result = service.revoke_client("cli_nonexistent")
-
-        assert result is False
 
     def test_suspend_client_success(self, service, db_session):
         """Test suspending a client."""
@@ -365,17 +349,6 @@ class TestApiClientService:
         """Test activating a suspended client."""
         client, _ = service.create_client(name="Test Client")
         service.suspend_client(client.client_id)
-
-        result = service.activate_client(client.client_id)
-
-        assert result is True
-        db_session.refresh(client)
-        assert client.status == ApiClientStatus.ACTIVE
-
-    def test_activate_client_revoked(self, service, db_session):
-        """Test activating a revoked client."""
-        client, _ = service.create_client(name="Test Client")
-        service.revoke_client(client.client_id)
 
         result = service.activate_client(client.client_id)
 
@@ -416,21 +389,21 @@ class TestApiClientService:
     def test_list_clients_by_status(self, service, db_session):
         """Test listing clients filtered by status."""
         active, _ = service.create_client(name="Active Client")
-        revoked, _ = service.create_client(name="Revoked Client")
-        service.revoke_client(revoked.client_id)
+        suspended, _ = service.create_client(name="Suspended Client")
+        service.suspend_client(suspended.client_id)
 
         active_clients = service.list_clients(
             status_filter=ApiClientStatus.ACTIVE
         )
-        revoked_clients = service.list_clients(
-            status_filter=ApiClientStatus.REVOKED
+        suspended_clients = service.list_clients(
+            status_filter=ApiClientStatus.SUSPENDED
         )
 
         assert len(active_clients) == 1
         assert active_clients[0].client_id == active.client_id
 
-        assert len(revoked_clients) == 1
-        assert revoked_clients[0].client_id == revoked.client_id
+        assert len(suspended_clients) == 1
+        assert suspended_clients[0].client_id == suspended.client_id
 
     def test_validate_client_updates_last_used_at(self, service, db_session):
         """Test that validate_client updates last_used_at on success."""

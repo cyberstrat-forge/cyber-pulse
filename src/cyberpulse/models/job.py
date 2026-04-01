@@ -29,6 +29,13 @@ class JobStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class JobTrigger(StrEnum):
+    """Job trigger source enumeration."""
+    MANUAL = "manual"      # 手动触发: POST /jobs
+    SCHEDULER = "scheduler"  # 定时触发: APScheduler
+    CREATE = "create"      # 创建源自动触发
+
+
 class Job(Base, TimestampMixin):
     """Job tracks async task execution."""
     __tablename__ = "jobs"
@@ -52,6 +59,8 @@ class Job(Base, TimestampMixin):
 
     # Tracking
     retry_count: Mapped[int] = mapped_column(default=0)
+    # Trigger source
+    trigger: Mapped[JobTrigger | None] = mapped_column()
     started_at: Mapped[datetime | None] = mapped_column()
     completed_at: Mapped[datetime | None] = mapped_column()
 

@@ -129,8 +129,6 @@ async def list_items(
             word_count=item.word_count,
             fetched_at=item.fetched_at,
             source=source_info,
-            full_fetch_attempted=item.full_fetch_attempted,
-            full_fetch_succeeded=item.full_fetch_succeeded,
         ))
 
     next_cursor = None

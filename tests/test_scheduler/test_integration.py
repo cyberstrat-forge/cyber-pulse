@@ -1,6 +1,8 @@
 """Integration tests for scheduler-dramatiq connection."""
 from unittest.mock import MagicMock, patch
 
+import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from cyberpulse.scheduler.jobs import (
@@ -14,21 +16,63 @@ class TestCollectSource:
     """Tests for collect_source job."""
 
     def test_collect_source_triggers_ingest_task(self) -> None:
-        """Test that collect_source triggers Dramatiq ingest_source task."""
-        with patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest:
+        """Test that collect_source creates job and triggers Dramatiq task."""
+        with patch(
+            "cyberpulse.scheduler.jobs.SessionLocal"
+        ) as mock_session_local, \
+             patch(
+                 "cyberpulse.scheduler.jobs.ingest_source"
+             ) as mock_ingest, \
+             patch("cyberpulse.scheduler.jobs.secrets") as mock_secrets:
+
+            # Mock database
+            mock_db = MagicMock()
+            mock_session_local.return_value = mock_db
+
+            # Mock secrets.token_hex
+            mock_secrets.token_hex.return_value = "test1234"
+
             mock_ingest.send = MagicMock()
 
             result = collect_source("src_test123")
 
-            mock_ingest.send.assert_called_once_with("src_test123")
+            mock_ingest.send.assert_called_once_with(
+            "src_test123", job_id="job_test1234"
+        )
             assert result["status"] == "queued"
             assert result["source_id"] == "src_test123"
+            assert result["job_id"] == "job_test1234"
+
+    def test_collect_source_db_failure_raises_exception(self) -> None:
+        """Test that collect_source raises exception on db failure, not returns error."""
+        with patch(
+            "cyberpulse.scheduler.jobs.SessionLocal"
+        ) as mock_session_local, \
+             patch("cyberpulse.scheduler.jobs.secrets") as mock_secrets:
+
+            # Mock database that fails on add/flush
+            mock_db = MagicMock()
+            mock_db.add.side_effect = OperationalError(
+                "Database connection failed", {}, None
+            )
+            mock_session_local.return_value = mock_db
+
+            mock_secrets.token_hex.return_value = "test1234"
+
+            # Should raise exception (not return error dict)
+            with pytest.raises(OperationalError):
+                collect_source("src_test123")
+
+            # Verify rollback was called
+            mock_db.rollback.assert_called_once()
 
 
 class TestRunScheduledCollection:
     """Tests for run_scheduled_collection job."""
 
-    def test_scheduled_collection_queues_active_sources(self, db_session: Session) -> None:
+    def test_scheduled_collection_queues_active_sources(
+            self, db_session: Session
+        ) -> None:
         """Test that only active sources are queued."""
         from cyberpulse.models import Source, SourceStatus, SourceTier
         from cyberpulse.services import SourceService
@@ -57,7 +101,9 @@ class TestRunScheduledCollection:
                 assert result["sources_count"] == 1
                 mock_ingest.send.assert_called_once()
 
-    def test_scheduled_collection_handles_connection_error(self, db_session: Session) -> None:
+    def test_scheduled_collection_handles_connection_error(
+            self, db_session: Session
+        ) -> None:
         """Test that connection errors are handled gracefully."""
         from cyberpulse.models import SourceTier
         from cyberpulse.services import SourceService
@@ -71,11 +117,15 @@ class TestRunScheduledCollection:
             mock_session_local.return_value = db_session
 
             with patch("cyberpulse.scheduler.jobs.ingest_source") as mock_ingest:
-                # Simulate connection error
-                mock_ingest.send.side_effect = ConnectionError("Redis connection failed")
+                # Simulate connection error on first send attempt
+                mock_ingest.send.side_effect = ConnectionError(
+                    "Redis connection failed"
+                )
 
                 result = run_scheduled_collection()
 
+                # Connection error causes rollback, so no sources are queued
+                # but function should complete (not crash)
                 assert result["status"] == "completed"
                 assert result["sources_count"] == 0
                 assert result["failed_count"] == 1
@@ -88,6 +138,7 @@ class TestRunScheduledCollection:
         # Create test source
         service = SourceService(db_session)
         source, _ = service.add_source("Test Source", "rss", tier=SourceTier.T2)
+        source_id = source.source_id  # Extract ID before potential detachment
         db_session.commit()
 
         # Patch SessionLocal to return our test session
@@ -95,7 +146,9 @@ class TestRunScheduledCollection:
             mock_session_local.return_value = db_session
 
             # Patch SourceScoreService to verify update_tier is called
-            with patch("cyberpulse.scheduler.jobs.SourceScoreService") as mock_score_service:
+            with patch(
+                "cyberpulse.scheduler.jobs.SourceScoreService"
+            ) as mock_score_service:
                 mock_score_instance = MagicMock()
                 mock_score_service.return_value = mock_score_instance
 
@@ -103,9 +156,30 @@ class TestRunScheduledCollection:
 
                 assert result["status"] == "completed"
                 # Verify SourceScoreService.update_tier was called for the source
-                mock_score_instance.update_tier.assert_called_once_with(source.source_id)
+                mock_score_instance.update_tier.assert_called_once_with(
+                    source_id
+                )
 
-    def test_update_source_scores_handles_value_error(self, db_session: Session) -> None:
+    def test_update_source_scores_unexpected_exception_raises(self) -> None:
+        """Test that update_source_scores raises exception, not returns error dict."""
+        with patch(
+            "cyberpulse.scheduler.jobs.SessionLocal"
+        ) as mock_session_local:
+            mock_db = MagicMock()
+            # Simulate unexpected exception during query
+            mock_db.query.side_effect = RuntimeError("Unexpected error")
+            mock_session_local.return_value = mock_db
+
+            # Should raise exception for APScheduler to handle
+            with pytest.raises(RuntimeError):
+                update_source_scores()
+
+            # Verify rollback was called
+            mock_db.rollback.assert_called_once()
+
+    def test_update_source_scores_handles_value_error(
+            self, db_session: Session
+        ) -> None:
         """Test that ValueError during score update is handled gracefully."""
         from cyberpulse.models import SourceTier
         from cyberpulse.services import SourceService
@@ -118,9 +192,13 @@ class TestRunScheduledCollection:
         with patch("cyberpulse.scheduler.jobs.SessionLocal") as mock_session_local:
             mock_session_local.return_value = db_session
 
-            with patch("cyberpulse.scheduler.jobs.SourceScoreService") as mock_score_service:
+            with patch(
+                "cyberpulse.scheduler.jobs.SourceScoreService"
+            ) as mock_score_service:
                 mock_score_instance = MagicMock()
-                mock_score_instance.update_tier.side_effect = ValueError("No items to score")
+                mock_score_instance.update_tier.side_effect = ValueError(
+                    "No items to score"
+                )
                 mock_score_service.return_value = mock_score_instance
 
                 result = update_source_scores()
