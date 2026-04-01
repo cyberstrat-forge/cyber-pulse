@@ -33,7 +33,8 @@ class ItemResponse(BaseModel):
 class ItemListResponse(BaseModel):
     """Item list response with pagination."""
     data: list[ItemResponse]
-    next_cursor: str | None = None
+    last_item_id: str | None = Field(None, description="Last item ID in this page, use as cursor")
+    last_fetched_at: datetime | None = Field(None, description="Last item's fetched_at, use for incremental sync")
     has_more: bool = False
     count: int
     server_timestamp: datetime
