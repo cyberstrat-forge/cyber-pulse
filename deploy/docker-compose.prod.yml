@@ -12,6 +12,7 @@
 
 services:
   postgres:
+    ports: !reset []  # 生产环境不暴露端口（使用 !reset 完全重置）
     deploy:
       resources:
         limits:
@@ -30,6 +31,7 @@ services:
     restart: unless-stopped
 
   redis:
+    ports: !reset []  # 生产环境不暴露端口（使用 !reset 完全重置）
     deploy:
       resources:
         limits:
