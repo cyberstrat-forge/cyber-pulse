@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-04-02
+
+### Fixed
+
+- Issue #107: 修复全文采集成功后 Item 状态死循环问题
+  - 根因：`quality_check_item` 不检查 `full_fetch_succeeded` 状态
+  - 修复：当 `full_fetch_succeeded=True` 且内容仍不合格时直接 REJECT
+  - 确保 MAPPED 状态的数据质量
+
+### Added
+
+- `POST /api/v1/admin/items/fix-stuck-pending`: 数据修复 API
+  - 修复卡在 `PENDING_FULL_FETCH` 状态的历史数据
+  - 智能处理：内容合格 → 重新检查，内容仍不合格 → REJECT
+
 ## [1.8.1] - 2026-04-02
 
 ### Fixed
