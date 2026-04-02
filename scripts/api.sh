@@ -72,42 +72,6 @@ validate_env() {
     return 1
 }
 
-# 解析 --env 参数覆盖（必须在命令解析之前调用）
-# 用法：parse_env_override "$@"
-# 返回：不含 --env 的参数数组
-parse_env_override() {
-    CURRENT_ENV=""
-    local filtered_args=()
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --env)
-                if [[ -n "${2:-}" ]]; then
-                    if ! validate_env "$2"; then
-                        die "无效的环境名: $2。有效值: ${VALID_ENVS[*]}"
-                    fi
-                    CURRENT_ENV="$2"
-                    shift 2
-                else
-                    die "--env 需要环境名参数"
-                fi
-                ;;
-            *)
-                filtered_args+=("$1")
-                shift
-                ;;
-        esac
-    done
-
-    # 如果没有通过 --env 指定，使用当前环境
-    if [[ -z "$CURRENT_ENV" ]]; then
-        CURRENT_ENV=$(get_current_env)
-    fi
-
-    # 返回过滤后的参数
-    echo "${filtered_args[@]}"
-}
-
 # ============================================
 # 工具函数
 # ============================================
