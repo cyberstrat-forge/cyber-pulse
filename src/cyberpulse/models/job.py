@@ -34,6 +34,7 @@ class JobTrigger(StrEnum):
     MANUAL = "manual"      # 手动触发: POST /jobs
     SCHEDULER = "scheduler"  # 定时触发: APScheduler
     CREATE = "create"      # 创建源自动触发
+    URL_UPDATE = "url_update"  # URL 变更自动触发
 
 
 class Job(Base, TimestampMixin):

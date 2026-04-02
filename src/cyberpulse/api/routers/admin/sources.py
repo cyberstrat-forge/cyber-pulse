@@ -545,6 +545,18 @@ async def update_source(
     if not source:
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
+    # Detect URL change before updating
+    url_changed = False
+    if update.config is not None:
+        old_feed_url = source.config.get("feed_url") if source.config else None
+        new_feed_url = update.config.get("feed_url") if update.config else None
+        if old_feed_url != new_feed_url:
+            url_changed = True
+            logger.info(
+                f"URL change detected for source {source_id}: "
+                f"{old_feed_url} -> {new_feed_url}"
+            )
+
     if update.name is not None:
         source.name = update.name
     if update.tier is not None:
@@ -561,7 +573,31 @@ async def update_source(
 
     logger.info(f"Updated source: {source_id}")
 
-    return build_source_response(source)
+    # Trigger ingestion if URL changed
+    warnings: list[str] = []
+    if url_changed:
+        try:
+            job = Job(
+                job_id=f"job_{secrets.token_hex(8)}",
+                type=JobType.INGEST,
+                status=JobStatus.PENDING,
+                source_id=source.source_id,
+                trigger=JobTrigger.URL_UPDATE,
+            )
+            db.add(job)
+            db.commit()
+
+            ingest_source.send(source.source_id, job_id=job.job_id)
+            logger.info(
+                f"Triggered ingestion for source {source_id} due to URL change, "
+                f"job: {job.job_id}"
+            )
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to trigger ingestion: {e}", exc_info=True)
+            warnings.append("源已更新，但采集任务触发失败，请手动检查")
+
+    return build_source_response(source, warnings if warnings else None)
 
 
 @router.delete("/sources/{source_id}", status_code=200)
