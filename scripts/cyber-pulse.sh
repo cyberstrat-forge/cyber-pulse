@@ -945,6 +945,16 @@ cmd_upgrade() {
     cd "$PROJECT_ROOT"
 
     # 获取代码（根据模式分支处理）
+    # 保存当前版本用于 rollback（两种模式都需要）
+    local current_version
+    if [[ "$mode" == "ops" ]]; then
+        current_version=$(cat "$PROJECT_ROOT/.version" 2>/dev/null || echo "unknown")
+        print_info "当前版本: $current_version"
+    else
+        current_version=$(git branch --show-current 2>/dev/null || git describe --tags --always 2>/dev/null || echo "main")
+        print_info "当前分支/版本: $current_version"
+    fi
+
     if [[ "$mode" == "ops" ]]; then
         # ops 模式：下载部署包
         print_step "下载部署包 $target_version..."
@@ -977,10 +987,6 @@ cmd_upgrade() {
 
         if [[ "$upgrade_failed" != "true" ]]; then
             print_step "切换到版本 $target_version..."
-
-            # 保存当前分支
-            local current_branch
-            current_branch=$(git branch --show-current 2>/dev/null || echo "main")
 
             if ! git checkout "$target_version" 2>/dev/null; then
                 print_warning "无法切换到 $target_version，尝试拉取远程分支"
@@ -1068,13 +1074,36 @@ cmd_upgrade() {
             if bash "$UPGRADE_DIR/restore-snapshot.sh" "$snapshot_name" --force; then
                 print_success "快照已恢复"
 
-                # 切换回原来的代码版本
+                # 切换回原来的代码版本（根据模式分支处理）
                 print_step "切换回原版本代码..."
                 cd "$PROJECT_ROOT"
-                if git checkout "$current_branch" 2>/dev/null; then
-                    print_success "已切换回分支: $current_branch"
+
+                if [[ "$mode" == "ops" ]]; then
+                    # ops 模式：重新下载旧版本部署包
+                    if [[ "$current_version" != "unknown" ]]; then
+                        local rollback_url="https://github.com/cyberstrat-forge/cyber-pulse/releases/download/$current_version/cyber-pulse-deploy-$current_version.tar.gz"
+                        local rollback_file="/tmp/cyber-pulse-deploy-$current_version.tar.gz"
+                        if curl -sL -o "$rollback_file" "$rollback_url"; then
+                            if tar -xzf "$rollback_file" --strip-components=1; then
+                                print_success "已切换回版本: $current_version"
+                                rm -f "$rollback_file"
+                            else
+                                print_warning "部署包解压失败，代码未回滚"
+                            fi
+                        else
+                            print_warning "无法下载旧版本部署包: $rollback_url"
+                            print_info "代码未回滚，请手动下载 $current_version 版本"
+                        fi
+                    else
+                        print_warning "无法确定原版本，代码未回滚"
+                    fi
                 else
-                    print_warning "无法切换回原分支: $current_branch"
+                    # developer 模式：git checkout
+                    if git checkout "$current_version" 2>/dev/null; then
+                        print_success "已切换回分支: $current_version"
+                    else
+                        print_warning "无法切换回原分支: $current_version"
+                    fi
                 fi
 
                 # 重启服务
