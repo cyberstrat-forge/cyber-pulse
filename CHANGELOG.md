@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.4] - 2026-04-02
+
+### Fixed
+
+- Issue #112: 修复 ops 模式 upgrade 命令使用 git 操作失败
+  - 根因：upgrade 和 rollback 逻辑忽略 `$mode` 变量，总是使用 git 命令
+  - 修复：ops 模式下载 tar.gz 部署包，developer 模式使用 git
+  - Rollback 逻辑同样根据模式分支处理
+  - 临时文件失败时正确清理（避免 /tmp 残留）
+
 ## [1.8.3] - 2026-04-02
 
 ### Fixed
