@@ -861,9 +861,13 @@ cmd_upgrade() {
 
     # 检查服务健康状态
     cd "$DEPLOY_DIR"
+    # 临时禁用 pipefail 避免 SIGPIPE 误报
+    # 当 grep -q 找到匹配后退出，docker compose ps 仍在写入会触发 SIGPIPE
+    set +o pipefail
     if ! $DOCKER_COMPOSE ps 2>/dev/null | grep -q "Up"; then
         print_warning "服务未运行，建议先启动服务"
     fi
+    set -o pipefail
 
     # 2. 确定目标版本
     if [[ -z "$target_version" ]]; then
