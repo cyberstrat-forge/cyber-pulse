@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-04-02
+
+### Fixed
+
+- Issue #109: 修复升级脚本预检查在 pipefail 模式下误报"服务未运行"
+  - 根因：`grep -q` 找到匹配后退出，`docker compose ps` 收到 SIGPIPE
+  - 修复：临时禁用 pipefail 进行管道检查
+  - 影响脚本：`cyber-pulse.sh` 第 864 行
+
 ## [1.8.2] - 2026-04-02
 
 ### Fixed
