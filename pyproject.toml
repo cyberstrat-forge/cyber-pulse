@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyber-pulse"
-version = "1.5.0"
+version = "1.8.0"
 description = "Cyber Pulse - Strategic Intelligence Collection System"
 readme = "README.md"
 authors = [{name = "老罗", email = "luoweirong@example.com"}]
