@@ -34,7 +34,10 @@ def test_item(test_source):
         external_id="ext_qual001",
         url="https://example.com/article/quality-test",
         title="Test Article for Quality Check",
-        raw_content="<html><body><p>This is sufficient content for quality check.</p></body></html>",
+        raw_content=(
+            "<html><body><p>This is sufficient content for quality check."
+            "</p></body></html>"
+        ),
         published_at=now - timedelta(hours=1),
         fetched_at=now,
         status=ItemStatus.NORMALIZED,
@@ -88,8 +91,10 @@ class TestQualityCheckItem:
         assert test_item.content_completeness is not None
 
         # Verify normalized fields were set on item
-        assert test_item.normalized_title == valid_normalization_result["normalized_title"]
-        assert test_item.normalized_body == valid_normalization_result["normalized_body"]
+        expected_title = valid_normalization_result["normalized_title"]
+        expected_body = valid_normalization_result["normalized_body"]
+        assert test_item.normalized_title == expected_title
+        assert test_item.normalized_body == expected_body
         assert test_item.canonical_hash == valid_normalization_result["canonical_hash"]
 
         # Verify commit was called
@@ -148,7 +153,9 @@ class TestQualityCheckItem:
         # Should not try to commit
         mock_db.commit.assert_not_called()
 
-    def test_quality_check_updates_source_stats(self, test_item, valid_normalization_result):
+    def test_quality_check_updates_source_stats(
+        self, test_item, valid_normalization_result
+    ):
         """Test that passing quality check updates source statistics."""
         mock_db = MagicMock()
 
@@ -170,7 +177,9 @@ class TestQualityCheckItem:
         # Verify source stats updated
         assert test_item.source.total_items is not None
 
-    def test_quality_check_handles_duplicate_content(self, test_item, valid_normalization_result):
+    def test_quality_check_handles_duplicate_content(
+        self, test_item, valid_normalization_result
+    ):
         """Test that items with same canonical_hash are handled correctly."""
         mock_db = MagicMock()
 
@@ -416,6 +425,340 @@ class TestPendingFullFetchStatus:
             )
 
         # Verify status
+        assert test_item.status == ItemStatus.REJECTED
+
+
+class TestFullFetchSucceededRejection:
+    """Tests for full_fetch_succeeded rejection logic (Issue #107)."""
+
+    def test_quality_check_full_fetch_succeeded_content_still_insufficient(
+        self, test_source
+    ):
+        """Test item with full_fetch_succeeded=True but content still insufficient.
+
+        This prevents infinite loop when full fetch succeeds but quality still fails.
+        """
+        now = datetime.now(UTC).replace(tzinfo=None)
+        # Create item with full_fetch_succeeded=True and short content
+        test_item = Item(
+            item_id="item_ffs_001",
+            source_id=test_source.source_id,
+            external_id="ext_ffs_001",
+            url="https://example.com/article/full-fetch-failed",
+            title="Test Article Full Fetch Failed",
+            raw_content="Short content after full fetch",
+            published_at=now - timedelta(hours=1),
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+            full_fetch_succeeded=True,  # Full fetch already succeeded
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        # Content is still insufficient (< 500 chars, < 50 words)
+        short_content = "Short content after full fetch"
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            from cyberpulse.tasks.quality_tasks import quality_check_item
+
+            quality_check_item(
+                item_id=test_item.item_id,
+                normalized_title="Test Article Full Fetch Failed",
+                normalized_body=short_content,
+                canonical_hash="hash_ffs_001",
+            )
+
+        # Verify item was REJECTED (not PENDING_FULL_FETCH)
+        assert test_item.status == ItemStatus.REJECTED
+
+        # Verify rejection_reason contains "after full fetch"
+        assert test_item.raw_metadata is not None
+        assert "after full fetch" in test_item.raw_metadata.get("rejection_reason", "")
+        assert "Content quality still insufficient" in test_item.raw_metadata.get(
+            "rejection_reason", ""
+        )
+
+        # Verify commit was called
+        mock_db.commit.assert_called()
+
+    def test_quality_check_full_fetch_succeeded_content_quality_passes(
+        self, test_source
+    ):
+        """Test item with full_fetch_succeeded=True and good content passes."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        # Create content that passes quality (> 500 chars, > 50 words)
+        good_content = (
+            "This is a long enough content that should pass the minimum word count "
+            "check of fifty words and the minimum character count of five hundred. "
+            "We need to add many more words here to ensure that the content quality "
+            "service determines this is sufficient content and does not trigger a "
+            "full content fetch. The minimum thresholds are fifty words and five "
+            "hundred characters, so we are deliberately writing a longer passage here. "
+            "This additional text ensures we have enough words and characters to pass "
+            "the quality check successfully. Adding more sentences to reach the goal."
+        )
+        test_item = Item(
+            item_id="item_ffs_002",
+            source_id=test_source.source_id,
+            external_id="ext_ffs_002",
+            url="https://example.com/article/full-fetch-passed",
+            title="Test Article Full Fetch Passed",
+            raw_content=good_content,
+            published_at=now - timedelta(hours=1),
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+            full_fetch_succeeded=True,  # Full fetch succeeded
+            raw_metadata={"author": "Test Author"},
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            from cyberpulse.tasks.quality_tasks import quality_check_item
+
+            quality_check_item(
+                item_id=test_item.item_id,
+                normalized_title="Test Article Full Fetch Passed",
+                normalized_body=good_content,
+                canonical_hash="hash_ffs_002",
+                word_count=60,
+            )
+
+        # Verify item was MAPPED (content passed, meta passed)
+        assert test_item.status == ItemStatus.MAPPED
+
+        # Verify quality metrics were set
+        assert test_item.meta_completeness is not None
+        assert test_item.content_completeness is not None
+
+        # Verify commit was called
+        mock_db.commit.assert_called()
+
+    def test_quality_check_full_fetch_succeeded_but_meta_fails(self, test_source):
+        """Test that item with full_fetch_succeeded=True but meta fails is REJECTED."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        # Create content that passes quality (> 500 chars, > 50 words)
+        good_content = (
+            "This is a long enough content that should pass the minimum word count "
+            "check of fifty words and the minimum character count of five hundred. "
+            "We need to add many more words here to ensure that the content quality "
+            "service determines this is sufficient content and does not trigger a "
+            "full content fetch. The minimum thresholds are fifty words and five "
+            "hundred characters, so we are deliberately writing a longer passage here. "
+            "This additional text ensures we have enough words and characters to pass "
+            "the quality check successfully. Adding more sentences to reach the goal."
+        )
+        test_item = Item(
+            item_id="item_ffs_003",
+            source_id=test_source.source_id,
+            external_id="ext_ffs_003",
+            url="https://example.com/article/meta-fails",
+            title="Test Article Meta Fails",
+            raw_content=good_content,
+            published_at=None,  # Missing published_at - meta will fail
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+            full_fetch_succeeded=True,  # Full fetch succeeded
+            raw_metadata={"author": "Test Author"},
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            from cyberpulse.tasks.quality_tasks import quality_check_item
+
+            quality_check_item(
+                item_id=test_item.item_id,
+                normalized_title="Test Article Meta Fails",
+                normalized_body=good_content,
+                canonical_hash="hash_ffs_003",
+                word_count=60,
+            )
+
+        # Verify item was REJECTED (meta failed)
+        assert test_item.status == ItemStatus.REJECTED
+
+        # Verify rejection_reason recorded
+        assert test_item.raw_metadata is not None
+        assert "rejection_reason" in test_item.raw_metadata
+
+        # Verify commit was called
+        mock_db.commit.assert_called()
+
+    def test_quality_check_full_fetch_not_attempted_triggers_fetch(self, test_source):
+        """Test that item with full_fetch_succeeded=None/False triggers full fetch."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        test_item = Item(
+            item_id="item_ffs_004",
+            source_id=test_source.source_id,
+            external_id="ext_ffs_004",
+            url="https://example.com/article/needs-fetch",
+            title="Test Article Needs Fetch",
+            raw_content="Short content",
+            published_at=now - timedelta(hours=1),
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+            full_fetch_succeeded=None,  # Full fetch not attempted
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        short_content = "Short content"
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            with patch(
+                "cyberpulse.tasks.full_content_tasks.fetch_full_content.send"
+            ) as mock_send:
+                from cyberpulse.tasks.quality_tasks import quality_check_item
+
+                quality_check_item(
+                    item_id=test_item.item_id,
+                    normalized_title="Test Article Needs Fetch",
+                    normalized_body=short_content,
+                    canonical_hash="hash_ffs_004",
+                )
+
+        # Verify status is PENDING_FULL_FETCH (not REJECTED)
+        assert test_item.status == ItemStatus.PENDING_FULL_FETCH
+
+        # Verify full_fetch_reason was recorded in raw_metadata
+        assert test_item.raw_metadata is not None
+        assert "full_fetch_reason" in test_item.raw_metadata
+        assert "Content too short" in test_item.raw_metadata["full_fetch_reason"]
+
+        # Verify fetch_full_content.send() was triggered
+        mock_send.assert_called_once_with(test_item.item_id)
+
+        # Verify commit was called
+        mock_db.commit.assert_called()
+
+    def test_quality_check_full_fetch_failed_triggers_retry(self, test_source):
+        """Test that item with full_fetch_succeeded=False triggers full fetch retry."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        test_item = Item(
+            item_id="item_ffs_false",
+            source_id=test_source.source_id,
+            external_id="ext_ffs_false",
+            url="https://example.com/article/needs-retry",
+            title="Test Article Needs Retry",
+            raw_content="Short content",
+            published_at=now - timedelta(hours=1),
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+            full_fetch_succeeded=False,  # Full fetch previously failed
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        short_content = "Short content"
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            with patch(
+                "cyberpulse.tasks.full_content_tasks.fetch_full_content.send"
+            ) as mock_send:
+                from cyberpulse.tasks.quality_tasks import quality_check_item
+
+                quality_check_item(
+                    item_id=test_item.item_id,
+                    normalized_title="Test Article Needs Retry",
+                    normalized_body=short_content,
+                    canonical_hash="hash_ffs_false",
+                )
+
+        # Verify status is PENDING_FULL_FETCH (not REJECTED)
+        assert test_item.status == ItemStatus.PENDING_FULL_FETCH
+
+        # Verify full_fetch_reason was recorded in raw_metadata
+        assert test_item.raw_metadata is not None
+        assert "full_fetch_reason" in test_item.raw_metadata
+        assert "Content too short" in test_item.raw_metadata["full_fetch_reason"]
+
+        # Verify fetch_full_content.send() was triggered for retry
+        mock_send.assert_called_once_with(test_item.item_id)
+
+        # Verify commit was called
+        mock_db.commit.assert_called()
+
+    def test_quality_check_rejection_reason_recorded(self, test_source):
+        """Test that rejection_reason is correctly recorded in raw_metadata."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        test_item = Item(
+            item_id="item_ffs_005",
+            source_id=test_source.source_id,
+            external_id="ext_ffs_005",
+            url="https://example.com/article/rejection-reason",
+            title="Test Article Rejection Reason",
+            raw_content="Very short",
+            published_at=now - timedelta(hours=1),
+            fetched_at=now,
+            status=ItemStatus.NORMALIZED,
+            full_fetch_succeeded=True,  # Full fetch succeeded but content still short
+            raw_metadata={},  # Empty metadata to test it gets populated
+        )
+        test_item.source = test_source
+
+        mock_db = MagicMock()
+        mock_item_query = MagicMock()
+        mock_item_query.filter.return_value = mock_item_query
+        mock_item_query.first.return_value = test_item
+        mock_db.query.return_value = mock_item_query
+
+        with patch(
+            "cyberpulse.tasks.quality_tasks.SessionLocal", return_value=mock_db
+        ):
+            from cyberpulse.tasks.quality_tasks import quality_check_item
+
+            quality_check_item(
+                item_id=test_item.item_id,
+                normalized_title="Test Article Rejection Reason",
+                normalized_body="Very short",
+                canonical_hash="hash_ffs_005",
+            )
+
+        # Verify rejection_reason was recorded
+        assert test_item.raw_metadata is not None
+        assert "rejection_reason" in test_item.raw_metadata
+
+        # Verify the reason format matches expected pattern
+        rejection_reason = test_item.raw_metadata["rejection_reason"]
+        assert "Content quality still insufficient after full fetch" in rejection_reason
+
+        # Verify item status is REJECTED
         assert test_item.status == ItemStatus.REJECTED
 
 

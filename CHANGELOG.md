@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-04-02
+
+### Fixed
+
+- Issue #102: 修复容器状态检查关键词错误 (`running` → `Up`)
+  - Docker Compose v2 输出格式为 `Up X minutes (healthy)`
+  - 影响脚本: `cyber-pulse.sh`, `create-backup.sh`, `restore-backup.sh`, `create-snapshot.sh`, `restore-snapshot.sh`
+- Issue #103: 修复 ENV_FILE 路径配置不一致
+  - 脚本路径从 `$PROJECT_ROOT/.env` 改为 `$PROJECT_ROOT/deploy/.env`
+  - 影响脚本: `create-backup.sh`, `restore-backup.sh`, `create-snapshot.sh`, `restore-snapshot.sh`
+
 ## [1.8.0] - 2026-04-01
 
 ### Added
@@ -369,6 +380,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.8.1]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.1
 [1.8.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.0
 [1.7.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.7.0
 [1.6.1]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.6.1

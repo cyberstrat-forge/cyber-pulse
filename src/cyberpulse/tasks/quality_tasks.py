@@ -77,6 +77,25 @@ def quality_check_item(
         )
 
         if content_result.needs_full_fetch:
+            # Check if full fetch already succeeded but content still insufficient
+            # This prevents infinite loop when full fetch succeeds but quality fails
+            if item.full_fetch_succeeded:
+                # Full fetch completed successfully, but content quality still fails
+                # Cannot retry fetch → REJECT to break the loop
+                item.status = ItemStatus.REJECTED  # type: ignore[assignment]
+                if item.raw_metadata is None:
+                    item.raw_metadata = {}
+                item.raw_metadata["rejection_reason"] = (
+                    f"Content quality still insufficient after full fetch: "
+                    f"{content_result.reason}"
+                )
+                db.commit()
+                logger.warning(
+                    f"Item {item_id} rejected: content quality failed "
+                    f"after successful full fetch ({content_result.reason})"
+                )
+                return
+
             # Content insufficient - needs full fetch
             _handle_needs_full_fetch(db, item, content_result.reason)
             db.commit()
