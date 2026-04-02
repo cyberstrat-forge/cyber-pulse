@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-04-01
+
+### Added
+
+#### 增量同步 API
+- `since` 参数：支持全量同步 (`since=beginning`) 和增量同步 (`since={datetime}`)
+- `cursor` 参数：基于 `item_id` 的游标分页，必须与 `since` 配合使用
+- `last_item_id` 和 `last_fetched_at`：响应中包含分页状态信息
+- 增量同步时按 `fetched_at` 升序排列，无 `since` 时按降序排列
+
+#### URL 变更自动触发采集
+- `JobTrigger.URL_UPDATE`：新增触发类型，记录 URL 变更导致的采集
+- `update_source` API 自动检测 `feed_url` 变更并触发采集任务
+- URL 相同时不重复触发（幂等性）
+- 触发失败时返回警告信息
+
+### Changed
+
+- `ItemListResponse` schema：移除 `next_cursor`，改用 `last_item_id` 和 `last_fetched_at`
+- Items API 只返回 `MAPPED` 状态的 Item（下游系统可见性控制）
+
+### Fixed
+
+- Issue #97：情报源 URL 变更后需手动触发采集的问题
+- 增量同步 API 设计完善，支持下游系统高效数据获取
+
 ## [1.7.0] - 2026-04-01
 
 ### Added
@@ -343,6 +369,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.8.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.0
+[1.7.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.7.0
 [1.6.1]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.6.1
 [1.6.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.6.0
 [1.5.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.5.0
