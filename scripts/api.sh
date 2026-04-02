@@ -4,12 +4,13 @@
 #
 # 功能:
 #   配置 API 连接、管理情报源、任务、客户端、日志、诊断
+#   支持多环境配置（prod/dev/test）
 #
 # 使用:
-#   ./scripts/api.sh configure           # 配置 API URL 和 Admin Key
-#   ./scripts/api.sh sources list        # 列出情报源
-#   ./scripts/api.sh jobs run <src_id>   # 运行采集任务
-#   ./scripts/api.sh diagnose            # 系统诊断
+#   ./scripts/api.sh configure --env dev    # 配置开发环境
+#   ./scripts/api.sh env switch prod        # 切换到生产环境
+#   ./scripts/api.sh --env dev sources list # 临时使用 dev 环境
+#   ./scripts/api.sh sources list           # 使用当前环境
 #
 
 set -euo pipefail
@@ -29,10 +30,83 @@ NC='\033[0m' # No Color
 
 # 配置文件路径
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cyber-pulse"
-CONFIG_FILE="$CONFIG_DIR/config"
+ENV_DIR="$CONFIG_DIR/environments"
+CURRENT_ENV_FILE="$CONFIG_DIR/current_env"
+LEGACY_CONFIG="$CONFIG_DIR/config"  # 旧版单环境配置
 
-# 默认 API URL
+# 默认值
+DEFAULT_ENV="prod"
 DEFAULT_API_URL="http://localhost:8000"
+VALID_ENVS=("prod" "dev" "test")
+
+# 当前环境（全局变量，由 parse_env_override 设置）
+CURRENT_ENV=""
+
+# ============================================
+# 环境管理函数
+# ============================================
+
+# 获取当前环境
+get_current_env() {
+    if [[ -f "$CURRENT_ENV_FILE" ]]; then
+        cat "$CURRENT_ENV_FILE"
+    else
+        echo "$DEFAULT_ENV"
+    fi
+}
+
+# 获取指定环境的配置文件路径
+get_env_config_file() {
+    local env="${1:-$(get_current_env)}"
+    echo "$ENV_DIR/${env}.conf"
+}
+
+# 检查环境名是否有效
+validate_env() {
+    local env="$1"
+    for valid_env in "${VALID_ENVS[@]}"; do
+        if [[ "$env" == "$valid_env" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# 解析 --env 参数覆盖（必须在命令解析之前调用）
+# 用法：parse_env_override "$@"
+# 返回：不含 --env 的参数数组
+parse_env_override() {
+    CURRENT_ENV=""
+    local filtered_args=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --env)
+                if [[ -n "${2:-}" ]]; then
+                    if ! validate_env "$2"; then
+                        die "无效的环境名: $2。有效值: ${VALID_ENVS[*]}"
+                    fi
+                    CURRENT_ENV="$2"
+                    shift 2
+                else
+                    die "--env 需要环境名参数"
+                fi
+                ;;
+            *)
+                filtered_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # 如果没有通过 --env 指定，使用当前环境
+    if [[ -z "$CURRENT_ENV" ]]; then
+        CURRENT_ENV=$(get_current_env)
+    fi
+
+    # 返回过滤后的参数
+    echo "${filtered_args[@]}"
+}
 
 # ============================================
 # 工具函数
@@ -76,14 +150,27 @@ check_dependencies() {
     fi
 }
 
-# 加载配置
+# 加载配置（支持多环境）
 load_config() {
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-        die "Configuration not found. Run './scripts/api.sh configure' first."
-    fi
+    local env="${CURRENT_ENV:-$(get_current_env)}"
+    local env_config
+    env_config=$(get_env_config_file "$env")
 
-    # shellcheck source=/dev/null
-    source "$CONFIG_FILE"
+    # 优先使用新的多环境配置
+    if [[ -f "$env_config" ]]; then
+        # shellcheck source=/dev/null
+        source "$env_config"
+    # 兼容旧版单配置文件（自动迁移到 prod 环境）
+    elif [[ -f "$LEGACY_CONFIG" && "$env" == "prod" ]]; then
+        print_info "检测到旧版配置文件，自动迁移到 prod 环境..."
+        mkdir -p "$ENV_DIR"
+        mv "$LEGACY_CONFIG" "$env_config"
+        echo "prod" > "$CURRENT_ENV_FILE"
+        # shellcheck source=/dev/null
+        source "$env_config"
+    else
+        die "环境 '$env' 未配置。运行 './scripts/api.sh configure --env $env' 配置。"
+    fi
 
     if [[ -z "${api_url:-}" ]]; then
         die "api_url not set in config. Run './scripts/api.sh configure' first."
@@ -143,11 +230,16 @@ check_api_error() {
 cmd_configure() {
     local input_api_url=""
     local input_admin_key=""
+    local input_env=""
     local non_interactive="false"
 
     # 解析参数
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --env)
+                input_env="$2"
+                shift 2
+                ;;
             --url)
                 input_api_url="$2"
                 non_interactive="true"
@@ -162,12 +254,14 @@ cmd_configure() {
                 echo "用法: api.sh configure [选项]"
                 echo ""
                 echo "选项:"
+                echo "  --env ENV      环境名 (prod/dev/test, 默认: prod 或当前环境)"
                 echo "  --url URL      API URL (非交互式)"
                 echo "  --key KEY      Admin API Key (非交互式)"
                 echo ""
                 echo "示例:"
-                echo "  api.sh configure                              # 交互式配置"
-                echo "  api.sh configure --url http://localhost:8000 --key cp_live_xxx"
+                echo "  api.sh configure                              # 交互式配置当前环境"
+                echo "  api.sh configure --env dev                    # 配置开发环境"
+                echo "  api.sh configure --env dev --url http://localhost:8002 --key cp_live_xxx"
                 return 0
                 ;;
             *)
@@ -176,21 +270,36 @@ cmd_configure() {
         esac
     done
 
+    # 确定目标环境
+    local target_env="${input_env:-${CURRENT_ENV:-$(get_current_env)}}"
+    if ! validate_env "$target_env"; then
+        die "无效的环境名: $target_env。有效值: ${VALID_ENVS[*]}"
+    fi
+
     echo -e "${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║           Cyber Pulse API 配置                               ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
+    print_info "配置环境: $target_env"
+    echo ""
 
     # 创建配置目录
-    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$ENV_DIR"
+
+    # 根据环境设置默认 URL
+    local default_url="$DEFAULT_API_URL"
+    case "$target_env" in
+        dev)  default_url="http://localhost:8002" ;;
+        test) default_url="http://localhost:8001" ;;
+    esac
 
     # 交互式模式
     if [[ "$non_interactive" != "true" ]]; then
         # 提示输入 API URL
-        echo -e "${BLUE}API URL${NC} (按 Enter 使用默认值: $DEFAULT_API_URL)"
+        echo -e "${BLUE}API URL${NC} (按 Enter 使用默认值: $default_url)"
         read -r -p "> " input_api_url
-        local final_api_url="${input_api_url:-$DEFAULT_API_URL}"
+        local final_api_url="${input_api_url:-$default_url}"
 
         # 提示输入 Admin Key
         echo ""
@@ -202,7 +311,7 @@ cmd_configure() {
         fi
     else
         # 非交互式模式：使用参数
-        local final_api_url="${input_api_url:-$DEFAULT_API_URL}"
+        local final_api_url="${input_api_url:-$default_url}"
 
         if [[ -z "$input_admin_key" ]]; then
             die "非交互式模式需要 --key 参数"
@@ -236,9 +345,11 @@ cmd_configure() {
         fi
     fi
 
-    # 写入配置文件
-    cat > "$CONFIG_FILE" << EOF
-# Cyber Pulse API Configuration
+    # 写入环境配置文件
+    local env_config
+    env_config=$(get_env_config_file "$target_env")
+    cat > "$env_config" << EOF
+# Cyber Pulse API Configuration - $target_env environment
 # Generated by: api.sh configure
 # Date: $(date '+%Y-%m-%d %H:%M:%S')
 
@@ -246,11 +357,135 @@ api_url=${final_api_url}
 admin_key=${input_admin_key}
 EOF
 
-    chmod 600 "$CONFIG_FILE"
+    chmod 600 "$env_config"
+
+    # 如果是第一个配置的环境，设为当前环境
+    if [[ ! -f "$CURRENT_ENV_FILE" ]]; then
+        echo "$target_env" > "$CURRENT_ENV_FILE"
+        print_info "已设置 '$target_env' 为当前环境"
+    fi
 
     echo ""
-    print_success "配置已保存到: $CONFIG_FILE"
+    print_success "配置已保存到: $env_config"
     print_info "文件权限: 600"
+}
+
+# ============================================
+# Environment 命令
+# ============================================
+
+cmd_env() {
+    local subcommand="${1:-current}"
+    shift || true
+
+    case "$subcommand" in
+        current)
+            cmd_env_current
+            ;;
+        list)
+            cmd_env_list
+            ;;
+        switch)
+            cmd_env_switch "$@"
+            ;;
+        --help|-h)
+            echo "用法: api.sh env <命令>"
+            echo ""
+            echo "命令:"
+            echo "  current    显示当前环境"
+            echo "  list       列出所有已配置的环境"
+            echo "  switch ENV 切换到指定环境"
+            echo ""
+            echo "示例:"
+            echo "  api.sh env current"
+            echo "  api.sh env list"
+            echo "  api.sh env switch dev"
+            ;;
+        *)
+            print_error "未知命令: env $subcommand"
+            echo "运行 'api.sh env --help' 查看帮助"
+            return 1
+            ;;
+    esac
+}
+
+cmd_env_current() {
+    local current="${CURRENT_ENV:-$(get_current_env)}"
+    echo "当前环境: $current"
+
+    local env_config
+    env_config=$(get_env_config_file "$current")
+
+    if [[ -f "$env_config" ]]; then
+        # shellcheck source=/dev/null
+        source "$env_config"
+        echo "API URL: ${api_url}"
+    else
+        print_warning "环境 '$current' 未配置"
+        echo "运行 'api.sh configure --env $current' 配置"
+    fi
+}
+
+cmd_env_list() {
+    local current="${CURRENT_ENV:-$(get_current_env)}"
+
+    echo "已配置的环境:"
+    echo ""
+
+    local found=0
+    for env in "${VALID_ENVS[@]}"; do
+        local env_config
+        env_config=$(get_env_config_file "$env")
+
+        local marker="  "
+        if [[ "$env" == "$current" ]]; then
+            marker="* "
+        fi
+
+        if [[ -f "$env_config" ]]; then
+            # shellcheck source=/dev/null
+            source "$env_config"
+            echo -e "${marker}${env}\t${api_url}"
+            found=$((found + 1))
+        else
+            echo -e "  ${env}\t(未配置)"
+        fi
+    done
+
+    echo ""
+    if [[ $found -eq 0 ]]; then
+        print_warning "没有已配置的环境"
+        echo "运行 'api.sh configure' 配置环境"
+    else
+        echo "* = 当前环境"
+    fi
+}
+
+cmd_env_switch() {
+    local target_env="${1:-}"
+
+    if [[ -z "$target_env" ]]; then
+        die "请指定环境名: api.sh env switch <env>"
+    fi
+
+    if ! validate_env "$target_env"; then
+        die "无效的环境名: $target_env。有效值: ${VALID_ENVS[*]}"
+    fi
+
+    local env_config
+    env_config=$(get_env_config_file "$target_env")
+
+    if [[ ! -f "$env_config" ]]; then
+        die "环境 '$target_env' 未配置。运行 'api.sh configure --env $target_env' 配置。"
+    fi
+
+    echo "$target_env" > "$CURRENT_ENV_FILE"
+    print_success "已切换到环境: $target_env"
+
+    # 显示配置信息
+    # shellcheck source=/dev/null
+    source "$env_config"
+    echo "API URL: ${api_url}"
 }
 
 # ============================================
@@ -1073,10 +1308,18 @@ show_help() {
     echo "║           Cyber Pulse API 管理工具                           ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
-    echo "用法: api.sh <命令> [选项]"
+    echo "用法: api.sh [--env ENV] <命令> [选项]"
+    echo ""
+    echo -e "${BOLD}全局选项:${NC}"
+    echo "  --env ENV              指定环境 (prod/dev/test)，默认使用当前环境"
     echo ""
     echo -e "${BOLD}命令:${NC}"
-    echo "  configure              配置 API URL 和 Admin Key"
+    echo "  configure [--env ENV]  配置 API URL 和 Admin Key"
+    echo ""
+    echo "  env <cmd>              环境管理"
+    echo "    current              显示当前环境"
+    echo "    list                 列出所有已配置的环境"
+    echo "    switch ENV           切换到指定环境"
     echo ""
     echo "  sources <cmd>          情报源管理"
     echo "    list                 列出情报源"
@@ -1115,12 +1358,14 @@ show_help() {
     echo ""
     echo "  diagnose               系统诊断"
     echo ""
-    echo -e "${BOLD}配置文件:${NC} $CONFIG_FILE"
+    echo -e "${BOLD}配置目录:${NC} $CONFIG_DIR"
+    echo -e "${BOLD}环境配置:${NC} $ENV_DIR/"
+    echo ""
     echo -e "${BOLD}示例:${NC}"
-    echo "  api.sh configure"
-    echo "  api.sh sources list"
+    echo "  api.sh configure --env dev --url http://localhost:8002 --key cp_live_xxx"
+    echo "  api.sh env switch dev"
+    echo "  api.sh --env prod sources list"
     echo "  api.sh jobs run src_xxxx"
-    echo "  api.sh diagnose"
 }
 
 # ============================================
@@ -1130,12 +1375,47 @@ show_help() {
 main() {
     check_dependencies
 
+    # 解析 --env 参数（全局选项）
+    local filtered_args=()
+    CURRENT_ENV=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --env)
+                if [[ -n "${2:-}" ]]; then
+                    if ! validate_env "$2"; then
+                        die "无效的环境名: $2。有效值: ${VALID_ENVS[*]}"
+                    fi
+                    CURRENT_ENV="$2"
+                    shift 2
+                else
+                    die "--env 需要环境名参数"
+                fi
+                ;;
+            *)
+                filtered_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # 如果没有通过 --env 指定，使用当前环境
+    if [[ -z "$CURRENT_ENV" ]]; then
+        CURRENT_ENV=$(get_current_env)
+    fi
+
+    # 使用过滤后的参数
+    set -- "${filtered_args[@]}"
+
     local command="${1:-help}"
     shift || true
 
     case "$command" in
         configure)
             cmd_configure "$@"
+            ;;
+        env)
+            cmd_env "$@"
             ;;
         sources)
             load_config
