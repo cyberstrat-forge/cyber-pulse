@@ -970,10 +970,12 @@ cmd_upgrade() {
                 print_success "部署包已更新"
                 rm -f "$temp_file"
             else
+                rm -f "$temp_file"
                 print_error "部署包解压失败"
                 upgrade_failed="true"
             fi
         else
+            rm -f "$temp_file"
             print_error "部署包下载失败: $download_url"
             upgrade_failed="true"
         fi
@@ -1088,9 +1090,11 @@ cmd_upgrade() {
                                 print_success "已切换回版本: $current_version"
                                 rm -f "$rollback_file"
                             else
+                                rm -f "$rollback_file"
                                 print_warning "部署包解压失败，代码未回滚"
                             fi
                         else
+                            rm -f "$rollback_file"
                             print_warning "无法下载旧版本部署包: $rollback_url"
                             print_info "代码未回滚，请手动下载 $current_version 版本"
                         fi
