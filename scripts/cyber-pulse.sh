@@ -894,9 +894,13 @@ cmd_upgrade() {
     if [[ "$dry_run" == "true" ]]; then
         print_info "Dry run 模式，不会执行实际升级"
         echo ""
-        echo -e "${BOLD}升级计划:${NC}"
+        echo -e "${BOLD}升级计划 ($mode 模式):${NC}"
         echo "  1. 创建快照"
-        echo "  2. 获取代码: git fetch origin && git checkout $target_version"
+        if [[ "$mode" == "ops" ]]; then
+            echo "  2. 下载部署包: cyber-pulse-deploy-$target_version.tar.gz"
+        else
+            echo "  2. 获取代码: git fetch origin && git checkout $target_version"
+        fi
         echo "  3. 拉取镜像: docker compose pull"
         echo "  4. 运行迁移: alembic upgrade head"
         echo "  5. 重启服务: docker compose up -d"
@@ -940,25 +944,50 @@ cmd_upgrade() {
 
     cd "$PROJECT_ROOT"
 
-    # 获取代码
-    print_step "获取最新代码..."
-    if ! git fetch origin; then
-        print_error "git fetch 失败"
-        upgrade_failed="true"
-    fi
+    # 获取代码（根据模式分支处理）
+    if [[ "$mode" == "ops" ]]; then
+        # ops 模式：下载部署包
+        print_step "下载部署包 $target_version..."
 
-    if [[ "$upgrade_failed" != "true" ]]; then
-        print_step "切换到版本 $target_version..."
+        local download_url="https://github.com/cyberstrat-forge/cyber-pulse/releases/download/$target_version/cyber-pulse-deploy-$target_version.tar.gz"
+        local temp_file="/tmp/cyber-pulse-deploy-$target_version.tar.gz"
 
-        # 保存当前分支
-        local current_branch
-        current_branch=$(git branch --show-current 2>/dev/null || echo "main")
+        if curl -sL -o "$temp_file" "$download_url"; then
+            print_success "部署包下载完成"
 
-        if ! git checkout "$target_version" 2>/dev/null; then
-            print_warning "无法切换到 $target_version，尝试拉取远程分支"
-            if ! git checkout -b "$target_version" "origin/$target_version" 2>/dev/null; then
-                print_error "无法切换到目标版本"
+            # 解压部署包（覆盖现有文件）
+            if tar -xzf "$temp_file" --strip-components=1; then
+                print_success "部署包已更新"
+                rm -f "$temp_file"
+            else
+                print_error "部署包解压失败"
                 upgrade_failed="true"
+            fi
+        else
+            print_error "部署包下载失败: $download_url"
+            upgrade_failed="true"
+        fi
+    else
+        # developer 模式：使用 git
+        print_step "获取最新代码..."
+        if ! git fetch origin; then
+            print_error "git fetch 失败"
+            upgrade_failed="true"
+        fi
+
+        if [[ "$upgrade_failed" != "true" ]]; then
+            print_step "切换到版本 $target_version..."
+
+            # 保存当前分支
+            local current_branch
+            current_branch=$(git branch --show-current 2>/dev/null || echo "main")
+
+            if ! git checkout "$target_version" 2>/dev/null; then
+                print_warning "无法切换到 $target_version，尝试拉取远程分支"
+                if ! git checkout -b "$target_version" "origin/$target_version" 2>/dev/null; then
+                    print_error "无法切换到目标版本"
+                    upgrade_failed="true"
+                fi
             fi
         fi
     fi
