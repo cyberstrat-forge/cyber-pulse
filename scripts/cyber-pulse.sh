@@ -861,7 +861,7 @@ cmd_upgrade() {
 
     # 检查服务健康状态
     cd "$DEPLOY_DIR"
-    if ! $DOCKER_COMPOSE ps 2>/dev/null | grep -q "running"; then
+    if ! $DOCKER_COMPOSE ps 2>/dev/null | grep -q "Up"; then
         print_warning "服务未运行，建议先启动服务"
     fi
 
@@ -1008,7 +1008,7 @@ cmd_upgrade() {
 
         local healthy="true"
         for service in postgres redis api worker scheduler; do
-            if $DOCKER_COMPOSE ps "$service" 2>/dev/null | grep -q "running"; then
+            if $DOCKER_COMPOSE ps "$service" 2>/dev/null | grep -q "Up"; then
                 echo -e "  ${GREEN}[●]${NC} $service - 运行中"
             else
                 echo -e "  ${RED}[○]${NC} $service - 未运行"

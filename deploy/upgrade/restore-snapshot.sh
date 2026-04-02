@@ -24,7 +24,7 @@ NC='\033[0m' # No Color
 # 默认配置
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEPLOY_DIR="$PROJECT_ROOT/deploy"
-ENV_FILE="$PROJECT_ROOT/.env"
+ENV_FILE="$PROJECT_ROOT/deploy/.env"
 SNAPSHOTS_DIR="$PROJECT_ROOT/.snapshots"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
 
@@ -117,7 +117,7 @@ restore_database() {
     cd "$DEPLOY_DIR"
 
     # 检查 PostgreSQL 容器是否运行
-    if ! $DOCKER_COMPOSE ps postgres 2>/dev/null | grep -q "running"; then
+    if ! $DOCKER_COMPOSE ps postgres 2>/dev/null | grep -q "Up"; then
         print_error "PostgreSQL 容器未运行"
         return 1
     fi
