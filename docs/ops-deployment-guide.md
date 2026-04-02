@@ -63,7 +63,7 @@ cd cyber-pulse
 
 ```bash
 # 配置 API 管理（使用部署输出的 Key）
-./scripts/api.sh configure --url http://localhost:8000 --key cp_live_xxxxx
+./scripts/api.sh configure --env prod --url http://localhost:8000 --key cp_live_xxxxx
 
 # 验证部署
 ./scripts/api.sh diagnose
@@ -176,12 +176,26 @@ cat .version
 
 ### API 管理
 
-```bash
-# 配置 API 连接（交互式）
-./scripts/api.sh configure
+`api.sh` 支持多环境配置，运维人员可同时维护 prod、test 等环境的配置。
 
-# 配置 API 连接（非交互式）
-./scripts/api.sh configure --url http://localhost:8000 --key cp_live_xxx
+```bash
+# 配置生产环境
+./scripts/api.sh configure --env prod --url http://localhost:8000 --key cp_live_xxx
+
+# 配置测试环境
+./scripts/api.sh configure --env test --url http://localhost:8001 --key cp_live_xxx
+
+# 查看所有环境
+./scripts/api.sh env list
+
+# 查看当前环境
+./scripts/api.sh env current
+
+# 切换环境
+./scripts/api.sh env switch prod
+
+# 临时使用指定环境（不改变默认设置）
+./scripts/api.sh --env test diagnose
 
 # 系统诊断
 ./scripts/api.sh diagnose
@@ -351,7 +365,10 @@ curl -s http://localhost:8000/health | jq '.version'
 
 | 文件 | 说明 |
 |------|------|
-| `~/.config/cyber-pulse/config` | API 管理配置（api.sh） |
+| `~/.config/cyber-pulse/environments/` | 多环境配置目录 |
+| `~/.config/cyber-pulse/environments/prod.conf` | 生产环境配置 |
+| `~/.config/cyber-pulse/environments/test.conf` | 测试环境配置 |
+| `~/.config/cyber-pulse/current_env` | 当前环境名 |
 | `deploy/.env` | 部署配置（数据库密码等） |
 | `sources.yaml` | 情报源配置 |
 | `.version` | 版本追踪文件 |
