@@ -16,6 +16,7 @@ from .routers import health, items
 from .routers.admin import (
     clients_router,
     diagnose_router,
+    items_router,
     jobs_router,
     logs_router,
     sources_router,
@@ -109,3 +110,4 @@ app.include_router(jobs_router, prefix="/api/v1/admin", tags=["admin-jobs"])
 app.include_router(clients_router, prefix="/api/v1/admin", tags=["admin-clients"])
 app.include_router(logs_router, prefix="/api/v1/admin", tags=["admin-logs"])
 app.include_router(diagnose_router, prefix="/api/v1/admin", tags=["admin-diagnose"])
+app.include_router(items_router, prefix="/api/v1/admin", tags=["admin-items"])
