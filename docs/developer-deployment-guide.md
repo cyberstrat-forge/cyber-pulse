@@ -45,7 +45,7 @@ cd deploy && docker compose down -v && cd ..
 
 ```bash
 # 2. 配置 API 管理（使用部署输出的 Key）
-./scripts/api.sh configure --url http://localhost:8000 --key cp_live_xxxxx
+./scripts/api.sh configure --env dev --url http://localhost:8002 --key cp_live_xxxxx
 
 # 3. 验证部署
 ./scripts/api.sh diagnose
@@ -119,12 +119,26 @@ cat .version
 
 ### API 管理
 
-```bash
-# 配置 API 连接（交互式）
-./scripts/api.sh configure
+`api.sh` 支持多环境配置，可同时维护 prod、dev、test 三个环境的配置。
 
-# 配置 API 连接（非交互式）
-./scripts/api.sh configure --url http://localhost:8000 --key cp_live_xxx
+```bash
+# 配置开发环境
+./scripts/api.sh configure --env dev --url http://localhost:8002 --key cp_live_xxx
+
+# 配置生产环境
+./scripts/api.sh configure --env prod --url http://localhost:8000 --key cp_live_xxx
+
+# 查看所有环境
+./scripts/api.sh env list
+
+# 查看当前环境
+./scripts/api.sh env current
+
+# 切换环境
+./scripts/api.sh env switch dev
+
+# 临时使用指定环境（不改变默认设置）
+./scripts/api.sh --env prod sources list
 
 # 系统诊断
 ./scripts/api.sh diagnose
@@ -232,13 +246,19 @@ docker stop <container_name>
 
 **解决**:
 ```bash
-# 1. 确认配置正确
-cat ~/.config/cyber-pulse/config
+# 1. 确认当前环境配置
+./scripts/api.sh env current
 
-# 2. 重置 Key 并更新配置
+# 2. 查看所有环境
+./scripts/api.sh env list
+
+# 3. 如果配置错误，重新配置
+./scripts/api.sh configure --env dev --url http://localhost:8002 --key <key>
+
+# 4. 或重置 Key 并更新配置
 ./scripts/cyber-pulse.sh admin reset --force
 # 复制新 Key
-./scripts/api.sh configure --url http://localhost:8000 --key <new_key>
+./scripts/api.sh configure --env dev --url http://localhost:8002 --key <new_key>
 ```
 
 ## 验证清单
@@ -296,6 +316,10 @@ cd deploy && docker compose config | grep project_name && cd ..
 
 | 文件 | 说明 |
 |------|------|
-| `~/.config/cyber-pulse/config` | API 管理配置（api.sh） |
+| `~/.config/cyber-pulse/environments/` | 多环境配置目录 |
+| `~/.config/cyber-pulse/environments/prod.conf` | 生产环境配置 |
+| `~/.config/cyber-pulse/environments/dev.conf` | 开发环境配置 |
+| `~/.config/cyber-pulse/environments/test.conf` | 测试环境配置 |
+| `~/.config/cyber-pulse/current_env` | 当前环境名 |
 | `deploy/.env` | 部署配置（数据库密码等） |
 | `.version` | 版本追踪文件 |
