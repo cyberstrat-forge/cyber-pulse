@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-04-03
+
+### Added
+
+- `api.sh` 多环境配置支持
+  - 新增环境配置目录：`~/.config/cyber-pulse/environments/`
+  - 支持 prod/dev/test 三个独立环境配置
+  - 新增命令：`api.sh env current/list/switch`
+  - 新增全局选项：`api.sh --env <env> <command>`
+  - `api.sh configure --env <env>` 配置指定环境
+  - 环境特定默认 URL（dev:8002, test:8001）
+
+### Changed
+
+- 配置文件结构变更
+  - 旧：`~/.config/cyber-pulse/config`
+  - 新：`~/.config/cyber-pulse/environments/<env>.conf`
+  - 首次运行时自动迁移旧配置到 prod.conf
+
+### Fixed
+
+- 配置开发环境时不再覆盖生产环境配置
+
 ## [1.8.4] - 2026-04-02
 
 ### Fixed
@@ -414,6 +437,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.9.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.9.0
+[1.8.4]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.4
+[1.8.3]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.3
+[1.8.2]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.2
 [1.8.1]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.1
 [1.8.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.0
 [1.7.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.7.0
