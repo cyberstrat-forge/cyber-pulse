@@ -7,6 +7,7 @@
 - [RSS 源配置](#rss-源配置)
 - [API 源配置](#api-源配置)
 - [Web 抓取源配置](#web-抓取源配置)
+- [YouTube 源配置](#youtube-源配置)
 - [配置模板](#配置模板)
 - [常见问题](#常见问题)
 
@@ -160,6 +161,44 @@ cyber-pulse source add "Tech Security News" web "https://tech-security-news.com/
 
 ---
 
+## YouTube 源配置
+
+### 基础 YouTube 源
+
+```bash
+cyber-pulse source add "Black Hat Official" youtube "https://www.youtube.com/@BlackHatOfficialYT" \
+  --tier T1 --yes
+```
+
+### YouTube 源配置参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `channel_url` | string | YouTube 频道 URL（必需） |
+
+### 支持的 URL 格式
+
+| 格式 | 示例 |
+|------|------|
+| @Handle | `https://www.youtube.com/@BlackHatOfficialYT` |
+| Channel ID | `https://www.youtube.com/channel/UCJ6q9Ie29ajGqKApbLqfBOg` |
+
+### 内容说明
+
+- **视频列表**：通过 RSS Feed 获取最近 15 条视频
+- **正文内容**：优先提取视频字幕，无字幕时使用视频描述
+- **字幕语言**：优先英文（en, en-US, en-GB），支持自动生成字幕
+
+### 常见 YouTube 源示例
+
+| 源名称 | 类型 | URL | 建议分级 |
+|--------|------|-----|----------|
+| Black Hat Official | youtube | https://www.youtube.com/@BlackHatOfficialYT | T1 |
+| OWASP Global | youtube | https://www.youtube.com/@OWASPGLOBAL | T1 |
+| DEF CON | youtube | https://www.youtube.com/@DEFCONConference | T1 |
+
+---
+
 ## 配置模板
 
 ### RSS 源模板
@@ -206,6 +245,14 @@ cyber-pulse source add "Tech Security News" web "https://tech-security-news.com/
   "author_selector": "span.author",
   "exclude_selectors": ["div.ads", "nav"],
   "timeout": 30
+}
+```
+
+### YouTube 源模板
+
+```json
+{
+  "channel_url": "https://www.youtube.com/@ChannelHandle"
 }
 ```
 
