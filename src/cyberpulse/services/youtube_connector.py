@@ -1,5 +1,6 @@
 """YouTube Channel Connector implementation for video transcript collection."""
 
+import asyncio
 import email.utils
 import logging
 import re
@@ -415,17 +416,21 @@ class YouTubeConnector(BaseConnector):
         try:
             api = YouTubeTranscriptApi()
 
-            # Try preferred languages
+            # Try preferred languages (wrap synchronous API in asyncio.to_thread)
             for lang in self.TRANSCRIPT_LANGUAGE_PRIORITY:
                 try:
-                    transcript_list = api.fetch(video_id, [lang])
+                    transcript_list = await asyncio.to_thread(
+                        api.fetch, video_id, [lang]
+                    )
                     return self._format_transcript(transcript_list)
                 except NoTranscriptFound:
                     continue
 
             # Try auto-generated English
             try:
-                transcript_list = api.fetch(video_id, ["en"], preserve_formatting=True)
+                transcript_list = await asyncio.to_thread(
+                    api.fetch, video_id, ["en"], preserve_formatting=True
+                )
                 return self._format_transcript(transcript_list)
             except (TranscriptsDisabled, NoTranscriptFound):
                 return None
