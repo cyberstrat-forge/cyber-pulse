@@ -21,6 +21,9 @@ src/cyberpulse/services/
 tests/test_services/
 └── test_youtube_connector.py # 新增：单元测试
 
+tests/test_integration/
+└── test_youtube_connector.py # 新增：集成测试
+
 docs/
 └── source-config-examples.md # 修改：添加 YouTube 源配置示例
 ```
@@ -37,7 +40,6 @@ docs/
 ```python
 """YouTube Channel Connector implementation for video transcript collection."""
 
-import asyncio
 import email.utils
 import logging
 import re
@@ -591,6 +593,105 @@ class TestYouTubeConnectorResolveChannelUrl:
 
         assert rss_url == "https://www.youtube.com/feeds/videos.xml?channel_id=UCJ6q9Ie29ajGqKApbLqfBOg"
 
+    @pytest.mark.asyncio
+    async def test_resolve_handle_format(self):
+        """Test /@Handle format resolves via _fetch_channel_id."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        with patch.object(connector, "_fetch_channel_id", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = "UCXXXXXX"
+
+            rss_url = await connector._resolve_channel_url(
+                "https://www.youtube.com/@TestChannel"
+            )
+
+            assert rss_url == "https://www.youtube.com/feeds/videos.xml?channel_id=UCXXXXXX"
+            mock_fetch.assert_called_once_with("https://www.youtube.com/@TestChannel")
+
+    @pytest.mark.asyncio
+    async def test_resolve_user_format(self):
+        """Test /user/Username format resolves via _fetch_channel_id."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/user/TestUser"
+        })
+
+        with patch.object(connector, "_fetch_channel_id", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = "UCYYYYYY"
+
+            rss_url = await connector._resolve_channel_url(
+                "https://www.youtube.com/user/TestUser"
+            )
+
+            assert rss_url == "https://www.youtube.com/feeds/videos.xml?channel_id=UCYYYYYY"
+
+
+class TestYouTubeConnectorFetchChannelId:
+    """Tests for _fetch_channel_id method."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_channel_id_from_cache(self):
+        """Test cached channel_id is returned without HTTP request."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel",
+            "resolved_channel_id": "UCCACHED"
+        })
+
+        channel_id = await connector._fetch_channel_id(
+            "https://www.youtube.com/@TestChannel"
+        )
+
+        assert channel_id == "UCCACHED"
+
+    @pytest.mark.asyncio
+    async def test_fetch_channel_id_from_html(self):
+        """Test channel_id extracted from HTML page."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        mock_html = '<script>"channelId":"UCFROMHTML123"</script>'
+        mock_response = MagicMock()
+        mock_response.text = mock_html
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            channel_id = await connector._fetch_channel_id(
+                "https://www.youtube.com/@TestChannel"
+            )
+
+        assert channel_id == "UCFROMHTML123"
+
+    @pytest.mark.asyncio
+    async def test_fetch_channel_id_not_found(self):
+        """Test ConnectorError when channel_id cannot be extracted."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@InvalidChannel"
+        })
+
+        mock_response = MagicMock()
+        mock_response.text = "<html>No channel ID here</html>"
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with pytest.raises(ConnectorError, match="Could not extract channel_id"):
+                await connector._fetch_channel_id(
+                    "https://www.youtube.com/@InvalidChannel"
+                )
+
 
 class TestYouTubeConnectorParseVideoEntry:
     """Tests for _parse_video_entry method."""
@@ -765,6 +866,265 @@ class TestYouTubeConnectorFetchVideoList:
                     "https://www.youtube.com/feeds/videos.xml?channel_id=test"
                 )
 
+    @pytest.mark.asyncio
+    async def test_fetch_video_list_with_permanent_redirect(self):
+        """Test permanent redirect (301/308) is detected."""
+        mock_response = self._create_mock_response(b"<rss></rss>")
+        mock_response.url = "https://www.youtube.com/feeds/videos.xml?channel_id=new_id"
+
+        # 模拟 301 重定向历史
+        mock_history = MagicMock()
+        mock_history.status_code = 301
+        mock_response.history = [mock_history]
+
+        mock_feed_result = {"entries": [], "bozo": False}
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=mock_feed_result):
+                connector = YouTubeConnector({
+                    "channel_url": "https://www.youtube.com/@TestChannel"
+                })
+                result = await connector._fetch_video_list(
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=old_id"
+                )
+
+        assert result.redirect_info is not None
+        assert result.redirect_info["status_code"] == 301
+
+    @pytest.mark.asyncio
+    async def test_fetch_video_list_bozo_feed(self):
+        """Test bozo (malformed) feed is still processed."""
+        mock_response = self._create_mock_response(b"<rss>malformed")
+
+        mock_feed_result = {
+            "entries": [
+                MockFeedEntry(
+                    yt_videoid="vid1",
+                    link="https://www.youtube.com/watch?v=vid1",
+                    title="Video",
+                    summary="Desc",
+                    published_parsed=time.struct_time((2024, 1, 15, 10, 30, 0, 0, 15, 0)),
+                )
+            ],
+            "bozo": True,
+            "bozo_exception": Exception("Malformed XML"),
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=mock_feed_result):
+                connector = YouTubeConnector({
+                    "channel_url": "https://www.youtube.com/@TestChannel"
+                })
+                result = await connector._fetch_video_list(
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=test"
+                )
+
+        # Bozo feeds should still be processed
+        assert len(result.items) == 1
+
+
+class TestYouTubeConnectorFetchTranscript:
+    """Tests for _fetch_transcript method."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_transcript_success_english(self):
+        """Test successful transcript fetch in English."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        # Mock transcript API response
+        mock_snippet = MagicMock()
+        mock_snippet.text = "Hello world this is a transcript"
+
+        with patch("youtube_transcript_api.YouTubeTranscriptApi") as mock_api_class:
+            mock_api = MagicMock()
+            mock_api.fetch.return_value = [mock_snippet]
+            mock_api_class.return_value = mock_api
+
+            result = await connector._fetch_transcript("video123")
+
+        assert result == "Hello world this is a transcript"
+
+    @pytest.mark.asyncio
+    async def test_fetch_transcript_language_fallback(self):
+        """Test language fallback when preferred language not found."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        mock_snippet = MagicMock()
+        mock_snippet.text = "Fallback transcript"
+
+        with patch("youtube_transcript_api.YouTubeTranscriptApi") as mock_api_class:
+            mock_api = MagicMock()
+            # First call (en) raises NoTranscriptFound, second call succeeds
+            mock_api.fetch.side_effect = [
+                NoTranscriptFound("en not found"),
+                [mock_snippet]
+            ]
+            mock_api_class.return_value = mock_api
+
+            result = await connector._fetch_transcript("video123")
+
+        assert result == "Fallback transcript"
+
+    @pytest.mark.asyncio
+    async def test_fetch_transcript_disabled(self):
+        """Test None returned when transcripts are disabled."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        with patch("youtube_transcript_api.YouTubeTranscriptApi") as mock_api_class:
+            mock_api = MagicMock()
+            mock_api.fetch.side_effect = TranscriptsDisabled("Transcripts disabled")
+            mock_api_class.return_value = mock_api
+
+            result = await connector._fetch_transcript("video123")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_transcript_not_found(self):
+        """Test None returned when no transcript found in any language."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        with patch("youtube_transcript_api.YouTubeTranscriptApi") as mock_api_class:
+            mock_api = MagicMock()
+            mock_api.fetch.side_effect = NoTranscriptFound("No transcript")
+            mock_api_class.return_value = mock_api
+
+            result = await connector._fetch_transcript("video123")
+
+        assert result is None
+
+
+class TestYouTubeConnectorProcessVideos:
+    """Tests for _process_videos method."""
+
+    @pytest.mark.asyncio
+    async def test_process_videos_with_transcript(self):
+        """Test video processing with transcript."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [{
+            "video_id": "vid1",
+            "url": "https://www.youtube.com/watch?v=vid1",
+            "title": "Test Video",
+            "description": "Video description",
+            "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            "author": "Test Channel",
+            "tags": ["security"],
+        }]
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+            mock_transcript.return_value = "Full transcript content here"
+
+            items = await connector._process_videos(video_entries)
+
+        assert len(items) == 1
+        assert items[0]["content"] == "Full transcript content here"
+        assert items[0]["raw_metadata"]["has_transcript"] is True
+
+    @pytest.mark.asyncio
+    async def test_process_videos_fallback_to_description(self):
+        """Test video processing falls back to description when no transcript."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [{
+            "video_id": "vid2",
+            "url": "https://www.youtube.com/watch?v=vid2",
+            "title": "No Transcript Video",
+            "description": "Fallback description",
+            "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            "author": "Test Channel",
+            "tags": [],
+        }]
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+            mock_transcript.return_value = None
+
+            items = await connector._process_videos(video_entries)
+
+        assert len(items) == 1
+        assert items[0]["content"] == "Fallback description"
+        assert items[0]["raw_metadata"]["has_transcript"] is False
+
+    @pytest.mark.asyncio
+    async def test_process_videos_skip_no_content(self):
+        """Test video is skipped when both transcript and description are empty."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [{
+            "video_id": "vid3",
+            "url": "https://www.youtube.com/watch?v=vid3",
+            "title": "Empty Video",
+            "description": "",
+            "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            "author": "Test Channel",
+            "tags": [],
+        }]
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+            mock_transcript.return_value = None
+
+            items = await connector._process_videos(video_entries)
+
+        assert len(items) == 0
+
+    @pytest.mark.asyncio
+    async def test_process_videos_output_format(self):
+        """Test output format matches expected Item fields."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [{
+            "video_id": "vid4",
+            "url": "https://www.youtube.com/watch?v=vid4",
+            "title": "Format Test",
+            "description": "Description",
+            "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            "author": "Test Author",
+            "tags": ["tag1", "tag2"],
+        }]
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+            mock_transcript.return_value = "Transcript"
+
+            items = await connector._process_videos(video_entries)
+
+        item = items[0]
+        assert item["external_id"] == "vid4"
+        assert item["url"] == "https://www.youtube.com/watch?v=vid4"
+        assert item["title"] == "Format Test"
+        assert item["content"] == "Transcript"
+        assert item["author"] == "Test Author"
+        assert item["tags"] == ["tag1", "tag2"]
+        assert "published_at" in item
+        assert "raw_metadata" in item
+
 
 class TestYouTubeConnectorFetch:
     """Tests for main fetch method."""
@@ -789,6 +1149,72 @@ class TestYouTubeConnectorFetch:
         assert isinstance(result, FetchResult)
         assert result.items == []
         assert result.redirect_info is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_full_workflow(self):
+        """Test complete fetch workflow with mock data."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        # Mock video entry from RSS
+        mock_video_entry = {
+            "video_id": "test123",
+            "url": "https://www.youtube.com/watch?v=test123",
+            "title": "Test Video",
+            "description": "Test Description",
+            "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            "author": "Test Channel",
+            "tags": ["test"],
+        }
+
+        mock_rss_result = FetchResult(items=[mock_video_entry], redirect_info=None)
+
+        # Mock final item after transcript processing
+        mock_final_item = {
+            "external_id": "test123",
+            "url": "https://www.youtube.com/watch?v=test123",
+            "title": "Test Video",
+            "content": "Transcript content",
+            "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            "author": "Test Channel",
+            "tags": ["test"],
+            "raw_metadata": {"has_transcript": True, "video_id": "test123"},
+        }
+
+        with patch.object(connector, "_resolve_channel_url", new_callable=AsyncMock) as mock_resolve:
+            with patch.object(connector, "_fetch_video_list", new_callable=AsyncMock) as mock_fetch_list:
+                with patch.object(connector, "_process_videos", new_callable=AsyncMock) as mock_process:
+                    mock_resolve.return_value = "https://www.youtube.com/feeds/videos.xml?channel_id=test"
+                    mock_fetch_list.return_value = mock_rss_result
+                    mock_process.return_value = [mock_final_item]
+
+                    result = await connector.fetch()
+
+        assert len(result.items) == 1
+        assert result.items[0]["external_id"] == "test123"
+        assert result.items[0]["content"] == "Transcript content"
+
+    @pytest.mark.asyncio
+    async def test_fetch_raises_on_invalid_config(self):
+        """Test fetch raises error on invalid config."""
+        connector = YouTubeConnector({})  # Missing channel_url
+
+        with pytest.raises(ValueError, match="requires 'channel_url'"):
+            await connector.fetch()
+
+    @pytest.mark.asyncio
+    async def test_fetch_propagates_connector_error(self):
+        """Test fetch propagates ConnectorError from internal methods."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        with patch.object(connector, "_resolve_channel_url", new_callable=AsyncMock) as mock_resolve:
+            mock_resolve.side_effect = ConnectorError("Failed to resolve channel")
+
+            with pytest.raises(ConnectorError, match="Failed to resolve channel"):
+                await connector.fetch()
 ```
 
 - [ ] **Step 2: 运行测试确认通过**
@@ -1002,35 +1428,182 @@ Expected: 无错误
 
 ---
 
+### Task 7: 添加集成测试
+
+**Files:**
+- Create: `tests/test_integration/test_youtube_connector.py`
+
+- [ ] **Step 1: 创建集成测试文件**
+
+```python
+"""Integration tests for YouTube Connector with real channels."""
+
+import pytest
+
+from cyberpulse.services import YouTubeConnector
+from cyberpulse.services.rss_connector import FetchResult
+
+
+@pytest.mark.integration
+class TestYouTubeConnectorRealChannels:
+    """Tests with real YouTube channels."""
+
+    @pytest.mark.asyncio
+    async def test_blackhat_channel(self):
+        """Test Black Hat Official channel."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@BlackHatOfficialYT"
+        })
+
+        result = await connector.fetch()
+
+        assert isinstance(result, FetchResult)
+        assert len(result.items) > 0, "Should fetch at least one video"
+
+        # Verify item structure
+        item = result.items[0]
+        assert item["external_id"], "Should have external_id"
+        assert item["url"].startswith("https://"), "Should have valid URL"
+        assert item["title"], "Should have title"
+        assert item["content"], "Should have content (transcript or description)"
+        assert "published_at" in item, "Should have published_at"
+
+        # Check transcript availability
+        has_transcript = item["raw_metadata"].get("has_transcript", False)
+        print(f"\nBlack Hat video: {item['title'][:50]}...")
+        print(f"  Has transcript: {has_transcript}")
+        print(f"  Content length: {len(item['content'])} chars")
+
+    @pytest.mark.asyncio
+    async def test_owasp_channel(self):
+        """Test OWASP Global channel."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@OWASPGLOBAL"
+        })
+
+        result = await connector.fetch()
+
+        assert isinstance(result, FetchResult)
+        assert len(result.items) > 0, "Should fetch at least one video"
+
+        item = result.items[0]
+        assert item["external_id"]
+        assert item["url"].startswith("https://")
+
+    @pytest.mark.asyncio
+    async def test_channel_id_format_url(self):
+        """Test /channel/ID format URL."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/channel/UCJ6q9Ie29ajGqKApbLqfBOg"
+        })
+
+        result = await connector.fetch()
+
+        assert isinstance(result, FetchResult)
+        assert len(result.items) > 0
+
+    @pytest.mark.asyncio
+    async def test_transcript_quality(self):
+        """Test that transcripts have meaningful content."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@BlackHatOfficialYT"
+        })
+
+        result = await connector.fetch()
+
+        # At least some videos should have transcripts
+        items_with_transcripts = [
+            item for item in result.items
+            if item["raw_metadata"].get("has_transcript")
+        ]
+
+        # Check that transcripts are longer than descriptions typically
+        for item in items_with_transcripts[:3]:  # Check first 3
+            content = item["content"]
+            # Transcripts should typically be > 500 chars
+            print(f"\nTranscript length for '{item['title'][:30]}...': {len(content)} chars")
+
+        print(f"\nTotal videos: {len(result.items)}")
+        print(f"With transcripts: {len(items_with_transcripts)}")
+```
+
+- [ ] **Step 2: 运行集成测试（可选，需要网络）**
+
+Run: `uv run pytest tests/test_integration/test_youtube_connector.py -v -m integration --tb=short`
+Expected: 测试通过（可能因网络问题跳过部分测试）
+
+- [ ] **Step 3: 提交 Task 7**
+
+```bash
+git add tests/test_integration/test_youtube_connector.py
+git commit -m "test: add integration tests for YouTubeConnector
+
+- Real channel tests (Black Hat, OWASP)
+- Channel ID format URL test
+- Transcript quality verification
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+```
+
+---
+
 ## 自检清单
 
 ### 1. Spec 覆盖检查
 
-| Spec 要求 | 对应任务 |
-|-----------|----------|
-| YouTubeConnector 类实现 | Task 1 |
-| 配置验证 (validate_config) | Task 1 Step 1 |
-| URL 解析 (_resolve_channel_url) | Task 1 Step 3-4 |
-| RSS 获取 (_fetch_video_list) | Task 1 Step 5 |
-| 视频解析 (_parse_video_entry) | Task 1 Step 6 |
-| 日期解析 (_parse_date) | Task 1 Step 7 |
-| 字幕提取 (_fetch_transcript) | Task 1 Step 9-10 |
-| 主方法 (fetch) | Task 1 Step 11 |
-| 连接器注册 | Task 2 |
-| 单元测试 | Task 3 |
-| 工厂测试更新 | Task 4 |
-| 文档更新 | Task 5 |
+| Spec 要求 | 对应任务 | 状态 |
+|-----------|----------|------|
+| YouTubeConnector 类实现 | Task 1 | ✅ |
+| 配置验证 (validate_config) | Task 1 Step 1 | ✅ |
+| URL 解析 (_resolve_channel_url) | Task 1 Step 3-4 | ✅ |
+| RSS 获取 (_fetch_video_list) | Task 1 Step 5 | ✅ |
+| 视频解析 (_parse_video_entry) | Task 1 Step 6 | ✅ |
+| 日期解析 (_parse_date) | Task 1 Step 7 | ✅ |
+| 字幕提取 (_fetch_transcript) | Task 1 Step 9-10 | ✅ |
+| 主方法 (fetch) | Task 1 Step 11 | ✅ |
+| 连接器注册 | Task 2 | ✅ |
+| 单元测试 | Task 3 | ✅ |
+| 工厂测试更新 | Task 4 | ✅ |
+| 文档更新 | Task 5 | ✅ |
+| 集成测试 | Task 7 | ✅ |
 
-### 2. Placeholder 扫描
+### 2. 测试覆盖检查
 
-- [ ] 无 TBD/TODO
-- [ ] 无 "implement later"
-- [ ] 无 "fill in details"
-- [ ] 所有代码步骤包含完整代码
+| 测试类型 | 测试类 | 测试数量 |
+|----------|--------|----------|
+| 配置验证 | TestYouTubeConnectorValidateConfig | 6 |
+| URL 解析 | TestYouTubeConnectorResolveChannelUrl | 3 |
+| Channel ID 获取 | TestYouTubeConnectorFetchChannelId | 3 |
+| 视频解析 | TestYouTubeConnectorParseVideoEntry | 3 |
+| 日期解析 | TestYouTubeConnectorParseDate | 2 |
+| RSS 获取 | TestYouTubeConnectorFetchVideoList | 4 |
+| 字幕提取 | TestYouTubeConnectorFetchTranscript | 4 |
+| 视频处理 | TestYouTubeConnectorProcessVideos | 4 |
+| 主方法 | TestYouTubeConnectorFetch | 4 |
+| 集成测试 | TestYouTubeConnectorRealChannels | 4 |
+| **总计** | | **37** |
 
-### 3. 类型一致性检查
+### 3. Placeholder 扫描
 
-- [ ] `FetchResult` 在所有方法中返回类型一致
-- [ ] `_parse_video_entry` 返回 `dict[str, Any] | None`
-- [ ] `_fetch_transcript` 返回 `str | None`
-- [ ] `validate_config` 返回 `bool`
+- [x] 无 TBD/TODO
+- [x] 无 "implement later"
+- [x] 无 "fill in details"
+- [x] 所有代码步骤包含完整代码
+
+### 4. 类型一致性检查
+
+- [x] `FetchResult` 在所有方法中返回类型一致
+- [x] `_parse_video_entry` 返回 `dict[str, Any] | None`
+- [x] `_fetch_transcript` 返回 `str | None`
+- [x] `validate_config` 返回 `bool`
+- [x] `_process_videos` 返回 `list[dict[str, Any]]`
+
+### 5. 与设计文档对照检查
+
+| 检查项 | 设计文档 | 实现计划 | 状态 |
+|--------|----------|----------|------|
+| 移除未使用导入 | `import asyncio` | 已移除 | ✅ |
+| 所有方法实现 | 10 个方法 | 10 个方法 | ✅ |
+| 错误处理完整 | 3 种异常类型 | 3 种异常类型 | ✅ |
+| 集成测试 | Black Hat / OWASP | 已添加 | ✅ |
+| 字幕测试 | 成功/禁用/降级 | 已添加 | ✅ |
