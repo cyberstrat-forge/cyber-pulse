@@ -37,6 +37,7 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "beautifulsoup4>=4.14.3",
     "defusedxml>=0.7.1",
+    "youtube-transcript-api>=1.2.4",
 ]
 
 [project.optional-dependencies]
@@ -97,6 +98,8 @@ ignore = []
 [tool.ruff.lint.per-file-ignores]
 # Alembic migration files use module-level variables that appear unused
 "alembic/versions/*.py" = ["F841"]
+# Test files may have longer lines for readability (with statements, mock setup)
+"tests/**/*.py" = ["E501"]
 
 [dependency-groups]
 dev = [
