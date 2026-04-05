@@ -7,6 +7,7 @@ from .connector_service import BaseConnector
 from .media_connector import MediaAPIConnector
 from .rss_connector import RSSConnector
 from .web_connector import WebScraperConnector
+from .youtube_connector import YouTubeConnector
 
 if TYPE_CHECKING:
     from ..models.source import Source
@@ -19,6 +20,7 @@ CONNECTOR_REGISTRY: dict[str, type[BaseConnector]] = {
     "api": APIConnector,
     "web": WebScraperConnector,
     "media": MediaAPIConnector,
+    "youtube": YouTubeConnector,
 }
 
 
@@ -26,7 +28,7 @@ def get_connector(connector_type: str, config: dict[str, Any]) -> BaseConnector:
     """Get appropriate connector instance for a source.
 
     Args:
-        connector_type: Type string (rss, api, web, media)
+        connector_type: Type string (rss, api, web, media, youtube)
         config: Connector configuration dict
 
     Returns:

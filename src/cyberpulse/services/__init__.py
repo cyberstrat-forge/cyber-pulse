@@ -14,6 +14,7 @@ from .rss_connector import RSSConnector
 from .source_score_service import ScoreComponents, SourceScoreService
 from .source_service import SourceService
 from .web_connector import WebScraperConnector
+from .youtube_connector import YouTubeConnector
 
 __all__ = [
     "BaseService",
@@ -27,6 +28,7 @@ __all__ = [
     "APIConnector",
     "WebScraperConnector",
     "MediaAPIConnector",
+    "YouTubeConnector",
     "NormalizationService",
     "NormalizationResult",
     "QualityGateService",
