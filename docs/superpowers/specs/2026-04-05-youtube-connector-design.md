@@ -75,7 +75,7 @@ from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFoun
 from .base import SSRFError, validate_url_for_ssrf
 from .connector_service import BaseConnector, ConnectorError
 from .http_headers import get_browser_headers
-from .rss_connector import FetchResult
+from .rss_connector import FetchResult  # 复用 RSS 的 FetchResult 数据类
 
 logger = logging.getLogger(__name__)
 
