@@ -11,9 +11,7 @@ from urllib.parse import urlparse
 
 import feedparser
 import httpx
-import requests
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
+import yt_dlp
 
 from ..config import settings
 from .base import SSRFError, validate_url_for_ssrf
@@ -27,8 +25,8 @@ logger = logging.getLogger(__name__)
 class YouTubeConnector(BaseConnector):
     """Connector for YouTube channels.
 
-    Fetches video transcripts using RSS Feed + youtube-transcript-api.
-    No API Key required.
+    Fetches video transcripts using RSS Feed + yt-dlp.
+    Supports proxy and cookies for bypassing IP blocks.
     """
 
     # Configuration
@@ -455,11 +453,13 @@ class YouTubeConnector(BaseConnector):
         return items
 
     async def _fetch_transcript(self, video_id: str) -> str | None:
-        """Fetch transcript for a YouTube video.
+        """Fetch transcript for a YouTube video using yt-dlp.
 
-        Language priority: en -> en-US -> en-GB -> auto-generated English
-
-        Supports cookies from configuration to bypass IP blocking.
+        yt-dlp supports:
+        - Automatic subtitle language selection
+        - Proxy configuration
+        - Cookies for authentication
+        - Manual and auto-generated subtitles
 
         Args:
             video_id: YouTube video ID
@@ -467,61 +467,163 @@ class YouTubeConnector(BaseConnector):
         Returns:
             Transcript text or None if unavailable
         """
+        url = f"https://www.youtube.com/watch?v={video_id}"
+
+        # Build yt-dlp options
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,  # Don't download video
+            "writesubtitles": True,  # Download subtitles
+            "writeautomaticsub": True,  # Download auto-generated subtitles
+            "subtitleslangs": self.TRANSCRIPT_LANGUAGE_PRIORITY,
+            "subtitlesformat": "vtt",  # VTT format is most reliable
+            "outtmpl": "-",  # Output to stdout (we'll capture it)
+            "verbose": False,
+        }
+
+        # Add proxy if configured
+        if settings.youtube_proxy:
+            ydl_opts["proxy"] = settings.youtube_proxy
+            logger.debug(f"Using proxy for {video_id}: {settings.youtube_proxy}")
+
+        # Add cookies if configured
+        cookies = self._get_cookies()
+        if cookies:
+            # yt-dlp accepts cookies as a list of strings
+            cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+            ydl_opts["cookiefile"] = None  # Clear any cookie file
+            ydl_opts["cookiesfrombrowser"] = None  # Clear browser cookies
+            # Use http_headers to pass cookies
+            ydl_opts["http_headers"] = {
+                "Cookie": cookie_str,
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+            }
+            logger.debug(f"Using cookies for transcript fetch: {video_id}")
+
         try:
-            # Get cookies from settings (can be set via environment variable)
-            cookies = self._get_cookies()
-            if cookies:
-                # Create a requests.Session with cookies
-                session = requests.Session()
-                session.cookies.update(cookies)
-                # Set browser-like headers
-                session.headers.update(
-                    {
-                        "User-Agent": (
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/120.0.0.0 Safari/537.36"
-                        ),
-                        "Accept-Language": "en-US,en;q=0.9",
-                    }
-                )
-                api = YouTubeTranscriptApi(http_client=session)
-                logger.debug(f"Using cookies for transcript fetch: {video_id}")
-            else:
-                api = YouTubeTranscriptApi()
-
-            # Try preferred languages (wrap synchronous API in asyncio.to_thread)
-            for lang in self.TRANSCRIPT_LANGUAGE_PRIORITY:
-                try:
-                    transcript_list = await asyncio.to_thread(
-                        api.fetch, video_id, [lang]
-                    )
-                    return self._format_transcript(transcript_list)
-                except NoTranscriptFound:
-                    continue
-
-            # Try auto-generated English
-            try:
-                transcript_list = await asyncio.to_thread(
-                    api.fetch, video_id, ["en"], preserve_formatting=True
-                )
-                return self._format_transcript(transcript_list)
-            except (TranscriptsDisabled, NoTranscriptFound) as e:
-                logger.debug(
-                    f"No transcript available for video {video_id}: "
-                    f"{type(e).__name__}"
-                )
-                return None
-
-        except TranscriptsDisabled as e:
-            logger.debug(f"Transcripts disabled for video {video_id}: {e}")
-            return None
+            # Run yt-dlp in a thread to avoid blocking
+            result = await asyncio.to_thread(
+                self._run_ytdlp, url, ydl_opts
+            )
+            return result
         except Exception as e:
             logger.warning(
-                f"Unexpected error fetching transcript for {video_id}: "
+                f"Failed to fetch transcript for {video_id}: "
                 f"{type(e).__name__}: {e}"
             )
             return None
+
+    def _run_ytdlp(self, url: str, opts: dict) -> str | None:
+        """Run yt-dlp synchronously and extract transcript.
+
+        Args:
+            url: YouTube video URL
+            opts: yt-dlp options dict
+
+        Returns:
+            Transcript text or None if unavailable
+        """
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+                # Check for subtitles
+                subtitles = info.get("subtitles", {})
+                automatic_captions = info.get("automatic_captions", {})
+
+                # Try manual subtitles first, then auto-generated
+                for lang in self.TRANSCRIPT_LANGUAGE_PRIORITY:
+                    # Check manual subtitles
+                    if lang in subtitles and subtitles[lang]:
+                        subtitle = subtitles[lang][0]
+                        subtitle_url = subtitle.get("url")
+                        if subtitle_url:
+                            return self._download_subtitle(subtitle_url)
+
+                    # Check auto-generated captions
+                    if lang in automatic_captions and automatic_captions[lang]:
+                        subtitle = automatic_captions[lang][0]
+                        subtitle_url = subtitle.get("url")
+                        if subtitle_url:
+                            return self._download_subtitle(subtitle_url)
+
+                # Try 'en' as fallback in automatic captions
+                if "en" in automatic_captions and automatic_captions["en"]:
+                    subtitle = automatic_captions["en"][0]
+                    subtitle_url = subtitle.get("url")
+                    if subtitle_url:
+                        return self._download_subtitle(subtitle_url)
+
+                logger.debug(f"No subtitles found for {url}")
+                return None
+
+        except yt_dlp.utils.DownloadError as e:
+            logger.debug(f"yt-dlp download error: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"yt-dlp error: {type(e).__name__}: {e}")
+            return None
+
+    def _download_subtitle(self, url: str) -> str | None:
+        """Download and parse subtitle file.
+
+        Args:
+            url: Subtitle URL (VTT format)
+
+        Returns:
+            Plain text transcript or None
+        """
+        try:
+            import httpx
+
+            response = httpx.get(url, timeout=30.0)
+            response.raise_for_status()
+
+            # Parse VTT format
+            return self._parse_vtt(response.text)
+        except Exception as e:
+            logger.debug(f"Failed to download subtitle: {e}")
+            return None
+
+    def _parse_vtt(self, vtt_content: str) -> str:
+        """Parse VTT subtitle format and extract plain text.
+
+        Args:
+            vtt_content: VTT subtitle content
+
+        Returns:
+            Plain text transcript
+        """
+        lines = vtt_content.split("\n")
+        text_lines = []
+        seen_texts = set()  # Avoid duplicate lines
+
+        for line in lines:
+            line = line.strip()
+            # Skip empty lines, timestamps, and VTT headers
+            if not line:
+                continue
+            if line.startswith("WEBVTT"):
+                continue
+            if line.startswith("NOTE"):
+                continue
+            if "-->" in line:  # Timestamp line
+                continue
+            if line.startswith("<"):  # Positioning tags
+                continue
+            # Remove VTT styling tags
+            line = re.sub(r"<[^>]+>", "", line)
+            line = line.strip()
+            if line and line not in seen_texts:
+                text_lines.append(line)
+                seen_texts.add(line)
+
+        return " ".join(text_lines)
 
     def _get_cookies(self) -> dict[str, str] | None:
         """Get cookies from settings or source config.
@@ -576,30 +678,3 @@ class YouTubeConnector(BaseConnector):
                 cookies[name.strip()] = value.strip()
 
         return cookies
-
-    def _format_transcript(self, transcript_list: Any) -> str:
-        """Format transcript list into text.
-
-        Args:
-            transcript_list: Transcript data from youtube-transcript-api
-                (FetchedTranscript or list-like object)
-
-        Returns:
-            Formatted transcript text
-        """
-        # Convert to list if needed (handle FetchedTranscript wrapper)
-        transcripts = (
-            list(transcript_list)
-            if not isinstance(transcript_list, list)
-            else transcript_list
-        )
-
-        # Extract text from snippets
-        texts = []
-        for snippet in transcripts:
-            # Use attribute access (FetchedTranscriptSnippet)
-            text = getattr(snippet, "text", None) or snippet.get("text", "")
-            if text:
-                texts.append(text)
-
-        return " ".join(texts)

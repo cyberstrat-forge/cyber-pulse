@@ -66,6 +66,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/cyberpulse
       REDIS_URL: redis://redis:6379/0
       DRAMATIQ_BROKER_URL: redis://redis:6379/1
+      YOUTUBE_COOKIES: ${YOUTUBE_COOKIES:-}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

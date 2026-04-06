@@ -38,6 +38,7 @@ dependencies = [
     "beautifulsoup4>=4.14.3",
     "defusedxml>=0.7.1",
     "youtube-transcript-api>=1.2.4",
+    "yt-dlp>=2024.1.0",
 ]
 
 [project.optional-dependencies]
