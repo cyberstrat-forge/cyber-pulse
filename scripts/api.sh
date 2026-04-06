@@ -602,7 +602,6 @@ cmd_sources_update() {
 
     local data="{}"
     local url_value=""
-    local use_channel_url="false"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -623,6 +622,7 @@ cmd_sources_update() {
         # 获取源的 connector_type
         local source_info
         source_info=$(api_get "/api/v1/admin/sources/$source_id")
+        check_api_error "$source_info"
         local connector_type
         connector_type=$(echo "$source_info" | jq -r '.connector_type')
 

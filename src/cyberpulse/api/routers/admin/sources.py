@@ -678,6 +678,12 @@ async def _test_rss_source(source: Source, feed_url: str) -> TestResult:
         warnings = []
         if feed.get("bozo"):
             warnings.append("RSS feed has format issues")
+            logger.warning(f"RSS feed for source {source_id} has bozo format issues")
+
+        logger.info(
+            f"RSS source {source_id} test passed: "
+            f"{items_found} items found, {elapsed_ms}ms"
+        )
 
         return TestResult(
             source_id=source_id,
@@ -689,6 +695,7 @@ async def _test_rss_source(source: Source, feed_url: str) -> TestResult:
         )
 
     except httpx.TimeoutException:
+        logger.warning(f"RSS source {source_id} test failed: connection timeout")
         return TestResult(
             source_id=source_id,
             test_result="failed",
@@ -697,6 +704,9 @@ async def _test_rss_source(source: Source, feed_url: str) -> TestResult:
             suggestion="检查网络连接或增加超时时间",
         )
     except httpx.HTTPStatusError as e:
+        logger.warning(
+            f"RSS source {source_id} test failed: HTTP {e.response.status_code}"
+        )
         error_type = f"http_{e.response.status_code}"
         suggestion_map = {
             403: "检查网站反爬策略，可能需要添加 User-Agent 或 IP 白名单",
@@ -711,6 +721,10 @@ async def _test_rss_source(source: Source, feed_url: str) -> TestResult:
             suggestion=suggestion_map.get(e.response.status_code, "检查网站访问权限"),
         )
     except Exception as e:
+        logger.error(
+            f"RSS source {source_id} test failed with unexpected error: {e}",
+            exc_info=True,
+        )
         return TestResult(
             source_id=source_id,
             test_result="failed",
@@ -748,6 +762,11 @@ async def _test_youtube_source(source: Source) -> TestResult:
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
+        logger.info(
+            f"YouTube source {source_id} test passed: "
+            f"channel accessible, {elapsed_ms}ms"
+        )
+
         # YouTube 频道页面可访问即视为成功
         # 详细验证由 YouTubeConnector 在采集时完成
         return TestResult(
@@ -760,6 +779,10 @@ async def _test_youtube_source(source: Source) -> TestResult:
         )
 
     except httpx.TimeoutException:
+        logger.warning(
+            f"YouTube source {source_id} test failed: "
+            f"timeout after 30s"
+        )
         return TestResult(
             source_id=source_id,
             test_result="failed",
@@ -773,14 +796,22 @@ async def _test_youtube_source(source: Source) -> TestResult:
             404: "频道不存在或已被删除",
             429: "请求过于频繁，请稍后重试",
         }
+        logger.warning(
+            f"YouTube source {source_id} test failed: "
+            f"HTTP {e.response.status_code} - {e.response.reason_phrase}"
+        )
         return TestResult(
             source_id=source_id,
             test_result="failed",
             error_type=error_type,
             error_message=f"HTTP {e.response.status_code}: {e.response.reason_phrase}",
-            suggestion=suggestion_map.get(e.response.status_code, "检查频道 URL 是否正确"),
+            suggestion=suggestion_map.get(e.response.status_code, "检查频道URL"),
         )
     except Exception as e:
+        logger.error(
+            f"YouTube source {source_id} test failed with unexpected error: {e}",
+            exc_info=True,
+        )
         return TestResult(
             source_id=source_id,
             test_result="failed",
@@ -880,45 +911,89 @@ async def _validate_youtube_source(source: Source, db: Session) -> ValidationRes
     source_id = source.source_id
     config = source.config or {}
 
-    # 支持 channel_url 和 feed_url
-    channel_url = config.get("channel_url") or config.get("feed_url")
+    try:
+        # 支持 channel_url 和 feed_url
+        channel_url = config.get("channel_url") or config.get("feed_url")
 
-    if not channel_url:
+        if not channel_url:
+            logger.warning(f"YouTube {source_id} validation failed: no URL")
+            return ValidationResponse(
+                source_id=source_id,
+                is_valid=False,
+                content_type="unknown",
+                sample_completeness=0.0,
+                avg_content_length=0,
+                rejection_reason="No channel URL configured",
+            )
+
+        # 验证 URL 格式：支持多种 YouTube 频道 URL 格式
+        # - /channel/CHANNEL_ID
+        # - /c/CUSTOM_NAME
+        # - /user/USERNAME
+        # - /@HANDLE
+        valid_patterns = [
+            r"youtube\.com/channel/[A-Za-z0-9_-]+",
+            r"youtube\.com/c/[A-Za-z0-9_-]+",
+            r"youtube\.com/user/[A-Za-z0-9_-]+",
+            r"youtube\.com/@[A-Za-z0-9_-]+",
+        ]
+        is_valid_url = any(
+            re.search(pattern, channel_url) for pattern in valid_patterns
+        )
+
+        if not is_valid_url:
+            logger.warning(
+                f"YouTube source {source_id} validation failed: "
+                f"invalid URL format - {channel_url}"
+            )
+            return ValidationResponse(
+                source_id=source_id,
+                is_valid=False,
+                content_type="unknown",
+                sample_completeness=0.0,
+                avg_content_length=0,
+                rejection_reason=(
+                    "Invalid YouTube channel URL format. "
+                    "Expected: /channel/ID, /c/NAME, /user/NAME, or /@HANDLE"
+                ),
+            )
+
+        # 清除 pending_review（YouTube 源不需要 RSS 质量验证）
+        if source.pending_review:
+            source.pending_review = False
+            source.review_reason = None
+            db.commit()
+
+        logger.info(
+            f"YouTube source {source_id} validation passed: "
+            f"URL format valid, pending_review cleared"
+        )
+
+        # YouTube 源的 sample_completeness 为 0，因为验证时不分析内容
+        # 实际内容质量由采集时的 TranscriptExtractor 评估
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=True,
+            content_type="video",
+            sample_completeness=0.0,  # 未分析内容，设为 0
+            avg_content_length=0,
+            rejection_reason=None,
+            samples_analyzed=0,
+        )
+
+    except Exception as e:
+        logger.error(
+            f"YouTube source {source_id} validation failed with unexpected error: {e}",
+            exc_info=True,
+        )
         return ValidationResponse(
             source_id=source_id,
             is_valid=False,
             content_type="unknown",
             sample_completeness=0.0,
             avg_content_length=0,
-            rejection_reason="No channel URL configured",
+            rejection_reason=f"Validation error: {str(e)}",
         )
-
-    # 验证 URL 格式
-    if "youtube.com" not in channel_url:
-        return ValidationResponse(
-            source_id=source_id,
-            is_valid=False,
-            content_type="unknown",
-            sample_completeness=0.0,
-            avg_content_length=0,
-            rejection_reason="Invalid YouTube URL: must contain youtube.com",
-        )
-
-    # 清除 pending_review（YouTube 源不需要 RSS 质量验证）
-    if source.pending_review:
-        source.pending_review = False
-        source.review_reason = None
-        db.commit()
-
-    return ValidationResponse(
-        source_id=source_id,
-        is_valid=True,
-        content_type="video",
-        sample_completeness=1.0,
-        avg_content_length=0,
-        rejection_reason=None,
-        samples_analyzed=0,
-    )
 
 
 @router.post("/sources/{source_id}/schedule", response_model=ScheduleResponse)
