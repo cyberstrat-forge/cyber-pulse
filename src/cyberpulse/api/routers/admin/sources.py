@@ -931,11 +931,12 @@ async def _validate_youtube_source(source: Source, db: Session) -> ValidationRes
         # - /c/CUSTOM_NAME
         # - /user/USERNAME
         # - /@HANDLE
+        # 支持 https://、http://、www. 前缀
         valid_patterns = [
-            r"youtube\.com/channel/[A-Za-z0-9_-]+",
-            r"youtube\.com/c/[A-Za-z0-9_-]+",
-            r"youtube\.com/user/[A-Za-z0-9_-]+",
-            r"youtube\.com/@[A-Za-z0-9_-]+",
+            r"(?:https?://)?(?:www\.)?youtube\.com/channel/[A-Za-z0-9_-]+",
+            r"(?:https?://)?(?:www\.)?youtube\.com/c/[A-Za-z0-9_-]+",
+            r"(?:https?://)?(?:www\.)?youtube\.com/user/[A-Za-z0-9_-]+",
+            r"(?:https?://)?(?:www\.)?youtube\.com/@[A-Za-z0-9_-]+",
         ]
         is_valid_url = any(
             re.search(pattern, channel_url) for pattern in valid_patterns
