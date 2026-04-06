@@ -51,10 +51,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
     procps \
+    # Playwright Chromium dependencies
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libatspi2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
 COPY --from=builder /app/.venv /app/.venv
+
+# Install Playwright Chromium (must be after venv is copied)
+RUN /app/.venv/bin/playwright install chromium
 
 # Copy application code and config
 COPY --from=builder /app/src ./src

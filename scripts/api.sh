@@ -1261,6 +1261,202 @@ cmd_diagnose() {
     echo "$response" | jq .
 }
 
+# ============================================
+# API Keys 管理命令
+# ============================================
+
+# 获取 .env 文件路径
+get_env_file_path() {
+    local env="${CURRENT_ENV:-$(get_current_env)}"
+    local project_root
+
+    # 查找项目根目录
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    project_root="$(cd "$script_dir/.." && pwd)"
+
+    echo "$project_root/deploy/.env"
+}
+
+# 从 .env 文件获取值
+get_env_value() {
+    local key="$1"
+    local env_file
+    env_file=$(get_env_file_path)
+
+    if [[ -f "$env_file" ]]; then
+        grep "^${key}=" "$env_file" 2>/dev/null | cut -d'=' -f2- || echo ""
+    else
+        echo ""
+    fi
+}
+
+# 设置 .env 文件中的值
+set_env_value() {
+    local key="$1"
+    local value="$2"
+    local env_file
+    env_file=$(get_env_file_path)
+
+    if [[ ! -f "$env_file" ]]; then
+        print_error ".env 文件不存在: $env_file"
+        print_info "请先运行: ./scripts/cyber-pulse.sh deploy --env ${CURRENT_ENV:-prod}"
+        return 1
+    fi
+
+    # 检查 key 是否存在
+    if grep -q "^${key}=" "$env_file" 2>/dev/null; then
+        # 更新现有值
+        if [[ -n "$value" ]]; then
+            sed -i.bak "s|^${key}=.*|${key}=${value}|" "$env_file"
+            rm -f "${env_file}.bak"
+        else
+            # 清空值
+            sed -i.bak "s|^${key}=.*|${key}=|" "$env_file"
+            rm -f "${env_file}.bak"
+        fi
+    else
+        # 添加新 key
+        echo "${key}=${value}" >> "$env_file"
+    fi
+}
+
+cmd_api_keys() {
+    local subcommand="${1:-list}"
+    shift || true
+
+    case "$subcommand" in
+        list)
+            cmd_api_keys_list "$@"
+            ;;
+        set)
+            cmd_api_keys_set "$@"
+            ;;
+        get)
+            cmd_api_keys_get "$@"
+            ;;
+        --help|-h)
+            echo "用法: api.sh [--env ENV] api-keys <命令> [选项]"
+            echo ""
+            echo "管理外部服务 API Keys"
+            echo ""
+            echo "命令:"
+            echo "  list                    列出所有 API Keys 配置状态"
+            echo "  get <key>               获取指定 API Key 的值"
+            echo "  set <key> <value>       设置 API Key"
+            echo ""
+            echo "支持的 API Keys:"
+            echo "  YOUTUBE_API_KEY         YouTube Data API v3 Key"
+            echo ""
+            echo "示例:"
+            echo "  api.sh api-keys list"
+            echo "  api.sh api-keys set YOUTUBE_API_KEY your_api_key_here"
+            echo "  api.sh api-keys get YOUTUBE_API_KEY"
+            ;;
+        *)
+            print_error "Unknown api-keys subcommand: $subcommand"
+            echo "使用 'api.sh api-keys --help' 查看帮助"
+            return 1
+            ;;
+    esac
+}
+
+cmd_api_keys_list() {
+    local env_file
+    env_file=$(get_env_file_path)
+
+    echo -e "${CYAN}"
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║                    API Keys 配置状态                         ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+
+    if [[ ! -f "$env_file" ]]; then
+        print_warning ".env 文件不存在"
+        print_info "请先运行: ./scripts/cyber-pulse.sh deploy"
+        return 1
+    fi
+
+    echo -e "${BOLD}配置文件:${NC} $env_file"
+    echo ""
+
+    # YouTube API Key
+    local yt_key
+    yt_key=$(get_env_value "YOUTUBE_API_KEY")
+    if [[ -n "$yt_key" ]]; then
+        echo -e "  ${GREEN}✓${NC} YOUTUBE_API_KEY: ${YELLOW}********${NC} (${#yt_key} 字符)"
+    else
+        echo -e "  ${YELLOW}○${NC} YOUTUBE_API_KEY: ${CYAN}未配置${NC} (将使用 RSS Feed 降级)"
+    fi
+
+    echo ""
+    echo -e "${BOLD}使用说明:${NC}"
+    echo "  api.sh api-keys set YOUTUBE_API_KEY <your_key>  设置 YouTube API Key"
+    echo "  api.sh api-keys get YOUTUBE_API_KEY             查看完整 Key 值"
+}
+
+cmd_api_keys_get() {
+    local key="${1:-}"
+
+    if [[ -z "$key" ]]; then
+        print_error "请指定 API Key 名称"
+        echo "用法: api.sh api-keys get <key>"
+        echo "示例: api.sh api-keys get YOUTUBE_API_KEY"
+        return 1
+    fi
+
+    local value
+    value=$(get_env_value "$key")
+
+    if [[ -n "$value" ]]; then
+        echo "$value"
+    else
+        print_warning "API Key '$key' 未配置"
+        return 1
+    fi
+}
+
+cmd_api_keys_set() {
+    local key="${1:-}"
+    local value="${2:-}"
+
+    if [[ -z "$key" ]]; then
+        print_error "请指定 API Key 名称"
+        echo "用法: api.sh api-keys set <key> <value>"
+        echo "示例: api.sh api-keys set YOUTUBE_API_KEY your_key_here"
+        return 1
+    fi
+
+    # 支持的 key 列表
+    local supported_keys="YOUTUBE_API_KEY"
+    if ! echo "$supported_keys" | grep -qw "$key"; then
+        print_warning "Key '$key' 不是已知的外部服务 API Key"
+        print_info "已知 API Keys: YOUTUBE_API_KEY"
+        echo ""
+        read -r -p "是否继续设置? (y/N): " response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            echo "操作已取消"
+            return 0
+        fi
+    fi
+
+    if [[ -z "$value" ]]; then
+        print_error "请提供 API Key 值"
+        echo "用法: api.sh api-keys set $key <value>"
+        return 1
+    fi
+
+    set_env_value "$key" "$value"
+
+    if [[ $? -eq 0 ]]; then
+        print_success "已设置 $key"
+
+        # 提示需要重启服务
+        echo ""
+        print_warning "注意: 需要重启服务才能生效"
+        echo "  ./scripts/cyber-pulse.sh restart --env ${CURRENT_ENV:-prod}"
+    fi
+}
+
 
 # ============================================
 # 帮助信息
@@ -1321,6 +1517,11 @@ show_help() {
     echo "    --since TIME         时间过滤"
     echo ""
     echo "  diagnose               系统诊断"
+    echo ""
+    echo "  api-keys <cmd>         API Keys 管理"
+    echo "    list                 列出 API Keys 配置状态"
+    echo "    get <key>            获取 API Key 值"
+    echo "    set <key> <value>    设置 API Key"
     echo ""
     echo -e "${BOLD}配置目录:${NC} $CONFIG_DIR"
     echo -e "${BOLD}环境配置:${NC} $ENV_DIR/"
@@ -1400,6 +1601,9 @@ main() {
         diagnose)
             load_config
             cmd_diagnose
+            ;;
+        api-keys)
+            cmd_api_keys "$@"
             ;;
         help|--help|-h)
             show_help

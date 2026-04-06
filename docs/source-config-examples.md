@@ -163,11 +163,61 @@ cyber-pulse source add "Tech Security News" web "https://tech-security-news.com/
 
 ## YouTube 源配置
 
+### 前置配置：YouTube Data API Key（必需）
+
+YouTube 频道源需要配置 **YouTube Data API v3 Key** 才能正常工作。
+
+> ⚠️ **重要**：YouTube RSS Feed 已逐步停止服务，必须配置有效的 API Key。
+
+#### 获取 API Key
+
+1. **创建 Google Cloud 项目**
+   ```bash
+   访问: https://console.cloud.google.com/
+   创建新项目或选择现有项目
+   ```
+
+2. **启用 YouTube Data API v3**
+   ```bash
+   访问: https://console.cloud.google.com/apis/library
+   搜索 "YouTube Data API v3"
+   点击 "启用"
+   ```
+
+3. **创建 API 凭据**
+   ```bash
+   访问: https://console.cloud.google.com/apis/credentials
+   点击 "创建凭据" → "API 密钥"
+   （可选）限制密钥仅允许 YouTube Data API
+   ```
+
+4. **配置 API Key**
+   ```bash
+   # 开发环境
+   ./scripts/api.sh --env dev api-keys set YOUTUBE_API_KEY your_api_key_here
+
+   # 生产环境
+   ./scripts/api.sh --env prod api-keys set YOUTUBE_API_KEY your_api_key_here
+
+   # 重启服务使配置生效
+   ./scripts/cyber-pulse.sh restart
+   ```
+
+#### 验证 API Key
+
+```bash
+# 查看 API Keys 配置状态
+./scripts/api.sh api-keys list
+
+# 直接测试 API Key（替换 YOUR_KEY）
+curl -s "https://www.googleapis.com/youtube/v3/channels?part=snippet&id=UCJ6q9Ie29ajGqKApbLqfBOg&key=YOUR_KEY" | jq '.items[0].snippet.title'
+# 预期输出: "Black Hat"
+```
+
 ### 基础 YouTube 源
 
 ```bash
-cyber-pulse source add "Black Hat Official" youtube "https://www.youtube.com/@BlackHatOfficialYT" \
-  --tier T1 --yes
+./scripts/api.sh sources create --name "Black Hat Official" --type youtube --url "https://www.youtube.com/@BlackHatOfficialYT" --tier T1
 ```
 
 ### YouTube 源配置参数
@@ -185,9 +235,9 @@ cyber-pulse source add "Black Hat Official" youtube "https://www.youtube.com/@Bl
 
 ### 内容说明
 
-- **视频列表**：通过 RSS Feed 获取最近 15 条视频
-- **正文内容**：优先提取视频字幕，无字幕时使用视频描述
-- **字幕语言**：优先英文（en, en-US, en-GB），支持自动生成字幕
+- **视频列表**：通过 YouTube Data API v3 获取最近 15 条视频
+- **正文内容**：使用 Playwright 无头浏览器提取视频字幕，无字幕时使用视频描述
+- **字幕提取**：支持自动生成字幕，隐藏浏览器窗口、静音运行
 
 ### 常见 YouTube 源示例
 
@@ -196,6 +246,14 @@ cyber-pulse source add "Black Hat Official" youtube "https://www.youtube.com/@Bl
 | Black Hat Official | youtube | https://www.youtube.com/@BlackHatOfficialYT | T1 |
 | OWASP Global | youtube | https://www.youtube.com/@OWASPGLOBAL | T1 |
 | DEF CON | youtube | https://www.youtube.com/@DEFCONConference | T1 |
+
+### 故障排查
+
+| 错误 | 原因 | 解决方案 |
+|------|------|----------|
+| `API_KEY_INVALID` | API Key 无效或未启用 | 检查 Google Cloud Console 配置 |
+| `quotaExceeded` | API 配额耗尽 | 等待配额重置或申请更高配额 |
+| `HTTP 404 (RSS)` | RSS Feed 不可用 | 必须配置有效的 API Key |
 
 ---
 

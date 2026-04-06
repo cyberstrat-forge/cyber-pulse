@@ -37,8 +37,7 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "beautifulsoup4>=4.14.3",
     "defusedxml>=0.7.1",
-    "youtube-transcript-api>=1.2.4",
-    "yt-dlp>=2024.1.0",
+    "playwright>=1.40.0",
 ]
 
 [project.optional-dependencies]

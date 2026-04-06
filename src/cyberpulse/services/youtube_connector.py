@@ -11,13 +11,15 @@ from urllib.parse import urlparse
 
 import feedparser
 import httpx
-import yt_dlp
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 from ..config import settings
 from .base import SSRFError, validate_url_for_ssrf
 from .connector_service import BaseConnector, ConnectorError
 from .http_headers import get_browser_headers
 from .rss_connector import FetchResult  # Reuse RSS FetchResult dataclass
+from .transcript_extractor import TranscriptExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -25,19 +27,26 @@ logger = logging.getLogger(__name__)
 class YouTubeConnector(BaseConnector):
     """Connector for YouTube channels.
 
-    Fetches video transcripts using RSS Feed + yt-dlp.
-    Supports proxy and cookies for bypassing IP blocks.
+    Uses YouTube Data API v3 for video listing (primary) with RSS Feed fallback.
+    Uses Playwright headless browser for transcript extraction to bypass
+    YouTube's timedtext API rate limiting.
     """
 
     # Configuration
     REQUIRED_CONFIG_KEYS = ["channel_url"]
-    MAX_ITEMS = 15  # RSS Feed default returns 15 items
-
-    # Transcript language priority
-    TRANSCRIPT_LANGUAGE_PRIORITY = ["en", "en-US", "en-GB"]
+    MAX_ITEMS = 15  # Max videos to fetch
 
     # Allowed domains
     ALLOWED_DOMAINS = frozenset(["www.youtube.com", "youtube.com", "m.youtube.com"])
+
+    def __init__(self, config: dict[str, Any]):
+        """Initialize YouTube connector.
+
+        Args:
+            config: Configuration dictionary with channel_url
+        """
+        super().__init__(config)
+        self._transcript_extractor: TranscriptExtractor | None = None
 
     def validate_config(self) -> bool:
         """Validate that channel_url is present and valid.
@@ -91,6 +100,9 @@ class YouTubeConnector(BaseConnector):
         # return type signature. This is intentional for connector polymorphism.
         """Fetch videos with transcripts from the YouTube channel.
 
+        Uses YouTube Data API v3 (primary) with RSS Feed fallback for video list.
+        Uses Playwright for transcript extraction.
+
         Returns:
             FetchResult with items and optional redirect_info
 
@@ -101,16 +113,205 @@ class YouTubeConnector(BaseConnector):
 
         channel_url = self.config["channel_url"]
 
-        # Step 1: Resolve channel URL to RSS Feed URL
-        rss_url = await self._resolve_channel_url(channel_url)
+        # Step 1: Try YouTube Data API first, fallback to RSS
+        videos = await self._fetch_video_list(channel_url)
 
-        # Step 2: Fetch video list from RSS Feed
-        rss_result = await self._fetch_video_list(rss_url)
+        # Step 2: Extract transcripts for each video
+        items = await self._process_videos(videos)
 
-        # Step 3: Extract transcripts for each video
-        items = await self._process_videos(rss_result.items)
+        return FetchResult(items=items)
 
-        return FetchResult(items=items, redirect_info=rss_result.redirect_info)
+    async def _fetch_video_list(self, channel_url: str) -> list[dict[str, Any]]:
+        """Fetch video list using YouTube Data API v3 or RSS Feed fallback.
+
+        Args:
+            channel_url: YouTube channel URL
+
+        Returns:
+            List of video entry dictionaries
+
+        Raises:
+            ConnectorError: If both API and RSS fail
+        """
+        # Primary: YouTube Data API v3
+        if settings.youtube_api_key:
+            try:
+                videos = await self._fetch_video_list_api(channel_url)
+                if videos:
+                    logger.info(
+                        f"Fetched {len(videos)} videos via YouTube Data API"
+                    )
+                    return videos
+            except Exception as e:
+                logger.warning(
+                    f"YouTube Data API failed, falling back to RSS: {e}"
+                )
+        else:
+            logger.info("No YouTube API key configured, using RSS Feed")
+
+        # Fallback: RSS Feed
+        try:
+            rss_url = await self._resolve_channel_url(channel_url)
+            rss_result = await self._fetch_video_list_rss(rss_url)
+            logger.info(
+                f"Fetched {len(rss_result.items)} videos via RSS Feed"
+            )
+            return rss_result.items
+        except Exception as e:
+            raise ConnectorError(
+                f"Failed to fetch video list (API and RSS both failed): {e}"
+            ) from e
+
+    async def _fetch_video_list_api(
+        self, channel_url: str
+    ) -> list[dict[str, Any]]:
+        """Fetch video list using YouTube Data API v3.
+
+        Args:
+            channel_url: YouTube channel URL
+
+        Returns:
+            List of video entry dictionaries
+
+        Raises:
+            ConnectorError: If API call fails
+        """
+        if not settings.youtube_api_key:
+            raise ConnectorError("YouTube API key not configured")
+
+        try:
+            # Build YouTube API client (sync, but we wrap it)
+            youtube = build(
+                'youtube', 'v3',
+                developerKey=settings.youtube_api_key,
+                static_discovery=False
+            )
+
+            # Get channel ID from URL
+            channel_id = await self._get_channel_id(channel_url)
+            logger.debug(f"Resolved channel_id: {channel_id}")
+
+            # Get uploads playlist ID
+            channels_response = youtube.channels().list(
+                part='contentDetails',
+                id=channel_id
+            ).execute()
+
+            if not channels_response.get('items'):
+                raise ConnectorError(f"Channel not found: {channel_id}")
+
+            uploads_playlist_id = channels_response['items'][0][
+                'contentDetails'
+            ]['relatedPlaylists']['uploads']
+
+            # Get videos from uploads playlist
+            playlist_response = youtube.playlistItems().list(
+                part='snippet,contentDetails',
+                playlistId=uploads_playlist_id,
+                maxResults=self.MAX_ITEMS
+            ).execute()
+
+            videos = []
+            for item in playlist_response.get('items', []):
+                snippet = item['snippet']
+                video_id = item['contentDetails']['videoId']
+
+                videos.append({
+                    'video_id': video_id,
+                    'url': f"https://www.youtube.com/watch?v={video_id}",
+                    'title': snippet.get('title', ''),
+                    'description': snippet.get('description', ''),
+                    'published_at': self._parse_iso_date(
+                        snippet.get('publishedAt')
+                    ),
+                    'author': snippet.get('channelTitle', ''),
+                    'tags': [],
+                })
+
+            return videos
+
+        except HttpError as e:
+            raise ConnectorError(
+                f"YouTube API error: HTTP {e.resp.status}"
+            ) from e
+        except Exception as e:
+            raise ConnectorError(
+                f"YouTube API error: {type(e).__name__}: {e}"
+            ) from e
+
+    async def _get_channel_id(self, channel_url: str) -> str:
+        """Get channel ID from URL using YouTube API.
+
+        Args:
+            channel_url: YouTube channel URL
+
+        Returns:
+            Channel ID
+
+        Raises:
+            ConnectorError: If channel ID cannot be determined
+        """
+        parsed = urlparse(channel_url)
+        path = parsed.path.strip("/")
+
+        # Format: /channel/UCxxxxxx
+        if path.startswith("channel/"):
+            return path.split("/")[1]
+
+        # Format: /@Handle or /user/Username
+        # Use YouTube API search to find channel
+        handle = path.replace("@", "") if path.startswith("@") else path.split("/")[-1]
+
+        if not settings.youtube_api_key:
+            # Fallback to HTML scraping
+            return await self._fetch_channel_id(channel_url)
+
+        try:
+            youtube = build(
+                'youtube', 'v3',
+                developerKey=settings.youtube_api_key,
+                static_discovery=False
+            )
+
+            # Search for channel by handle
+            search_response = youtube.search().list(
+                part='snippet',
+                q=handle,
+                type='channel',
+                maxResults=1
+            ).execute()
+
+            if search_response.get('items'):
+                return search_response['items'][0]['snippet']['channelId']
+
+            raise ConnectorError(f"Channel not found: {handle}")
+
+        except HttpError as e:
+            # Fallback to HTML scraping on API error
+            logger.warning(f"YouTube API search failed, trying HTML: {e}")
+            return await self._fetch_channel_id(channel_url)
+
+    def _parse_iso_date(self, date_str: str | None) -> datetime:
+        """Parse ISO 8601 date string.
+
+        Args:
+            date_str: ISO 8601 date string (e.g., "2024-01-15T10:30:00Z")
+
+        Returns:
+            Timezone-aware datetime (defaults to current UTC time if parsing fails)
+        """
+        if not date_str:
+            return self.get_current_utc_time()
+
+        try:
+            # Handle ISO 8601 format with Z suffix
+            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            return dt
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Failed to parse ISO date '{date_str}': {e}")
+            return self.get_current_utc_time()
 
     async def _resolve_channel_url(self, channel_url: str) -> str:
         """Resolve channel URL to RSS Feed URL.
@@ -190,6 +391,7 @@ class YouTubeConnector(BaseConnector):
         # Pattern: "channelId":"UCxxxxxx" or meta tag og:url
         patterns = [
             r'"channelId"\s*:\s*"([^"]+)"',
+            r'"externalId"\s*:\s*"([^"]+)"',
             r'<meta\s+property="og:url"\s+content="[^"]*channel/([^"]+)"',
         ]
 
@@ -202,7 +404,7 @@ class YouTubeConnector(BaseConnector):
 
         raise ConnectorError(f"Could not extract channel_id from {channel_url}")
 
-    async def _fetch_video_list(self, rss_url: str) -> FetchResult:
+    async def _fetch_video_list_rss(self, rss_url: str) -> FetchResult:
         """Fetch video list from RSS Feed.
 
         Args:
@@ -453,13 +655,9 @@ class YouTubeConnector(BaseConnector):
         return items
 
     async def _fetch_transcript(self, video_id: str) -> str | None:
-        """Fetch transcript for a YouTube video using yt-dlp.
+        """Fetch transcript for a YouTube video using Playwright.
 
-        yt-dlp supports:
-        - Automatic subtitle language selection
-        - Proxy configuration
-        - Cookies for authentication
-        - Manual and auto-generated subtitles
+        Uses headless browser to bypass YouTube's timedtext API rate limiting.
 
         Args:
             video_id: YouTube video ID
@@ -469,212 +667,23 @@ class YouTubeConnector(BaseConnector):
         """
         url = f"https://www.youtube.com/watch?v={video_id}"
 
-        # Build yt-dlp options
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "skip_download": True,  # Don't download video
-            "writesubtitles": True,  # Download subtitles
-            "writeautomaticsub": True,  # Download auto-generated subtitles
-            "subtitleslangs": self.TRANSCRIPT_LANGUAGE_PRIORITY,
-            "subtitlesformat": "vtt",  # VTT format is most reliable
-            "outtmpl": "-",  # Output to stdout (we'll capture it)
-            "verbose": False,
-        }
-
-        # Add proxy if configured
-        if settings.youtube_proxy:
-            ydl_opts["proxy"] = settings.youtube_proxy
-            logger.debug(f"Using proxy for {video_id}: {settings.youtube_proxy}")
-
-        # Add cookies if configured
-        cookies = self._get_cookies()
-        if cookies:
-            # yt-dlp accepts cookies as a list of strings
-            cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
-            ydl_opts["cookiefile"] = None  # Clear any cookie file
-            ydl_opts["cookiesfrombrowser"] = None  # Clear browser cookies
-            # Use http_headers to pass cookies
-            ydl_opts["http_headers"] = {
-                "Cookie": cookie_str,
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-            }
-            logger.debug(f"Using cookies for transcript fetch: {video_id}")
+        # Initialize extractor if needed
+        if not self._transcript_extractor:
+            self._transcript_extractor = TranscriptExtractor(
+                headless=True,
+                timeout=settings.youtube_transcript_timeout
+            )
 
         try:
-            # Run yt-dlp in a thread to avoid blocking
-            result = await asyncio.to_thread(
-                self._run_ytdlp, url, ydl_opts
-            )
-            return result
-        except Exception as e:
-            logger.warning(
-                f"Failed to fetch transcript for {video_id}: "
-                f"{type(e).__name__}: {e}"
-            )
-            return None
+            result = await self._transcript_extractor.extract(url)
 
-    def _run_ytdlp(self, url: str, opts: dict) -> str | None:
-        """Run yt-dlp synchronously and extract transcript.
-
-        Args:
-            url: YouTube video URL
-            opts: yt-dlp options dict
-
-        Returns:
-            Transcript text or None if unavailable
-        """
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-
-                # Check for subtitles
-                subtitles = info.get("subtitles", {})
-                automatic_captions = info.get("automatic_captions", {})
-
-                # Try manual subtitles first, then auto-generated
-                for lang in self.TRANSCRIPT_LANGUAGE_PRIORITY:
-                    # Check manual subtitles
-                    if lang in subtitles and subtitles[lang]:
-                        subtitle = subtitles[lang][0]
-                        subtitle_url = subtitle.get("url")
-                        if subtitle_url:
-                            return self._download_subtitle(subtitle_url)
-
-                    # Check auto-generated captions
-                    if lang in automatic_captions and automatic_captions[lang]:
-                        subtitle = automatic_captions[lang][0]
-                        subtitle_url = subtitle.get("url")
-                        if subtitle_url:
-                            return self._download_subtitle(subtitle_url)
-
-                # Try 'en' as fallback in automatic captions
-                if "en" in automatic_captions and automatic_captions["en"]:
-                    subtitle = automatic_captions["en"][0]
-                    subtitle_url = subtitle.get("url")
-                    if subtitle_url:
-                        return self._download_subtitle(subtitle_url)
-
-                logger.debug(f"No subtitles found for {url}")
+            if result.success:
+                logger.debug(f"Successfully extracted transcript for {video_id}: {len(result.text or '')} chars")
+                return result.text
+            else:
+                logger.debug(f"No transcript for {video_id}: {result.error}")
                 return None
 
-        except yt_dlp.utils.DownloadError as e:
-            logger.debug(f"yt-dlp download error: {e}")
-            return None
         except Exception as e:
-            logger.warning(f"yt-dlp error: {type(e).__name__}: {e}")
+            logger.warning(f"Transcript extraction failed for {video_id}: {e}")
             return None
-
-    def _download_subtitle(self, url: str) -> str | None:
-        """Download and parse subtitle file.
-
-        Args:
-            url: Subtitle URL (VTT format)
-
-        Returns:
-            Plain text transcript or None
-        """
-        try:
-            import httpx
-
-            response = httpx.get(url, timeout=30.0)
-            response.raise_for_status()
-
-            # Parse VTT format
-            return self._parse_vtt(response.text)
-        except Exception as e:
-            logger.debug(f"Failed to download subtitle: {e}")
-            return None
-
-    def _parse_vtt(self, vtt_content: str) -> str:
-        """Parse VTT subtitle format and extract plain text.
-
-        Args:
-            vtt_content: VTT subtitle content
-
-        Returns:
-            Plain text transcript
-        """
-        lines = vtt_content.split("\n")
-        text_lines = []
-        seen_texts = set()  # Avoid duplicate lines
-
-        for line in lines:
-            line = line.strip()
-            # Skip empty lines, timestamps, and VTT headers
-            if not line:
-                continue
-            if line.startswith("WEBVTT"):
-                continue
-            if line.startswith("NOTE"):
-                continue
-            if "-->" in line:  # Timestamp line
-                continue
-            if line.startswith("<"):  # Positioning tags
-                continue
-            # Remove VTT styling tags
-            line = re.sub(r"<[^>]+>", "", line)
-            line = line.strip()
-            if line and line not in seen_texts:
-                text_lines.append(line)
-                seen_texts.add(line)
-
-        return " ".join(text_lines)
-
-    def _get_cookies(self) -> dict[str, str] | None:
-        """Get cookies from settings or source config.
-
-        Cookies can be provided via:
-        - Environment variable: YOUTUBE_COOKIES
-          (string format: "name=value; name2=value2")
-        - Source config: config["cookies"] (dict format)
-
-        Returns:
-            Cookies dict or None if not configured
-        """
-        # First check source config (allows per-source cookies)
-        if "cookies" in self.config and isinstance(self.config["cookies"], dict):
-            logger.debug("Using cookies from source config")
-            return self.config["cookies"]
-
-        # Then check global settings (from environment variable)
-        if settings.youtube_cookies:
-            logger.debug("Using cookies from environment variable")
-            return self._parse_cookies_string(settings.youtube_cookies)
-
-        return None
-
-    def _parse_cookies_string(self, cookies_str: str) -> dict[str, str]:
-        """Parse cookies string into dict.
-
-        Supports formats:
-        - "name=value; name2=value2"
-        - "name=value&name2=value2"
-
-        Args:
-            cookies_str: Cookies string
-
-        Returns:
-            Cookies dict
-        """
-        cookies = {}
-
-        # Try semicolon separator first (standard cookie format)
-        if ";" in cookies_str:
-            parts = cookies_str.split(";")
-        elif "&" in cookies_str:
-            parts = cookies_str.split("&")
-        else:
-            parts = [cookies_str]
-
-        for part in parts:
-            part = part.strip()
-            if "=" in part:
-                name, value = part.split("=", 1)
-                cookies[name.strip()] = value.strip()
-
-        return cookies

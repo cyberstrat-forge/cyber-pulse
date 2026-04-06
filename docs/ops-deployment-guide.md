@@ -213,6 +213,59 @@ cat .version
 ./scripts/api.sh clients list
 ```
 
+### API Keys 管理
+
+配置外部服务 API Keys（如 YouTube Data API）：
+
+```bash
+# 查看 API Keys 配置状态
+./scripts/api.sh api-keys list
+
+# 设置 YouTube API Key
+./scripts/api.sh api-keys set YOUTUBE_API_KEY your_api_key_here
+
+# 获取 API Key 值
+./scripts/api.sh api-keys get YOUTUBE_API_KEY
+
+# 重启服务使配置生效
+./scripts/cyber-pulse.sh restart
+```
+
+> 💡 **说明**：
+> - API Keys 存储在 `deploy/.env` 文件中
+> - 所有环境（prod/test）共享同一份配置
+> - 配置更改后需要重启服务才能生效
+> - **对于已运行的环境**：需要重启才能使新配置的 API Key 生效
+
+#### 对已运行生产环境的影响
+
+如果生产环境已部署，新配置的 API Key 需要重启服务才能生效：
+
+```bash
+# 在维护窗口期执行
+./scripts/cyber-pulse.sh restart --env prod
+```
+
+> ⚠️ **注意**：重启服务会造成短暂的服务中断（约 10-30 秒），建议在低峰期执行。
+
+#### YouTube Data API Key 配置
+
+YouTube 频道源需要配置 YouTube Data API v3 Key 才能正常工作。
+
+**获取 API Key 步骤**：
+1. 访问 [Google Cloud Console](https://console.cloud.google.com/)
+2. 创建或选择项目
+3. 启用 **YouTube Data API v3**
+4. 创建 API 凭据（API Key）
+5. 配置到系统：`./scripts/api.sh api-keys set YOUTUBE_API_KEY <key>`
+
+**验证 API Key**：
+```bash
+# 测试 API Key 是否有效
+curl -s "https://www.googleapis.com/youtube/v3/channels?part=snippet&id=UCJ6q9Ie29ajGqKApbLqfBOg&key=YOUR_KEY" | jq '.items[0].snippet.title'
+# 预期输出: "Black Hat"
+```
+
 ## 获取 Admin API Key
 
 Admin API Key 在首次部署时自动生成并显示在终端。如果需要重新获取：

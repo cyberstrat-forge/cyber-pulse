@@ -34,9 +34,13 @@ class Settings(BaseSettings):
     # Ingestion
     max_consecutive_failures: int = 5  # Freeze source after this many failures
 
+    # YouTube Data API
+    youtube_api_key: str | None = None  # YouTube Data API v3 key
+
     # YouTube transcript settings (anti-rate-limiting)
     youtube_transcript_delay_min: float = 2.0  # Min delay between requests (seconds)
     youtube_transcript_delay_max: float = 5.0  # Max delay between requests (seconds)
+    youtube_transcript_timeout: int = 60  # Page load timeout (seconds)
     youtube_cookies: str | None = None  # Cookies string for YouTube transcript API
     youtube_proxy: str | None = None  # Proxy URL for yt-dlp (e.g., "socks5://127.0.0.1:1080")
 

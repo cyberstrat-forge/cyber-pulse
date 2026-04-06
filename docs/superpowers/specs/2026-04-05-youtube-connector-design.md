@@ -1,6 +1,6 @@
 ---
 name: YouTube 频道字幕采集连接器设计
-description: YouTube 频道字幕采集连接器（无 API Key 方案）
+description: YouTube 频道字幕采集连接器（Playwright 无头浏览器方案）
 type: project
 ---
 
@@ -10,9 +10,12 @@ type: project
 
 **目标**：实现 YouTube 频道视频采集，以字幕作为正文内容。
 
-**方案**：RSS Feed（获取视频列表）+ youtube-transcript-api（提取字幕），无需 API Key。
+**方案演变**：
+- ~~youtube-transcript-api~~ → YouTube timedtext API 返回 HTTP 429（反自动化保护）
+- ~~yt-dlp 字幕下载~~ → 同样依赖 timedtext API，被阻止
+- **最终方案**：YouTube Data API v3（视频列表）+ Playwright 无头浏览器（字幕提取）
 
-**测试验证**：Black Hat 官方频道 5/5 视频字幕提取成功率 100%。
+**测试验证**：5/5 视频字幕提取成功，包含 3分钟~60分钟不同长度视频。
 
 ---
 
@@ -21,13 +24,18 @@ type: project
 ### 整体架构
 
 ```
-YouTubeConnector (新连接器)
-├── 配置层
-│   └── channel_url → 解析 → channel_id → RSS Feed URL
+YouTubeConnector (更新后)
+├── 视频列表层
+│   └── YouTube Data API v3 (API Key)
+│       ├── channels.list → 获取频道 uploads playlist ID
+│       ├── playlistItems.list → 获取最新视频列表
+│       └── videos.list → 获取视频详情 + 字幕可用性检测
 │
-├── 数据获取层
-│   ├── _fetch_video_list()  → RSS Feed 解析（视频元数据）
-│   └── _fetch_transcript()  → youtube-transcript-api（字幕提取）
+├── 字幕提取层
+│   └── Playwright 无头浏览器
+│       ├── 打开视频页面（headless + 静音）
+│       ├── 点击 Show transcript 按钮
+│       └── 从 DOM 提取字幕文本
 │
 └── 输出层
     └── FetchResult(items, redirect_info)
@@ -38,706 +46,510 @@ YouTubeConnector (新连接器)
 
 ```
 src/cyberpulse/services/
-├── youtube_connector.py      # 新增：YouTube 频道连接器
-├── connector_factory.py      # 修改：注册 youtube 类型
-└── __init__.py               # 修改：导出 YouTubeConnector
+├── youtube_connector.py          # 修改：整合新方案
+├── transcript_extractor.py       # 新增：Playwright 字幕提取服务
+├── connector_factory.py          # 修改：注册 youtube 类型
+└── __init__.py                   # 修改：导出
 
-tests/
-├── services/test_youtube_connector.py      # 新增：单元测试
-└── integration/test_youtube_connector.py   # 新增：集成测试
+tests/test_services/
+├── test_youtube_connector.py     # 新增：单元测试
+└── test_transcript_extractor.py  # 新增：字幕提取测试
 
-docs/source-config-examples.md  # 修改：添加 YouTube 源配置示例
+docs/
+└── source-config-examples.md     # 修改：添加 YouTube 源配置示例
 ```
 
 ---
 
 ## 详细设计
 
-### 1. YouTubeConnector 类
+### 1. TranscriptExtractor 类（Playwright 字幕提取）
 
 ```python
-"""YouTube Channel Connector implementation for video transcript collection."""
+"""Transcript extraction using Playwright headless browser."""
 
 import asyncio
-import email.utils
 import logging
-import re
 from dataclasses import dataclass
+from typing import Any
+
+from playwright.async_api import async_playwright, BrowserContext
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TranscriptResult:
+    """Result of transcript extraction."""
+    success: bool
+    text: str | None = None
+    lines: list[dict[str, str]] | None = None
+    error: str | None = None
+
+
+class TranscriptExtractor:
+    """Extract YouTube video transcripts using Playwright.
+    
+    Uses headless browser to bypass YouTube's timedtext API rate limiting.
+    """
+    
+    def __init__(
+        self,
+        headless: bool = True,
+        timeout: int = 60,
+        user_data_dir: str = "/tmp/playwright_yt_data",
+    ):
+        self.headless = headless
+        self.timeout = timeout
+        self.user_data_dir = user_data_dir
+        self._browser_context: BrowserContext | None = None
+    
+    async def extract(self, video_url: str) -> TranscriptResult:
+        """Extract transcript from a YouTube video.
+        
+        Args:
+            video_url: YouTube video URL
+            
+        Returns:
+            TranscriptResult with success status and text
+        """
+        async with async_playwright() as p:
+            browser = await p.chromium.launch_persistent_context(
+                user_data_dir=self.user_data_dir,
+                headless=self.headless,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--mute-audio',
+                    '--disable-audio-output',
+                ]
+            )
+            
+            try:
+                page = browser.pages[0] if browser.pages else await browser.new_page()
+                
+                # Load video page
+                await page.goto(video_url, wait_until="networkidle", timeout=self.timeout * 1000)
+                await page.wait_for_timeout(3000)
+                
+                # Scroll to reveal transcript button
+                await page.evaluate("window.scrollTo(0, 600)")
+                await page.wait_for_timeout(1000)
+                
+                # Click transcript button
+                clicked = await page.evaluate("""
+                    () => {
+                        const buttons = document.querySelectorAll('button');
+                        for (const btn of buttons) {
+                            const text = btn.innerText || '';
+                            const label = btn.getAttribute('aria-label') || '';
+                            if (text.includes('Show transcript') || label.includes('Show transcript')) {
+                                btn.click();
+                                return 'clicked';
+                            }
+                        }
+                        return 'not found';
+                    }
+                """)
+                
+                if clicked != 'clicked':
+                    return TranscriptResult(
+                        success=False,
+                        error="No transcript button found - video may not have subtitles"
+                    )
+                
+                await page.wait_for_timeout(5000)
+                
+                # Extract transcript from panel
+                result = await page.evaluate("""
+                    () => {
+                        const panel = document.querySelector(
+                            'ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"]'
+                        );
+                        if (!panel) return { error: 'No transcript panel' };
+                        
+                        const text = panel.innerText;
+                        if (text.length < 50) return { error: 'Empty transcript' };
+                        
+                        const lines = [];
+                        const parts = text.split('\\n');
+                        
+                        let currentTimestamp = '';
+                        let currentText = '';
+                        
+                        for (const part of parts) {
+                            const p = part.trim();
+                            if (!p) continue;
+                            if (p === 'Transcript' || p === 'Search transcript') continue;
+                            
+                            if (/^\\d+:\\d+$/.test(p)) {
+                                if (currentText.trim()) {
+                                    lines.push({ timestamp: currentTimestamp, text: currentText.trim() });
+                                }
+                                currentTimestamp = p;
+                                currentText = '';
+                            } else if (/^\\d+ seconds?$/.test(p) || /^\\d+ minutes?, \\d+ seconds?$/.test(p)) {
+                                continue;
+                            } else {
+                                currentText += ' ' + p;
+                            }
+                        }
+                        
+                        if (currentText.trim()) {
+                            lines.push({ timestamp: currentTimestamp, text: currentText.trim() });
+                        }
+                        
+                        return { lines, rawLength: text.length };
+                    }
+                """)
+                
+                if result.get('error'):
+                    return TranscriptResult(success=False, error=result['error'])
+                
+                lines = result.get('lines', [])
+                if not lines:
+                    return TranscriptResult(success=False, error="No transcript lines extracted")
+                
+                full_text = ' '.join(line['text'] for line in lines)
+                
+                return TranscriptResult(
+                    success=True,
+                    text=full_text,
+                    lines=lines
+                )
+                
+            finally:
+                await browser.close()
+    
+    async def close(self):
+        """Clean up resources."""
+        if self._browser_context:
+            await self._browser_context.close()
+```
+
+### 2. YouTubeConnector 类（更新后）
+
+```python
+"""YouTube Channel Connector using YouTube Data API v3 + Playwright."""
+
+import asyncio
+import logging
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlparse
 
-import feedparser
 import httpx
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 from .base import SSRFError, validate_url_for_ssrf
 from .connector_service import BaseConnector, ConnectorError
-from .http_headers import get_browser_headers
-from .rss_connector import FetchResult  # 复用 RSS 的 FetchResult 数据类
+from .rss_connector import FetchResult
+from .transcript_extractor import TranscriptExtractor, TranscriptResult
 
 logger = logging.getLogger(__name__)
 
 
 class YouTubeConnector(BaseConnector):
     """Connector for YouTube channels.
-
-    Fetches video transcripts using RSS Feed + youtube-transcript-api.
-    No API Key required.
+    
+    Uses YouTube Data API v3 for video listing and Playwright for transcript extraction.
     """
-
-    # Configuration
+    
     REQUIRED_CONFIG_KEYS = ["channel_url"]
-    MAX_ITEMS = 15  # RSS Feed 默认返回 15 条
-
-    # Transcript language priority
-    TRANSCRIPT_LANGUAGE_PRIORITY = ["en", "en-US", "en-GB"]
-
-    # Allowed domains
+    MAX_ITEMS = 15
     ALLOWED_DOMAINS = frozenset(["www.youtube.com", "youtube.com", "m.youtube.com"])
-
+    
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config)
+        self._transcript_extractor: TranscriptExtractor | None = None
+    
     def validate_config(self) -> bool:
-        """Validate that channel_url is present and valid.
-
-        Returns:
-            True if configuration is valid
-
-        Raises:
-            ValueError: If channel_url is missing or invalid
-        """
+        """Validate channel_url is present and valid."""
         if "channel_url" not in self.config:
             raise ValueError("YouTube connector requires 'channel_url' in config")
-
+        
         channel_url = self.config["channel_url"]
         if not channel_url or not isinstance(channel_url, str):
-            raise ValueError("YouTube connector 'channel_url' must be a non-empty string")
-
-        # SSRF protection: validate URL scheme and destination
+            raise ValueError("'channel_url' must be a non-empty string")
+        
         try:
             validate_url_for_ssrf(channel_url)
         except SSRFError as e:
             raise ValueError(f"Invalid channel_url: {e}") from e
-
-        # Validate YouTube domain
+        
         parsed = urlparse(channel_url)
         if parsed.netloc.lower() not in self.ALLOWED_DOMAINS:
-            raise ValueError(
-                f"Invalid YouTube URL: domain must be youtube.com, got '{parsed.netloc}'"
-            )
-
+            raise ValueError(f"Invalid YouTube URL: domain must be youtube.com")
+        
         return True
-
+    
     async def fetch(self) -> FetchResult:
-        """Fetch videos with transcripts from the YouTube channel.
-
-        Returns:
-            FetchResult with items and optional redirect_info
-
-        Raises:
-            ConnectorError: If fetch fails
-        """
+        """Fetch videos with transcripts from the YouTube channel."""
         self.validate_config()
-
+        
+        from ..config import settings
+        
+        # Step 1: Get video list via YouTube Data API
+        videos = await self._fetch_video_list_api()
+        
+        # Step 2: Extract transcripts
+        items = await self._process_videos(videos)
+        
+        return FetchResult(items=items)
+    
+    async def _fetch_video_list_api(self) -> list[dict[str, Any]]:
+        """Fetch video list using YouTube Data API v3."""
+        from ..config import settings
+        
+        if not settings.youtube_api_key:
+            # Fallback to RSS Feed
+            return await self._fetch_video_list_rss()
+        
+        try:
+            # Build YouTube API client
+            youtube = build('youtube', 'v3', developerKey=settings.youtube_api_key)
+            
+            # Get channel ID
+            channel_id = await self._get_channel_id(youtube)
+            
+            # Get uploads playlist ID
+            channels_response = youtube.channels().list(
+                part='contentDetails',
+                id=channel_id
+            ).execute()
+            
+            if not channels_response.get('items'):
+                raise ConnectorError(f"Channel not found: {channel_id}")
+            
+            uploads_playlist_id = channels_response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+            
+            # Get videos from playlist
+            playlist_response = youtube.playlistItems().list(
+                part='snippet,contentDetails',
+                playlistId=uploads_playlist_id,
+                maxResults=self.MAX_ITEMS
+            ).execute()
+            
+            videos = []
+            for item in playlist_response.get('items', []):
+                snippet = item['snippet']
+                video_id = item['contentDetails']['videoId']
+                
+                videos.append({
+                    'video_id': video_id,
+                    'url': f"https://www.youtube.com/watch?v={video_id}",
+                    'title': snippet.get('title', ''),
+                    'description': snippet.get('description', ''),
+                    'published_at': self._parse_iso_date(snippet.get('publishedAt')),
+                    'author': snippet.get('channelTitle', ''),
+                    'tags': [],
+                })
+            
+            return videos
+            
+        except HttpError as e:
+            logger.warning(f"YouTube API error: {e}, falling back to RSS")
+            return await self._fetch_video_list_rss()
+    
+    async def _get_channel_id(self, youtube) -> str:
+        """Get channel ID from URL."""
         channel_url = self.config["channel_url"]
-
-        # Step 1: Resolve channel URL to RSS Feed URL
-        rss_url = await self._resolve_channel_url(channel_url)
-
-        # Step 2: Fetch video list from RSS Feed
-        rss_result = await self._fetch_video_list(rss_url)
-
-        # Step 3: Extract transcripts for each video
-        items = await self._process_videos(rss_result.items)
-
-        return FetchResult(items=items, redirect_info=rss_result.redirect_info)
-
-    async def _resolve_channel_url(self, channel_url: str) -> str:
-        """Resolve channel URL to RSS Feed URL.
-
-        Handles formats:
-        - https://youtube.com/@Handle
-        - https://youtube.com/channel/UCxxxxxx
-        - https://youtube.com/user/Username
-
-        Args:
-            channel_url: YouTube channel URL
-
-        Returns:
-            RSS Feed URL
-
-        Raises:
-            ConnectorError: If URL cannot be resolved
-        """
         parsed = urlparse(channel_url)
         path = parsed.path.strip("/")
-
-        # Format: /channel/UCxxxxxx
+        
+        # Direct channel ID format
         if path.startswith("channel/"):
-            channel_id = path.split("/")[1]
-            return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-
-        # Format: /@Handle or /user/Username
-        # Need to fetch channel page to get channel_id
-        try:
-            channel_id = await self._fetch_channel_id(channel_url)
-            return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-        except Exception as e:
-            raise ConnectorError(
-                f"Failed to resolve YouTube channel: {type(e).__name__}: {e}"
-            ) from e
-
-    async def _fetch_channel_id(self, channel_url: str) -> str:
-        """Fetch channel_id from channel page HTML.
-
-        Args:
-            channel_url: YouTube channel URL
-
-        Returns:
-            Channel ID
-
-        Raises:
-            ConnectorError: If channel_id cannot be extracted
-        """
-        # Check cache
-        cached_id = self.config.get("resolved_channel_id")
-        if cached_id:
-            return cached_id
-
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(
-                channel_url,
-                headers=get_browser_headers(),
-            )
-            response.raise_for_status()
-            html = response.text
-
-        # Extract channel_id from HTML
-        # Pattern: "channelId":"UCxxxxxx" or meta tag og:url
-        patterns = [
-            r'"channelId"\s*:\s*"([^"]+)"',
-            r'<meta\s+property="og:url"\s+content="[^"]*channel/([^"]+)"',
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, html)
-            if match:
-                channel_id = match.group(1)
-                logger.info(f"Resolved channel_id: {channel_id} from {channel_url}")
-                return channel_id
-
-        raise ConnectorError(f"Could not extract channel_id from {channel_url}")
-
-    async def _fetch_video_list(self, rss_url: str) -> FetchResult:
-        """Fetch video list from RSS Feed.
-
-        Args:
-            rss_url: YouTube RSS Feed URL
-
-        Returns:
-            FetchResult with video entries
-
-        Raises:
-            ConnectorError: If fetch fails
-        """
-        try:
-            async with httpx.AsyncClient(
-                timeout=30.0,
-                follow_redirects=True,
-            ) as client:
-                response = await client.get(
-                    rss_url,
-                    headers=get_browser_headers(),
-                )
-
-                # SSRF validation on final URL
-                final_url = str(response.url)
-                if final_url != rss_url:
-                    try:
-                        validate_url_for_ssrf(final_url)
-                    except SSRFError as e:
-                        raise ConnectorError(
-                            f"RSS redirect to blocked URL: {e}"
-                        ) from e
-
-                response.raise_for_status()
-                content = response.content
-
-            # Detect permanent redirect
-            redirect_info = None
-            if response.history:
-                for hist in response.history:
-                    if hist.status_code in (301, 308):
-                        redirect_info = {
-                            "original_url": rss_url,
-                            "final_url": final_url,
-                            "status_code": hist.status_code,
-                        }
-                        logger.info(
-                            f"YouTube RSS permanently redirected: {rss_url} -> {final_url}"
-                        )
-                        break
-
-            # Parse RSS with feedparser
-            feed = feedparser.parse(content)
-
-            # Handle bozo (malformed) feeds
-            if feed.get("bozo"):
-                logger.warning(
-                    f"YouTube RSS feed has malformed content: {feed.get('bozo_exception')}"
-                )
-
-            entries = feed.get("entries", [])[:self.MAX_ITEMS]
-
-            # Parse video entries
-            items = []
-            for entry in entries:
-                try:
-                    item = self._parse_video_entry(entry)
-                    if item:
-                        items.append(item)
-                except Exception as e:
-                    video_id = (
-                        entry.get("yt_videoid")
-                        or entry.get("id")
-                        or "unknown"
-                    )
-                    logger.warning(
-                        f"Skipping malformed YouTube entry '{video_id}': {e}"
-                    )
-                    continue
-
-            return FetchResult(items=items, redirect_info=redirect_info)
-
-        except httpx.HTTPStatusError as e:
-            raise ConnectorError(
-                f"Failed to fetch YouTube RSS '{rss_url}': HTTP {e.response.status_code}"
-            ) from e
-        except httpx.RequestError as e:
-            raise ConnectorError(
-                f"Failed to fetch YouTube RSS '{rss_url}': {type(e).__name__}: {e}"
-            ) from e
-        except Exception as e:
-            raise ConnectorError(
-                f"Failed to fetch YouTube RSS '{rss_url}': {type(e).__name__}: {e}"
-            ) from e
-
-    def _parse_video_entry(self, entry: Any) -> dict[str, Any] | None:
-        """Parse a YouTube RSS entry into standardized format.
-
-        Args:
-            entry: feedparser entry object
-
-        Returns:
-            Standardized item dictionary or None if invalid
-        """
-        # Get video_id
-        video_id = entry.get("yt_videoid") or entry.get("id")
-        if not video_id:
-            return None
-
-        # Get URL
-        url = entry.get("link")
-        if not url:
-            url = f"https://www.youtube.com/watch?v={video_id}"
-
-        # Get title
-        title = entry.get("title", "")
-
-        # Get description (fallback content)
-        description = entry.get("summary") or entry.get("description") or ""
-
-        # Parse published date
-        published_at = self._parse_date(entry)
-
-        # Get author (channel name)
-        author = entry.get("author", "")
-
-        # Get tags
-        tags = []
-        if hasattr(entry, "tags") and entry.tags:
-            tags = [t.term for t in entry.tags if hasattr(t, "term")]
-
-        return {
-            "video_id": video_id,
-            "url": url,
-            "title": title,
-            "description": description,
-            "published_at": published_at,
-            "author": author,
-            "tags": tags,
-        }
-
-    async def _process_videos(
-        self, video_entries: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Process video entries: fetch transcripts and build items.
-
-        Args:
-            video_entries: List of parsed video entries
-
-        Returns:
-            List of standardized items with content (transcript or description)
-        """
+            return path.split("/")[1]
+        
+        # Handle or user format - need API call
+        handle = path.replace("@", "") if path.startswith("@") else path.split("/")[-1]
+        
+        search_response = youtube.search().list(
+            part='snippet',
+            q=handle,
+            type='channel',
+            maxResults=1
+        ).execute()
+        
+        if search_response.get('items'):
+            return search_response['items'][0]['snippet']['channelId']
+        
+        raise ConnectorError(f"Could not find channel: {channel_url}")
+    
+    async def _fetch_video_list_rss(self) -> list[dict[str, Any]]:
+        """Fallback: Fetch video list from RSS Feed."""
+        # ... (existing RSS implementation)
+        pass
+    
+    async def _process_videos(self, videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Process videos: extract transcripts."""
+        from ..config import settings
+        
         items = []
-
-        for entry in video_entries:
-            video_id = entry["video_id"]
-
-            # Try to fetch transcript
-            transcript = await self._fetch_transcript(video_id)
-
-            # Use transcript if available, otherwise use description
-            content = transcript or entry["description"]
-
+        
+        # Initialize transcript extractor
+        if not self._transcript_extractor:
+            self._transcript_extractor = TranscriptExtractor(
+                headless=True,
+                timeout=settings.youtube_transcript_timeout if hasattr(settings, 'youtube_transcript_timeout') else 60
+            )
+        
+        for i, video in enumerate(videos):
+            video_id = video['video_id']
+            
+            # Add delay between requests
+            if i > 0:
+                delay = settings.youtube_transcript_delay_min if hasattr(settings, 'youtube_transcript_delay_min') else 2.0
+                await asyncio.sleep(delay)
+            
+            # Extract transcript
+            result = await self._transcript_extractor.extract(video['url'])
+            
+            if result.success:
+                content = result.text
+            else:
+                # Fallback to description
+                logger.debug(f"No transcript for {video_id}: {result.error}")
+                content = video['description']
+            
             if not content or not content.strip():
                 logger.warning(f"No content for video {video_id}, skipping")
                 continue
-
+            
             items.append({
-                "external_id": video_id,
-                "url": entry["url"],
-                "title": entry["title"],
-                "published_at": entry["published_at"],
-                "content": content,
-                "author": entry["author"],
-                "tags": entry["tags"],
-                "raw_metadata": {
-                    "has_transcript": transcript is not None,
-                    "video_id": video_id,
+                'external_id': video_id,
+                'url': video['url'],
+                'title': video['title'],
+                'published_at': video['published_at'],
+                'content': content,
+                'author': video['author'],
+                'tags': video['tags'],
+                'raw_metadata': {
+                    'has_transcript': result.success,
+                    'video_id': video_id,
                 },
             })
-
+        
         return items
-
-    async def _fetch_transcript(self, video_id: str) -> str | None:
-        """Fetch transcript for a YouTube video.
-
-        Language priority: en -> en-US -> en-GB -> auto-generated English
-
-        Args:
-            video_id: YouTube video ID
-
-        Returns:
-            Transcript text or None if unavailable
-        """
+    
+    def _parse_iso_date(self, date_str: str | None) -> datetime:
+        """Parse ISO 8601 date string."""
+        if not date_str:
+            return self.get_current_utc_time()
+        
         try:
-            api = YouTubeTranscriptApi()
-
-            # Try preferred languages
-            for lang in self.TRANSCRIPT_LANGUAGE_PRIORITY:
-                try:
-                    transcript_list = api.fetch(video_id, [lang])
-                    return self._format_transcript(transcript_list)
-                except NoTranscriptFound:
-                    continue
-
-            # Try auto-generated English
-            try:
-                transcript_list = api.fetch(video_id, ["en"], preserve_formatting=True)
-                return self._format_transcript(transcript_list)
-            except (TranscriptsDisabled, NoTranscriptFound):
-                return None
-
-        except TranscriptsDisabled:
-            logger.debug(f"Transcripts disabled for video {video_id}")
-            return None
-        except Exception as e:
-            logger.warning(f"Failed to fetch transcript for {video_id}: {e}")
-            return None
-
-    def _format_transcript(self, transcript_list: list) -> str:
-        """Format transcript list into text.
-
-        Args:
-            transcript_list: List of transcript snippets
-
-        Returns:
-            Formatted transcript text
-        """
-        # Convert to list if needed
-        transcripts = list(transcript_list) if not isinstance(transcript_list, list) else transcript_list
-
-        # Extract text from snippets
-        texts = []
-        for snippet in transcripts:
-            # Use attribute access (FetchedTranscriptSnippet)
-            text = getattr(snippet, "text", None) or snippet.get("text", "")
-            if text:
-                texts.append(text)
-
-        return " ".join(texts)
-
-    def _parse_date(self, entry: Any) -> datetime:
-        """Parse publication date from YouTube RSS entry.
-
-        Args:
-            entry: feedparser entry object
-
-        Returns:
-            Timezone-aware datetime (defaults to current UTC time if parsing fails)
-        """
-        # Try published_parsed first (struct_time)
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
-            try:
-                dt = datetime(*entry.published_parsed[:6], tzinfo=UTC)
-                return dt
-            except (TypeError, ValueError):
-                pass
-
-        # Try published string
-        published = entry.get("published") or entry.get("pubDate")
-        if published:
-            try:
-                parsed = email.utils.parsedate_to_datetime(published)
-                if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=UTC)
-                return parsed
-            except (TypeError, ValueError):
-                pass
-
-        # Fallback to current time
-        logger.debug(f"No valid publication date found, using current UTC time")
-        return self.get_current_utc_time()
+            from datetime import datetime
+            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            return dt
+        except (ValueError, TypeError):
+            return self.get_current_utc_time()
 ```
 
----
-
-### 2. connector_factory.py 修改
+### 3. 配置更新
 
 ```python
-# 添加导入
-from .youtube_connector import YouTubeConnector
+# config.py 添加
+class Settings(BaseSettings):
+    # ... existing settings ...
+    
+    # YouTube Data API
+    youtube_api_key: str | None = None
+    
+    # Playwright transcript extraction
+    youtube_transcript_timeout: int = 60
+    youtube_transcript_delay_min: float = 2.0
+    youtube_transcript_delay_max: float = 5.0
+```
 
-# 更新注册表
-CONNECTOR_REGISTRY: dict[str, type[BaseConnector]] = {
-    "rss": RSSConnector,
-    "api": APIConnector,
-    "web": WebScraperConnector,
-    "media": MediaAPIConnector,
-    "youtube": YouTubeConnector,  # 新增
-}
+### 4. 依赖更新
+
+```toml
+# pyproject.toml
+dependencies = [
+    # ... existing dependencies ...
+    "playwright>=1.40.0",
+    "google-api-python-client>=2.100.0",
+]
 ```
 
 ---
 
-### 3. 采集流程兼容性
+## 关键技术决策
 
-**ingest_source 任务无需修改**，原因：
+### 为什么选择 Playwright 无头浏览器？
 
-1. **连接器选择**：`get_connector_for_source(source)` 自动根据 `connector_type` 选择连接器
-2. **输出格式**：`FetchResult` 与 `RSSConnector` 一致
-3. **重定向处理**：RSS URL 重定向信息记录到日志，不影响源配置
-4. **失败追踪**：`ConnectorError` 抛出后，任务层自动追踪 `consecutive_failures` 并冻结源
+| 方案 | 问题 |
+|------|------|
+| youtube-transcript-api | timedtext API 返回 HTTP 429 |
+| yt-dlp --write-subs | 同样依赖 timedtext API |
+| YouTube Data API captions.download | 只能下载自己频道的字幕 |
+| **Playwright 无头浏览器** | ✅ 绕过 API 限制，可下载任意字幕 |
 
-**重定向处理差异**：
-
-| 场景 | RSS 源 | YouTube 源 |
-|------|--------|------------|
-| 301/308 检测 | ✅ | ✅ |
-| 更新源配置 | `source.config["feed_url"] = new_url` | 不更新（无 feed_url 字段） |
-| 处理方式 | 自动更新 | 记录日志，可能更新 `resolved_channel_id` |
-
----
-
-### 4. 错误处理策略
-
-| 错误类型 | 场景 | 连接器行为 | 任务层处理 |
-|----------|------|------------|------------|
-| **配置验证失败** | 无效 URL、非 YouTube 域名 | `ValueError`（阻止源创建） | 源创建失败 |
-| **channel_id 解析失败** | 频道不存在、页面结构变更 | `ConnectorError` | `consecutive_failures += 1` |
-| **RSS 获取失败** | 网络错误、HTTP 错误 | `ConnectorError` | `consecutive_failures += 1` |
-| **字幕提取失败** | 无字幕、语言不匹配 | 返回 `None`，降级用描述 | 正常完成，不计失败 |
-| **连续失败 ≥ N** | N = `max_consecutive_failures` | 无需处理 | 自动冻结源 |
-
----
-
-### 5. 测试策略
-
-#### 单元测试
+### 无头模式配置
 
 ```python
-# tests/services/test_youtube_connector.py
-
-class TestYouTubeConnectorValidate:
-    """配置验证测试"""
-
-    def test_valid_channel_url_handle(self):
-        """测试 @Handle 格式 URL"""
-        connector = YouTubeConnector({
-            "channel_url": "https://www.youtube.com/@BlackHatOfficialYT"
-        })
-        assert connector.validate_config() is True
-
-    def test_valid_channel_url_id(self):
-        """测试 /channel/ID 格式 URL"""
-        connector = YouTubeConnector({
-            "channel_url": "https://www.youtube.com/channel/UCJ6q9Ie29ajGqKApbLqfBOg"
-        })
-        assert connector.validate_config() is True
-
-    def test_invalid_url_missing_channel_url(self):
-        """测试缺少 channel_url"""
-        with pytest.raises(ValueError, match="requires 'channel_url'"):
-            YouTubeConnector({}).validate_config()
-
-    def test_invalid_url_non_youtube(self):
-        """测试非 YouTube 域名"""
-        with pytest.raises(ValueError, match="must be youtube.com"):
-            YouTubeConnector({
-                "channel_url": "https://vimeo.com/somechannel"
-            }).validate_config()
-
-
-class TestYouTubeConnectorTranscript:
-    """字幕提取测试"""
-
-    @pytest.mark.asyncio
-    async def test_fetch_transcript_success(self):
-        """测试成功获取字幕"""
-
-    @pytest.mark.asyncio
-    async def test_fetch_transcript_disabled(self):
-        """测试字幕禁用"""
-
-    @pytest.mark.asyncio
-    async def test_fetch_transcript_fallback_description(self):
-        """测试降级使用描述"""
-
-
-class TestYouTubeConnectorIntegration:
-    """完整流程测试"""
-
-    @pytest.mark.asyncio
-    async def test_fetch_returns_fetch_result(self):
-        """测试返回 FetchResult"""
-
-    @pytest.mark.asyncio
-    async def test_fetch_items_format(self):
-        """测试输出格式符合标准"""
+browser = await p.chromium.launch_persistent_context(
+    user_data_dir="/tmp/playwright_yt_data",
+    headless=True,              # 隐藏窗口
+    args=[
+        '--disable-blink-features=AutomationControlled',
+        '--mute-audio',          # 静音
+        '--disable-audio-output', # 禁用音频
+    ]
+)
 ```
 
-#### 集成测试
-
-```python
-# tests/integration/test_youtube_connector.py
-
-class TestYouTubeConnectorReal:
-    """真实频道测试"""
-
-    @pytest.mark.integration
-    @pytest.mark.asyncio
-    async def test_blackhat_channel(self):
-        """测试 Black Hat 官方频道"""
-        connector = YouTubeConnector({
-            "channel_url": "https://www.youtube.com/@BlackHatOfficialYT"
-        })
-        result = await connector.fetch()
-
-        assert isinstance(result, FetchResult)
-        assert len(result.items) > 0
-        assert all(item["external_id"] for item in result.items)
-        assert all(item["url"].startswith("https://") for item in result.items)
-
-    @pytest.mark.integration
-    @pytest.mark.asyncio
-    async def test_owasp_channel(self):
-        """测试 OWASP 频道"""
-        connector = YouTubeConnector({
-            "channel_url": "https://www.youtube.com/@OWASPGLOBAL"
-        })
-        result = await connector.fetch()
-
-        assert len(result.items) > 0
-```
+**效果**：
+- 无浏览器窗口显示
+- 无声音播放
+- 用户完全无感知
 
 ---
 
-### 6. 配置示例
+## 错误处理与降级策略
 
-#### API 请求
-
-```bash
-curl -X POST http://localhost:8000/api/v1/admin/sources \
-  -H "Authorization: Bearer <admin_key>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Black Hat Official",
-    "connector_type": "youtube",
-    "tier": "T1",
-    "config": {
-      "channel_url": "https://www.youtube.com/@BlackHatOfficialYT"
-    }
-  }'
-```
-
-#### sources.yaml 格式
-
-```yaml
-sources:
-  - name: Black Hat Official
-    connector_type: youtube
-    tier: T1
-    config:
-      channel_url: https://www.youtube.com/@BlackHatOfficialYT
-
-  - name: OWASP Global
-    connector_type: youtube
-    tier: T1
-    config:
-      channel_url: https://www.youtube.com/@OWASPGLOBAL
-```
+| 场景 | 处理方式 |
+|------|----------|
+| 视频无字幕 | 使用视频描述作为 content |
+| Transcript 按钮不存在 | 检测并跳过字幕提取 |
+| 页面加载超时 | 重试 1 次，失败则用描述 |
+| Playwright 异常 | 记录日志，使用描述 |
+| YouTube API Key 未配置 | 回退到 RSS Feed 获取视频列表 |
+| YouTube API 配额超限 | 回退到 RSS Feed |
 
 ---
 
-## 文件变更清单
+## 测试验证结果
 
-| 文件 | 操作 | 说明 |
-|------|------|------|
-| `src/cyberpulse/services/youtube_connector.py` | **新增** | YouTube 频道连接器 |
-| `src/cyberpulse/services/connector_factory.py` | **修改** | 注册 `youtube` 类型 |
-| `src/cyberpulse/services/__init__.py` | **修改** | 导出 `YouTubeConnector` |
-| `tests/services/test_youtube_connector.py` | **新增** | 单元测试 |
-| `tests/integration/test_youtube_connector.py` | **新增** | 集成测试 |
-| `docs/source-config-examples.md` | **修改** | 添加 YouTube 源配置示例 |
+| 测试视频 | 时长 | 字幕 | 状态 |
+|----------|------|------|------|
+| Rick Astley - Never Gonna Give You Up | ~3分钟 | ✅ | ✅ 成功 |
+| Black Hat 2024 演讲 | ~39分钟 | ✅ | ✅ 成功 |
+| Tanya Janka 安全演讲 | ~60分钟 | ✅ | ✅ 成功 |
+| SANS DFIR (无字幕) | ~29分钟 | ❌ | ✅ 正确处理 |
+| GCHQ Director 演讲 | ~50分钟 | ✅ | ✅ 成功 |
 
 ---
 
-## 与 RSS 源对照检查表
+## 性能考量
 
-| 检查项 | RSSConnector | YouTubeConnector | 状态 |
-|--------|--------------|------------------|------|
-| 必填字段验证 | `feed_url` | `channel_url` | ✅ |
-| 字段类型验证 | ✅ | ✅ | ✅ |
-| 非空验证 | ✅ | ✅ | ✅ |
-| SSRF 防护 | ✅ | ✅ | ✅ |
-| YouTube 域名验证 | N/A | ✅ | ✅ |
-| httpx 客户端配置 | ✅ | ✅ | ✅ |
-| 浏览器 Headers | ✅ | ✅ | ✅ |
-| 重定向跟随 | ✅ | ✅ | ✅ |
-| 最终 URL SSRF 验证 | ✅ | ✅ | ✅ |
-| 301/308 永久重定向检测 | ✅ | ✅ | ✅ |
-| feedparser 解析 | ✅ | ✅ | ✅ |
-| bozo 容错 | ✅ | ✅ | ✅ |
-| 条目解析失败处理 | ✅ | ✅ | ✅ |
-| 日期解析（多格式） | ✅ | ✅ | ✅ |
-| 时区处理 | ✅ | ✅ | ✅ |
-| 返回 FetchResult | ✅ | ✅ | ✅ |
-| 错误处理 | ✅ | ✅ | ✅ |
-| 标准化输出格式 | ✅ | ✅ | ✅ |
+| 指标 | 预估值 |
+|------|--------|
+| 单视频字幕提取时间 | 8-12 秒 |
+| 内存占用（Playwright） | ~200MB |
+| 并发能力 | 建议串行执行 |
+| 建议延迟 | 视频间间隔 2-5 秒 |
 
 ---
 
 ## Why
 
-用户需要跟踪 YouTube 频道最新视频，以字幕作为正文内容。无 API Key 方案避免了配额限制和第三方依赖。
+用户需要跟踪 YouTube 频道最新视频，以字幕作为正文内容。原有 youtube-transcript-api 方案因 YouTube timedtext API 的极端反自动化保护而失败。Playwright 无头浏览器方案成功绕过限制。
 
 ## How to apply
 
-1. 实现 `YouTubeConnector` 类
-2. 在 `connector_factory.py` 注册 `youtube` 类型
-3. 更新 `__init__.py` 导出
-4. 编写单元测试和集成测试
-5. 更新配置文档
-
-实现时严格遵循 `RSSConnector` 的模式，确保与现有采集流程完全兼容。
+1. 添加 playwright 依赖到 pyproject.toml
+2. 更新 Dockerfile 安装 Chromium
+3. 创建 TranscriptExtractor 服务
+4. 更新 YouTubeConnector 整合新方案
+5. 更新配置添加 YouTube API Key
+6. 编写测试用例
