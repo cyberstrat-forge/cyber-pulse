@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-04-06
+
+### Added
+
+- YouTube 频道字幕采集连接器 (#118)
+  - 新增 `TranscriptExtractor` 服务：使用 Playwright 无头浏览器提取字幕
+  - 绕过 YouTube timedtext API HTTP 429 限流问题
+  - 支持 YouTube Data API v3 获取视频列表（需配置 API Key）
+  - RSS Feed 作为 API 不可用时的降级方案
+  - 字幕不可用时自动使用视频描述作为内容
+  - 随机延迟避免频率限制
+
+- `api.sh` API Keys 管理命令
+  - `api.sh api-keys list` 查看 API Keys 配置状态
+  - `api.sh api-keys set YOUTUBE_API_KEY <key>` 设置 YouTube API Key
+  - `api.sh api-keys get YOUTUBE_API_KEY` 获取 API Key 值
+
+- 配置项新增
+  - `youtube_api_key`: YouTube Data API v3 Key
+  - `youtube_transcript_timeout`: 字幕提取超时时间（秒）
+  - `youtube_transcript_delay_min/max`: 字幕提取延迟范围（秒）
+
+- Docker 镜像集成 Playwright Chromium
+  - Worker 镜像包含 Chromium 浏览器
+  - 支持无头模式、静音运行
+
+### Changed
+
+- 错误处理改进
+  - `TranscriptExtractor` 使用特定异常类型（PlaywrightTimeoutError, PlaywrightError）
+  - 日期解析失败日志级别从 DEBUG 改为 WARNING
+  - 所有错误日志包含 video_url 上下文
+
+- 移除未使用的配置项（youtube_cookies, youtube_proxy）
+
 ## [1.9.0] - 2026-04-03
 
 ### Added
