@@ -718,7 +718,6 @@ class TestYouTubeConnectorSSRFProtection:
     @pytest.mark.asyncio
     async def test_fetch_video_list_ssrf_redirect_blocked(self):
         """Test SSRF redirect to internal URL is blocked."""
-        from cyberpulse.services.base import SSRFError
 
         connector = YouTubeConnector({
             "channel_url": "https://www.youtube.com/@TestChannel"
@@ -741,7 +740,7 @@ class TestYouTubeConnectorSSRFProtection:
 
     def test_validate_url_for_ssrf_blocks_localhost(self):
         """Test that validate_url_for_ssrf blocks localhost URLs."""
-        from cyberpulse.services.base import validate_url_for_ssrf, SSRFError
+        from cyberpulse.services.base import SSRFError, validate_url_for_ssrf
 
         with pytest.raises(SSRFError, match="localhost"):
             validate_url_for_ssrf("http://127.0.0.1/internal")
