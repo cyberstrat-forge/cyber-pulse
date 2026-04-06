@@ -41,8 +41,6 @@ class Settings(BaseSettings):
     youtube_transcript_delay_min: float = 2.0  # Min delay between requests (seconds)
     youtube_transcript_delay_max: float = 5.0  # Max delay between requests (seconds)
     youtube_transcript_timeout: int = 60  # Page load timeout (seconds)
-    youtube_cookies: str | None = None  # Cookies string for YouTube transcript API
-    youtube_proxy: str | None = None  # Proxy URL for yt-dlp (e.g., "socks5://127.0.0.1:1080")
 
     # Logging
     log_level: str = "INFO"
