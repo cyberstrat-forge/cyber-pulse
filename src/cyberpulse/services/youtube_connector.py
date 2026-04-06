@@ -145,7 +145,8 @@ class YouTubeConnector(BaseConnector):
             except HttpError as e:
                 if e.resp.status in (403, 429):
                     logger.warning(
-                        f"YouTube API quota/rate limited, falling back to RSS: HTTP {e.resp.status}"
+                        "YouTube API quota/rate limited, falling back to RSS: "
+                        f"HTTP {e.resp.status}"
                     )
                 else:
                     logger.warning(
@@ -317,7 +318,9 @@ class YouTubeConnector(BaseConnector):
                 dt = dt.replace(tzinfo=UTC)
             return dt
         except (ValueError, TypeError) as e:
-            logger.warning(f"Failed to parse ISO date '{date_str}', using current time: {e}")
+            logger.warning(
+                f"Failed to parse ISO date '{date_str}', using current time: {e}"
+            )
             return self.get_current_utc_time()
 
     async def _resolve_channel_url(self, channel_url: str) -> str:
@@ -597,7 +600,10 @@ class YouTubeConnector(BaseConnector):
                     parsed = parsed.replace(tzinfo=UTC)
                 return parsed
             except (TypeError, ValueError) as e:
-                logger.warning(f"Failed to parse date string '{published}', using current time: {e}")
+                logger.warning(
+                    f"Failed to parse date string '{published}', "
+                    f"using current time: {e}"
+                )
 
         # Fallback to current time
         logger.warning("No valid publication date found, using current UTC time")
@@ -685,7 +691,10 @@ class YouTubeConnector(BaseConnector):
             result = await self._transcript_extractor.extract(url)
 
             if result.success:
-                logger.debug(f"Successfully extracted transcript for {video_id}: {len(result.text or '')} chars")
+                logger.debug(
+                    f"Successfully extracted transcript for {video_id}: "
+                    f"{len(result.text or '')} chars"
+                )
                 return result.text
             else:
                 # Log at debug level - no transcript is expected for some videos
@@ -693,6 +702,9 @@ class YouTubeConnector(BaseConnector):
                 return None
 
         except Exception as e:
-            # Unexpected error during extraction (should be rare after Playwright error handling)
-            logger.warning(f"Unexpected error extracting transcript for {video_id}: {type(e).__name__}: {e}")
+            # Unexpected error during extraction (should be rare)
+            logger.warning(
+                f"Unexpected error extracting transcript for {video_id}: "
+                f"{type(e).__name__}: {e}"
+            )
             return None

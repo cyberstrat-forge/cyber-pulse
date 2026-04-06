@@ -3,7 +3,9 @@
 import logging
 from dataclasses import dataclass
 
-from playwright.async_api import async_playwright, Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
@@ -183,13 +185,19 @@ class TranscriptExtractor:
                 return TranscriptResult(success=True, text=full_text, lines=lines)
 
             except PlaywrightTimeoutError as e:
-                logger.error(f"Transcript extraction timeout for {video_url}: {e}")
+                logger.error(
+                    f"Transcript extraction timeout for {video_url}: {e}"
+                )
                 return TranscriptResult(success=False, error=f"Timeout: {e}")
             except PlaywrightError as e:
-                logger.error(f"Playwright error extracting transcript from {video_url}: {e}")
+                logger.error(
+                    f"Playwright error extracting transcript from {video_url}: {e}"
+                )
                 return TranscriptResult(success=False, error=f"Browser error: {e}")
             except ValueError as e:
-                logger.error(f"Invalid data for transcript extraction {video_url}: {e}")
+                logger.error(
+                    f"Invalid data for transcript extraction {video_url}: {e}"
+                )
                 return TranscriptResult(success=False, error=str(e))
 
             finally:
