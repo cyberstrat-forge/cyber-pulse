@@ -171,17 +171,22 @@ curl "http://localhost:8000/api/v1/admin/sources" \
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | name | string | 是 | 情报源名称（唯一） |
-| connector_type | string | 是 | 连接器类型：rss, api, web_scraper, media_api |
+| connector_type | string | 是 | 连接器类型：rss, youtube, api, web_scraper, media_api |
 | tier | string | 否 | 层级：T0, T1, T2, T3（默认 T2） |
 | score | float | 否 | 质量评分 0-100（默认根据 tier 推导） |
-| config | object | 否 | 连接器配置 |
+| config | object | 否 | 连接器配置（RSS 用 feed_url，YouTube 用 channel_url） |
 
-**api.sh:**
+**api.sh (RSS):**
 ```bash
 ./scripts/api.sh sources create --name "Security Weekly" --type rss --url "https://example.com/feed.xml" --tier T1
 ```
 
-**curl:**
+**api.sh (YouTube):**
+```bash
+./scripts/api.sh sources create --name "Black Hat Official" --type youtube --url "https://www.youtube.com/@BlackHatOfficialYT" --tier T1
+```
+
+**curl (RSS):**
 ```bash
 curl -X POST "http://localhost:8000/api/v1/admin/sources" \
   -H "Authorization: Bearer cp_live_xxx" \
@@ -293,7 +298,11 @@ curl "http://localhost:8000/api/v1/admin/sources/src_a1b2c3d4" \
 
 **api.sh:**
 ```bash
+# 更新层级和评分
 ./scripts/api.sh sources update src_a1b2c3d4 --tier T0 --score 85
+
+# 更新 URL（RSS 源使用 feed_url，YouTube 源使用 channel_url）
+./scripts/api.sh sources update src_yt12345 --url "https://www.youtube.com/@NewChannel"
 ```
 
 **curl:**
@@ -356,7 +365,10 @@ curl -X DELETE "http://localhost:8000/api/v1/admin/sources/src_a1b2c3d4" \
 
 #### POST /api/v1/admin/sources/{source_id}/test
 
-测试情报源连接性。对 RSS 源执行连接测试，返回响应时间和发现的条目数。
+测试情报源连接性。
+
+- **RSS 源**：执行连接测试，返回响应时间和发现的条目数
+- **YouTube 源**：测试频道页面可访问性，返回响应时间
 
 **api.sh:**
 ```bash
@@ -412,7 +424,10 @@ curl -X POST "http://localhost:8000/api/v1/admin/sources/src_a1b2c3d4/test" \
 
 #### POST /api/v1/admin/sources/{source_id}/validate
 
-验证情报源质量。对 RSS 源执行质量验证，检查内容完整性。
+验证情报源质量。
+
+- **RSS 源**：执行质量验证，检查内容完整性
+- **YouTube 源**：验证频道 URL 格式，支持 /channel/ID、/c/NAME、/user/NAME、/@HANDLE
 
 **api.sh:**
 ```bash
@@ -425,7 +440,7 @@ curl -X POST "http://localhost:8000/api/v1/admin/sources/src_a1b2c3d4/validate" 
   -H "Authorization: Bearer cp_live_xxx"
 ```
 
-**响应示例：**
+**响应示例 (RSS):**
 ```json
 {
   "source_id": "src_a1b2c3d4",
@@ -435,6 +450,19 @@ curl -X POST "http://localhost:8000/api/v1/admin/sources/src_a1b2c3d4/validate" 
   "avg_content_length": 1250,
   "rejection_reason": null,
   "samples_analyzed": 5
+}
+```
+
+**响应示例 (YouTube):**
+```json
+{
+  "source_id": "src_yt12345",
+  "is_valid": true,
+  "content_type": "video",
+  "sample_completeness": 0.0,
+  "avg_content_length": 0,
+  "rejection_reason": null,
+  "samples_analyzed": 0
 }
 ```
 
