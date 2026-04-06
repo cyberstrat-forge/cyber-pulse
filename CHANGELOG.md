@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-04-06
+
+### Added
+
+- `api.sh` YouTube 源管理支持 (#120)
+  - `api.sh sources create --type youtube --url <channel_url>` 创建 YouTube 源
+  - `api.sh sources update <id> --url <new_url>` 更新 YouTube 源 URL
+  - 自动根据 connector_type 使用 `channel_url`（YouTube）或 `feed_url`（RSS）
+
+### Fixed
+
+- YouTube URL 验证支持多种格式（/channel/ID, /c/NAME, /user/NAME, /@HANDLE）
+- YouTube URL 验证支持 `www.` 前缀和协议可选
+- `_validate_youtube_source` 返回正确的 `sample_completeness: 0.0`（未分析内容）
+- `_test_youtube_source` 移除显式 `warnings=None` 避免 Pydantic 验证错误
+- `api.sh sources update` 添加 `check_api_error` 验证 API 响应
+
+### Changed
+
+- `_test_youtube_source` 和 `_validate_youtube_source` 添加完整日志记录
+- Admin API 参考文档更新 YouTube 源支持说明
+
 ## [1.10.0] - 2026-04-06
 
 ### Added
@@ -472,6 +494,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.10.1]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.10.1
+[1.10.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.10.0
 [1.9.0]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.9.0
 [1.8.4]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.4
 [1.8.3]: https://github.com/cyberstrat-forge/cyber-pulse/releases/tag/v1.8.3
