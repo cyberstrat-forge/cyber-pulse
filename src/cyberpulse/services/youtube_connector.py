@@ -3,6 +3,7 @@
 import asyncio
 import email.utils
 import logging
+import random
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -10,9 +11,11 @@ from urllib.parse import urlparse
 
 import feedparser
 import httpx
+import requests
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
 
+from ..config import settings
 from .base import SSRFError, validate_url_for_ssrf
 from .connector_service import BaseConnector, ConnectorError
 from .http_headers import get_browser_headers
@@ -398,6 +401,8 @@ class YouTubeConnector(BaseConnector):
     ) -> list[dict[str, Any]]:
         """Process video entries: fetch transcripts and build items.
 
+        Adds random delay between transcript requests to avoid rate limiting.
+
         Args:
             video_entries: List of parsed video entries
 
@@ -406,8 +411,20 @@ class YouTubeConnector(BaseConnector):
         """
         items = []
 
-        for entry in video_entries:
+        for i, entry in enumerate(video_entries):
             video_id = entry["video_id"]
+
+            # Add random delay before fetching transcript (except first video)
+            # This helps avoid YouTube's rate limiting and IP blocking
+            if i > 0:
+                delay = random.uniform(
+                    settings.youtube_transcript_delay_min,
+                    settings.youtube_transcript_delay_max,
+                )
+                logger.debug(
+                    f"Waiting {delay:.1f}s before fetching transcript for {video_id}"
+                )
+                await asyncio.sleep(delay)
 
             # Try to fetch transcript
             transcript = await self._fetch_transcript(video_id)
@@ -442,6 +459,8 @@ class YouTubeConnector(BaseConnector):
 
         Language priority: en -> en-US -> en-GB -> auto-generated English
 
+        Supports cookies from configuration to bypass IP blocking.
+
         Args:
             video_id: YouTube video ID
 
@@ -449,7 +468,27 @@ class YouTubeConnector(BaseConnector):
             Transcript text or None if unavailable
         """
         try:
-            api = YouTubeTranscriptApi()
+            # Get cookies from settings (can be set via environment variable)
+            cookies = self._get_cookies()
+            if cookies:
+                # Create a requests.Session with cookies
+                session = requests.Session()
+                session.cookies.update(cookies)
+                # Set browser-like headers
+                session.headers.update(
+                    {
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        ),
+                        "Accept-Language": "en-US,en;q=0.9",
+                    }
+                )
+                api = YouTubeTranscriptApi(http_client=session)
+                logger.debug(f"Using cookies for transcript fetch: {video_id}")
+            else:
+                api = YouTubeTranscriptApi()
 
             # Try preferred languages (wrap synchronous API in asyncio.to_thread)
             for lang in self.TRANSCRIPT_LANGUAGE_PRIORITY:
@@ -483,6 +522,60 @@ class YouTubeConnector(BaseConnector):
                 f"{type(e).__name__}: {e}"
             )
             return None
+
+    def _get_cookies(self) -> dict[str, str] | None:
+        """Get cookies from settings or source config.
+
+        Cookies can be provided via:
+        - Environment variable: YOUTUBE_COOKIES
+          (string format: "name=value; name2=value2")
+        - Source config: config["cookies"] (dict format)
+
+        Returns:
+            Cookies dict or None if not configured
+        """
+        # First check source config (allows per-source cookies)
+        if "cookies" in self.config and isinstance(self.config["cookies"], dict):
+            logger.debug("Using cookies from source config")
+            return self.config["cookies"]
+
+        # Then check global settings (from environment variable)
+        if settings.youtube_cookies:
+            logger.debug("Using cookies from environment variable")
+            return self._parse_cookies_string(settings.youtube_cookies)
+
+        return None
+
+    def _parse_cookies_string(self, cookies_str: str) -> dict[str, str]:
+        """Parse cookies string into dict.
+
+        Supports formats:
+        - "name=value; name2=value2"
+        - "name=value&name2=value2"
+
+        Args:
+            cookies_str: Cookies string
+
+        Returns:
+            Cookies dict
+        """
+        cookies = {}
+
+        # Try semicolon separator first (standard cookie format)
+        if ";" in cookies_str:
+            parts = cookies_str.split(";")
+        elif "&" in cookies_str:
+            parts = cookies_str.split("&")
+        else:
+            parts = [cookies_str]
+
+        for part in parts:
+            part = part.strip()
+            if "=" in part:
+                name, value = part.split("=", 1)
+                cookies[name.strip()] = value.strip()
+
+        return cookies
 
     def _format_transcript(self, transcript_list: Any) -> str:
         """Format transcript list into text.

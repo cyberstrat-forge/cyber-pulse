@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # Ingestion
     max_consecutive_failures: int = 5  # Freeze source after this many failures
 
+    # YouTube transcript settings (anti-rate-limiting)
+    youtube_transcript_delay_min: float = 2.0  # Min delay between requests (seconds)
+    youtube_transcript_delay_max: float = 5.0  # Max delay between requests (seconds)
+    youtube_cookies: str | None = None  # Cookies string for YouTube transcript API
+
     # Logging
     log_level: str = "INFO"
     log_file: str | None = "logs/cyberpulse.log"
@@ -62,9 +67,10 @@ class Settings(BaseSettings):
 
         if is_production and self.secret_key == DEFAULT_SECRET_KEY:
             raise RuntimeError(
-                "SECURITY ERROR: secret_key is set to the default value in production! "
-                "Please set SECRET_KEY environment variable to a secure random string. "
-                "You can generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+                "SECURITY ERROR: secret_key is set to the default value in "
+                "production! Please set SECRET_KEY environment variable to a "
+                "secure random string. You can generate one with: "
+                "python -c \"import secrets; print(secrets.token_hex(32))\""
             )
 
         if is_production:

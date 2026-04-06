@@ -999,3 +999,249 @@ class TestYouTubeConnectorRedirect308:
 
         assert result.redirect_info is not None
         assert result.redirect_info["status_code"] == 308
+
+
+class TestYouTubeConnectorRandomDelay:
+    """Tests for random delay between transcript requests."""
+
+    @pytest.mark.asyncio
+    async def test_delay_between_transcript_requests(self):
+        """Test that delay is added between transcript fetch requests."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [
+            {
+                "video_id": "vid1",
+                "url": "https://www.youtube.com/watch?v=vid1",
+                "title": "First Video",
+                "description": "Description 1",
+                "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+            {
+                "video_id": "vid2",
+                "url": "https://www.youtube.com/watch?v=vid2",
+                "title": "Second Video",
+                "description": "Description 2",
+                "published_at": datetime(2024, 1, 16, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+        ]
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+            mock_transcript.return_value = None
+
+            start_time = time.time()
+            items = await connector._process_videos(video_entries)
+            elapsed_time = time.time() - start_time
+
+        # Should have 2 items
+        assert len(items) == 2
+        # Should have at least 2 seconds delay (min delay from settings)
+        # between first and second video
+        assert elapsed_time >= 2.0
+
+    @pytest.mark.asyncio
+    async def test_no_delay_for_first_video(self):
+        """Test that no delay is added for the first video."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [
+            {
+                "video_id": "vid1",
+                "url": "https://www.youtube.com/watch?v=vid1",
+                "title": "First Video",
+                "description": "Description 1",
+                "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+        ]
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+            mock_transcript.return_value = None
+
+            start_time = time.time()
+            items = await connector._process_videos(video_entries)
+            elapsed_time = time.time() - start_time
+
+        # Should have 1 item
+        assert len(items) == 1
+        # Should complete quickly (no delay for first video)
+        assert elapsed_time < 1.0
+
+    @pytest.mark.asyncio
+    async def test_delay_with_custom_settings(self):
+        """Test delay uses settings for min/max values."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [
+            {
+                "video_id": "vid1",
+                "url": "https://www.youtube.com/watch?v=vid1",
+                "title": "First Video",
+                "description": "Description 1",
+                "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+            {
+                "video_id": "vid2",
+                "url": "https://www.youtube.com/watch?v=vid2",
+                "title": "Second Video",
+                "description": "Description 2",
+                "published_at": datetime(2024, 1, 16, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+        ]
+
+        # Patch asyncio.sleep to track delay values
+        sleep_values = []
+
+        async def mock_sleep(delay):
+            sleep_values.append(delay)
+
+        with patch("asyncio.sleep", new_callable=AsyncMock, side_effect=mock_sleep):
+            with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+                mock_transcript.return_value = None
+                await connector._process_videos(video_entries)
+
+        # Should have exactly one sleep call (for second video)
+        assert len(sleep_values) == 1
+        # Delay should be between min (2.0) and max (5.0) from settings
+        assert 2.0 <= sleep_values[0] <= 5.0
+
+
+class TestYouTubeConnectorCookies:
+    """Tests for cookies support."""
+
+    def test_parse_cookies_string_semicolon(self):
+        """Test parsing cookies string with semicolon separator."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        cookies_str = "VISITOR_INFO1_LIVE=test123; PREF=en"
+        cookies = connector._parse_cookies_string(cookies_str)
+
+        assert cookies == {"VISITOR_INFO1_LIVE": "test123", "PREF": "en"}
+
+    def test_parse_cookies_string_ampersand(self):
+        """Test parsing cookies string with ampersand separator."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        cookies_str = "VISITOR_INFO1_LIVE=test123&PREF=en"
+        cookies = connector._parse_cookies_string(cookies_str)
+
+        assert cookies == {"VISITOR_INFO1_LIVE": "test123", "PREF": "en"}
+
+    def test_parse_cookies_string_empty(self):
+        """Test parsing empty cookies string."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        cookies = connector._parse_cookies_string("")
+
+        assert cookies == {}
+
+    def test_get_cookies_from_source_config(self):
+        """Test getting cookies from source config."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel",
+            "cookies": {"VISITOR_INFO1_LIVE": "config123"}
+        })
+
+        cookies = connector._get_cookies()
+
+        assert cookies == {"VISITOR_INFO1_LIVE": "config123"}
+
+    def test_get_cookies_from_settings(self):
+        """Test getting cookies from global settings."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        with patch("cyberpulse.services.youtube_connector.settings") as mock_settings:
+            mock_settings.youtube_cookies = "VISITOR_INFO1_LIVE=settings123"
+            cookies = connector._get_cookies()
+
+        assert cookies == {"VISITOR_INFO1_LIVE": "settings123"}
+
+    def test_get_cookies_source_config_priority(self):
+        """Test source config takes priority over settings."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel",
+            "cookies": {"VISITOR_INFO1_LIVE": "config123"}
+        })
+
+        with patch("cyberpulse.services.youtube_connector.settings") as mock_settings:
+            mock_settings.youtube_cookies = "VISITOR_INFO1_LIVE=settings123"
+            cookies = connector._get_cookies()
+
+        # Should use source config, not settings
+        assert cookies == {"VISITOR_INFO1_LIVE": "config123"}
+
+    def test_get_cookies_none_when_not_configured(self):
+        """Test returns None when no cookies configured."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        with patch("cyberpulse.services.youtube_connector.settings") as mock_settings:
+            mock_settings.youtube_cookies = None
+            cookies = connector._get_cookies()
+
+        assert cookies is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_transcript_with_cookies(self):
+        """Test transcript fetch uses cookies when configured."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel",
+            "cookies": {"VISITOR_INFO1_LIVE": "test123"}
+        })
+
+        mock_transcript_list = [
+            MagicMock(text="Hello world")
+        ]
+
+        # Mock the entire transcript fetch process
+        with patch("cyberpulse.services.youtube_connector.requests.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.cookies.update = MagicMock()
+            mock_session.headers.update = MagicMock()
+            mock_session_class.return_value = mock_session
+
+            with patch("cyberpulse.services.youtube_connector.YouTubeTranscriptApi") as mock_api_class:
+                mock_api = MagicMock()
+                mock_api.fetch = MagicMock(return_value=mock_transcript_list)
+                mock_api_class.return_value = mock_api
+
+                # Mock asyncio.to_thread to return the transcript list
+                async def mock_thread(func, *args, **kwargs):
+                    return func(*args, **kwargs)
+
+                with patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=mock_thread):
+                    result = await connector._fetch_transcript("test_video_id")
+
+            # Verify session was created and cookies were set
+            mock_session_class.assert_called_once()
+            mock_session.cookies.update.assert_called_once_with(
+                {"VISITOR_INFO1_LIVE": "test123"}
+            )
+            # Verify YouTubeTranscriptApi was called with http_client
+            mock_api_class.assert_called_once_with(http_client=mock_session)
+
+        assert result == "Hello world"
