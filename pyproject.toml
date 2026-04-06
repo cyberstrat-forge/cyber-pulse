@@ -37,6 +37,7 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "beautifulsoup4>=4.14.3",
     "defusedxml>=0.7.1",
+    "playwright>=1.40.0",
 ]
 
 [project.optional-dependencies]
@@ -97,6 +98,10 @@ ignore = []
 [tool.ruff.lint.per-file-ignores]
 # Alembic migration files use module-level variables that appear unused
 "alembic/versions/*.py" = ["F841"]
+# Test files may have longer lines for readability (with statements, mock setup)
+"tests/**/*.py" = ["E501"]
+# transcript_extractor.py contains embedded JavaScript code in page.evaluate()
+"src/cyberpulse/services/transcript_extractor.py" = ["E501"]
 
 [dependency-groups]
 dev = [

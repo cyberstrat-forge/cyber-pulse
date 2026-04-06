@@ -156,6 +156,26 @@ cat .version
 ./scripts/api.sh clients list
 ```
 
+### API Keys 管理
+
+配置外部服务 API Keys（如 YouTube Data API）：
+
+```bash
+# 查看 API Keys 配置状态
+./scripts/api.sh api-keys list
+
+# 设置 YouTube API Key
+./scripts/api.sh api-keys set YOUTUBE_API_KEY your_api_key_here
+
+# 获取 API Key 值
+./scripts/api.sh api-keys get YOUTUBE_API_KEY
+
+# 重启服务使配置生效
+./scripts/cyber-pulse.sh restart
+```
+
+> 💡 **说明**：API Keys 存储在 `deploy/.env` 文件中，所有环境共享。如需环境隔离，可在 Google Cloud Console 创建不同的 API Key。
+
 ## 清理环境
 
 ### 方法一：一步式清理（推荐）

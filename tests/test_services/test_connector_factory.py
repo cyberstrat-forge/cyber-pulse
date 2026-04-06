@@ -10,6 +10,7 @@ from cyberpulse.services import (
     MediaAPIConnector,
     RSSConnector,
     WebScraperConnector,
+    YouTubeConnector,
     get_connector,
     get_connector_for_source,
 )
@@ -49,6 +50,13 @@ class TestGetConnector:
         }
         connector = get_connector("media", config)
         assert isinstance(connector, MediaAPIConnector)
+        assert connector.config == config
+
+    def test_get_connector_youtube(self):
+        """Test get_connector returns YouTubeConnector for 'youtube' type."""
+        config = {"channel_url": "https://www.youtube.com/@TestChannel"}
+        connector = get_connector("youtube", config)
+        assert isinstance(connector, YouTubeConnector)
         assert connector.config == config
 
     def test_get_connector_unknown_type(self):
@@ -116,6 +124,16 @@ class TestGetConnectorForSource:
         assert isinstance(connector, MediaAPIConnector)
         assert connector.config == mock_source.config
 
+    def test_get_connector_for_source_youtube(self):
+        """Test get_connector_for_source with YouTube source."""
+        mock_source = MagicMock()
+        mock_source.connector_type = "youtube"
+        mock_source.config = {"channel_url": "https://www.youtube.com/@TestChannel"}
+
+        connector = get_connector_for_source(mock_source)
+        assert isinstance(connector, YouTubeConnector)
+        assert connector.config == mock_source.config
+
     def test_get_connector_for_source_unknown_type(self):
         """Test get_connector_for_source raises error for unknown type."""
         mock_source = MagicMock()
@@ -131,7 +149,7 @@ class TestConnectorRegistry:
 
     def test_registry_contains_all_types(self):
         """Test registry contains all expected connector types."""
-        expected_types = {"rss", "api", "web", "media"}
+        expected_types = {"rss", "api", "web", "media", "youtube"}
         assert set(CONNECTOR_REGISTRY.keys()) == expected_types
 
     def test_registry_values_are_connector_classes(self):

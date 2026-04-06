@@ -266,6 +266,16 @@ ENVIRONMENT=${env}
 
 # 镜像版本（运维者模式使用）
 CYBER_PULSE_VERSION=latest
+
+# ==============================================
+# 外部服务 API Keys（可选）
+# ==============================================
+
+# YouTube Data API v3 Key
+# 获取方式: https://console.cloud.google.com/apis/credentials
+# 用于: 获取 YouTube 频道视频列表
+# 可选: 如未配置，将使用 RSS Feed 作为降级方案
+YOUTUBE_API_KEY=
 EOF
 
     # 设置安全权限

@@ -155,6 +155,13 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
         for item_data in items_data:
             try:
                 # Check if this is a duplicate before creating
+                # Merge connector-provided raw_metadata with standard fields
+                raw_metadata = item_data.get("raw_metadata", {})
+                raw_metadata.update({
+                    "author": item_data.get("author", ""),
+                    "tags": item_data.get("tags", []),
+                })
+
                 item = item_service.create_item(
                     source_id=source_id,
                     external_id=item_data["external_id"],
@@ -162,10 +169,7 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
                     title=item_data["title"],
                     raw_content=item_data.get("content", ""),
                     published_at=item_data["published_at"],
-                    raw_metadata={
-                        "author": item_data.get("author", ""),
-                        "tags": item_data.get("tags", []),
-                    },
+                    raw_metadata=raw_metadata,
                 )
 
                 # Only queue normalization for new items (not duplicates)
