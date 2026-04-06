@@ -775,7 +775,6 @@ async def _test_youtube_source(source: Source) -> TestResult:
             response_time_ms=elapsed_ms,
             items_found=0,  # YouTube 需要完整采集才能知道条目数
             last_modified=None,
-            warnings=None,
         )
 
     except httpx.TimeoutException:
