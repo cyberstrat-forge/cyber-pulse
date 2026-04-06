@@ -145,7 +145,13 @@ cat .version
 
 # 情报源管理
 ./scripts/api.sh sources list
-./scripts/api.sh sources create --name "名称" --type rss --url "URL" --tier T0
+
+# RSS 源
+./scripts/api.sh sources create --name "名称" --type rss --url "RSS_URL" --tier T0
+
+# YouTube 源（需先配置 YOUTUBE_API_KEY）
+./scripts/api.sh sources create --name "名称" --type youtube --url "CHANNEL_URL" --tier T1
+
 ./scripts/api.sh sources test <source_id>
 
 # 任务管理
