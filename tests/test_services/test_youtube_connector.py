@@ -71,6 +71,24 @@ class TestYouTubeConnectorValidateConfig:
         })
         assert connector.validate_config() is True
 
+    def test_validate_config_feed_url_as_alias(self):
+        """Test that feed_url works as alias for channel_url (api.sh compatibility)."""
+        connector = YouTubeConnector({
+            "feed_url": "https://www.youtube.com/@TestChannel"
+        })
+        assert connector.validate_config() is True
+        # Should normalize to channel_url
+        assert connector.config["channel_url"] == "https://www.youtube.com/@TestChannel"
+
+    def test_validate_config_channel_url_takes_precedence(self):
+        """Test that channel_url takes precedence over feed_url if both present."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@Primary",
+            "feed_url": "https://www.youtube.com/@Secondary"
+        })
+        assert connector.validate_config() is True
+        assert connector.config["channel_url"] == "https://www.youtube.com/@Primary"
+
 
 class TestYouTubeConnectorResolveChannelUrl:
     """Tests for _resolve_channel_url method."""

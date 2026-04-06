@@ -41,20 +41,33 @@ class YouTubeConnector(BaseConnector):
     def validate_config(self) -> bool:
         """Validate that channel_url is present and valid.
 
+        Supports both 'channel_url' and 'feed_url' config keys for compatibility
+        with api.sh script which uses 'feed_url'.
+
         Returns:
             True if configuration is valid
 
         Raises:
             ValueError: If channel_url is missing or invalid
         """
-        if "channel_url" not in self.config:
-            raise ValueError("YouTube connector requires 'channel_url' in config")
+        # Support both channel_url and feed_url (api.sh uses feed_url)
+        # Use "in" check to distinguish between missing key and empty string
+        if "channel_url" in self.config:
+            channel_url = self.config["channel_url"]
+        elif "feed_url" in self.config:
+            channel_url = self.config["feed_url"]
+        else:
+            raise ValueError(
+                "YouTube connector requires 'channel_url' (or 'feed_url') in config"
+            )
 
-        channel_url = self.config["channel_url"]
         if not channel_url or not isinstance(channel_url, str):
             raise ValueError(
                 "YouTube connector 'channel_url' must be a non-empty string"
             )
+
+        # Store normalized key for fetch()
+        self.config["channel_url"] = channel_url
 
         # SSRF protection: validate URL scheme and destination
         try:
