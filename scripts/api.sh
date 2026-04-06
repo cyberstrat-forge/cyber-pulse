@@ -561,14 +561,28 @@ cmd_sources_create() {
     [[ -z "$url" ]] && die "--url is required"
 
     local data
-    data=$(jq -n \
-        --arg name "$name" \
-        --arg type "$connector_type" \
-        --arg url "$url" \
-        --arg tier "$tier" \
-        --argjson needs_full_fetch "${needs_full_fetch:-false}" \
-        '{name: $name, connector_type: $type, config: {feed_url: $url}} + if $tier != "" then {tier: $tier} else {} end + if $needs_full_fetch then {needs_full_fetch: $needs_full_fetch} else {} end'
-    )
+
+    # 根据 connector_type 使用不同的 config key
+    if [[ "$connector_type" == "youtube" ]]; then
+        # YouTube 使用 channel_url
+        data=$(jq -n \
+            --arg name "$name" \
+            --arg type "$connector_type" \
+            --arg url "$url" \
+            --arg tier "$tier" \
+            '{name: $name, connector_type: $type, config: {channel_url: $url}} + if $tier != "" then {tier: $tier} else {} end'
+        )
+    else
+        # RSS 等类型使用 feed_url
+        data=$(jq -n \
+            --arg name "$name" \
+            --arg type "$connector_type" \
+            --arg url "$url" \
+            --arg tier "$tier" \
+            --argjson needs_full_fetch "${needs_full_fetch:-false}" \
+            '{name: $name, connector_type: $type, config: {feed_url: $url}} + if $tier != "" then {tier: $tier} else {} end + if $needs_full_fetch then {needs_full_fetch: $needs_full_fetch} else {} end'
+        )
+    fi
 
     local response
     response=$(api_post "/api/v1/admin/sources" "$data")
@@ -587,11 +601,13 @@ cmd_sources_update() {
     fi
 
     local data="{}"
+    local url_value=""
+    local use_channel_url="false"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --name)     data=$(echo "$data" | jq --arg v "$2" '. + {name: $v}'); shift 2 ;;
-            --url)      data=$(echo "$data" | jq --arg v "$2" '.config = (.config // {}) + {feed_url: $v}'); shift 2 ;;
+            --url)      url_value="$2"; shift 2 ;;
             --tier)     data=$(echo "$data" | jq --arg v "$2" '. + {tier: $v}'); shift 2 ;;
             --status)   data=$(echo "$data" | jq --arg v "$2" '. + {status: $v}'); shift 2 ;;
             --score)    data=$(echo "$data" | jq --argjson v "$2" '. + {score: $v}'); shift 2 ;;
@@ -601,6 +617,23 @@ cmd_sources_update() {
             *)          shift ;;
         esac
     done
+
+    # 如果指定了 --url，需要根据 connector_type 使用不同的 key
+    if [[ -n "$url_value" ]]; then
+        # 获取源的 connector_type
+        local source_info
+        source_info=$(api_get "/api/v1/admin/sources/$source_id")
+        local connector_type
+        connector_type=$(echo "$source_info" | jq -r '.connector_type')
+
+        if [[ "$connector_type" == "youtube" ]]; then
+            # YouTube 使用 channel_url
+            data=$(echo "$data" | jq --arg v "$url_value" '.config = (.config // {}) + {channel_url: $v}')
+        else
+            # RSS 等类型使用 feed_url
+            data=$(echo "$data" | jq --arg v "$url_value" '.config = (.config // {}) + {feed_url: $v}')
+        fi
+    fi
 
     local response
     response=$(api_request "PUT" "/api/v1/admin/sources/$source_id" "$data")
@@ -861,6 +894,17 @@ print_sources_help() {
     echo "  set-defaults --interval SECONDS           设置默认采集间隔"
     echo ""
     echo "  cleanup                                   清理已删除的源（物理删除）"
+    echo ""
+    echo "Connector types:"
+    echo "  rss      - RSS/Atom feed (--url: feed URL)"
+    echo "  youtube  - YouTube channel (--url: channel URL, supports @handle)"
+    echo ""
+    echo "Examples:"
+    echo "  # RSS 源"
+    echo "  api.sh sources create --name \"Krebs\" --type rss --url \"https://krebsonsecurity.com/feed/\" --tier T1"
+    echo ""
+    echo "  # YouTube 源"
+    echo "  api.sh sources create --name \"Black Hat\" --type youtube --url \"https://www.youtube.com/@BlackHatOfficialYT\" --tier T1"
 }
 
 # ============================================

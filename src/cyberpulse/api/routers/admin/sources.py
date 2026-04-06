@@ -627,14 +627,24 @@ async def test_source(
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> TestResult:
-    """测试源连接性。"""
+    """测试源连接性。支持 RSS 和 YouTube 源。"""
     validate_source_id(source_id)
 
     source = db.query(Source).filter(Source.source_id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
-    feed_url = source.config.get("feed_url") if source.config else None
+    config = source.config or {}
+
+    # 根据 connector_type 分发测试
+    if source.connector_type == "youtube":
+        return await _test_youtube_source(source)
+    elif source.connector_type == "media":
+        # media 类型也使用 channel_url
+        return await _test_youtube_source(source)
+
+    # RSS 等类型使用 feed_url
+    feed_url = config.get("feed_url")
     if not feed_url:
         return TestResult(
             source_id=source_id,
@@ -643,6 +653,13 @@ async def test_source(
             error_message="No feed URL configured",
             suggestion="Configure feed_url in source config",
         )
+
+    return await _test_rss_source(source, feed_url)
+
+
+async def _test_rss_source(source: Source, feed_url: str) -> TestResult:
+    """测试 RSS 源连接。"""
+    source_id = source.source_id
 
     try:
         start_time = time.time()
@@ -703,31 +720,97 @@ async def test_source(
         )
 
 
+async def _test_youtube_source(source: Source) -> TestResult:
+    """测试 YouTube 源连接。"""
+    source_id = source.source_id
+    config = source.config or {}
+
+    # 支持 channel_url 和 feed_url（兼容 api.sh）
+    channel_url = config.get("channel_url") or config.get("feed_url")
+
+    if not channel_url:
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="config",
+            error_message="No channel URL configured",
+            suggestion="Configure channel_url in source config",
+        )
+
+    try:
+        start_time = time.time()
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(
+                channel_url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; CyberPulse/1.0)"},
+            )
+            response.raise_for_status()
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        # YouTube 频道页面可访问即视为成功
+        # 详细验证由 YouTubeConnector 在采集时完成
+        return TestResult(
+            source_id=source_id,
+            test_result="success",
+            response_time_ms=elapsed_ms,
+            items_found=0,  # YouTube 需要完整采集才能知道条目数
+            last_modified=None,
+            warnings=None,
+        )
+
+    except httpx.TimeoutException:
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="timeout",
+            error_message="Connection timeout after 30s",
+            suggestion="检查网络连接",
+        )
+    except httpx.HTTPStatusError as e:
+        error_type = f"http_{e.response.status_code}"
+        suggestion_map = {
+            404: "频道不存在或已被删除",
+            429: "请求过于频繁，请稍后重试",
+        }
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type=error_type,
+            error_message=f"HTTP {e.response.status_code}: {e.response.reason_phrase}",
+            suggestion=suggestion_map.get(e.response.status_code, "检查频道 URL 是否正确"),
+        )
+    except Exception as e:
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="connection",
+            error_message=str(e),
+            suggestion="检查 URL 是否正确，确认网络连接",
+        )
+
+
 @router.post("/sources/{source_id}/validate", response_model=ValidationResponse)
 async def validate_source_quality(
     source_id: str,
     db: Session = Depends(get_db),
     _admin: ApiClient = Depends(require_permissions(["admin"])),
 ) -> ValidationResponse:
-    """验证源质量。对 RSS 源执行质量验证，检查内容完整性。"""
+    """验证源质量。支持 RSS 和 YouTube 源。"""
     validate_source_id(source_id)
 
     source = db.query(Source).filter(Source.source_id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
-    # Only RSS sources can be validated
-    if source.connector_type != "rss":
-        return ValidationResponse(
-            source_id=source_id,
-            is_valid=False,
-            content_type="unknown",
-            sample_completeness=0.0,
-            avg_content_length=0,
-            rejection_reason="Validation only supported for RSS sources",
-        )
+    config = source.config or {}
 
-    feed_url = source.config.get("feed_url") if source.config else None
+    # 根据 connector_type 分发验证
+    if source.connector_type == "youtube" or source.connector_type == "media":
+        return await _validate_youtube_source(source, db)
+
+    # RSS 源验证
+    feed_url = config.get("feed_url")
     if not feed_url:
         return ValidationResponse(
             source_id=source_id,
@@ -738,7 +821,13 @@ async def validate_source_quality(
             rejection_reason="No feed_url configured for this source",
         )
 
-    # Run validation
+    return await _validate_rss_source(source, db)
+
+
+async def _validate_rss_source(source: Source, db: Session) -> ValidationResponse:
+    """验证 RSS 源质量。"""
+    source_id = source.source_id
+
     try:
         validator = SourceQualityValidator()
         result = await validator.validate_source(source.config or {})
@@ -784,6 +873,52 @@ async def validate_source_quality(
             avg_content_length=0,
             rejection_reason=f"Validation error: {str(e)}",
         )
+
+
+async def _validate_youtube_source(source: Source, db: Session) -> ValidationResponse:
+    """验证 YouTube 源。"""
+    source_id = source.source_id
+    config = source.config or {}
+
+    # 支持 channel_url 和 feed_url
+    channel_url = config.get("channel_url") or config.get("feed_url")
+
+    if not channel_url:
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=False,
+            content_type="unknown",
+            sample_completeness=0.0,
+            avg_content_length=0,
+            rejection_reason="No channel URL configured",
+        )
+
+    # 验证 URL 格式
+    if "youtube.com" not in channel_url:
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=False,
+            content_type="unknown",
+            sample_completeness=0.0,
+            avg_content_length=0,
+            rejection_reason="Invalid YouTube URL: must contain youtube.com",
+        )
+
+    # 清除 pending_review（YouTube 源不需要 RSS 质量验证）
+    if source.pending_review:
+        source.pending_review = False
+        source.review_reason = None
+        db.commit()
+
+    return ValidationResponse(
+        source_id=source_id,
+        is_valid=True,
+        content_type="video",
+        sample_completeness=1.0,
+        avg_content_length=0,
+        rejection_reason=None,
+        samples_analyzed=0,
+    )
 
 
 @router.post("/sources/{source_id}/schedule", response_model=ScheduleResponse)
