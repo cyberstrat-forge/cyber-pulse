@@ -73,6 +73,8 @@ class YouTubeConnector(BaseConnector):
         return True
 
     async def fetch(self) -> FetchResult:  # type: ignore[override]
+        # Note: type ignore needed because BaseConnector.fetch has different
+        # return type signature. This is intentional for connector polymorphism.
         """Fetch videos with transcripts from the YouTube channel.
 
         Returns:
@@ -126,7 +128,21 @@ class YouTubeConnector(BaseConnector):
         try:
             channel_id = await self._fetch_channel_id(channel_url)
             return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+        except ConnectorError:
+            raise
+        except httpx.HTTPStatusError as e:
+            raise ConnectorError(
+                f"Failed to resolve YouTube channel: HTTP {e.response.status_code}"
+            ) from e
+        except httpx.RequestError as e:
+            raise ConnectorError(
+                f"Failed to resolve YouTube channel: {type(e).__name__}: {e}"
+            ) from e
         except Exception as e:
+            logger.error(
+                f"Unexpected error resolving channel {channel_url}: "
+                f"{type(e).__name__}: {e}"
+            )
             raise ConnectorError(
                 f"Failed to resolve YouTube channel: {type(e).__name__}: {e}"
             ) from e
@@ -205,7 +221,9 @@ class YouTubeConnector(BaseConnector):
                         ) from e
 
                 response.raise_for_status()
-                content = response.content
+
+            # Extract content outside async with to avoid scope issues
+            content = response.content
 
             # Detect permanent redirect
             redirect_info = None
@@ -265,6 +283,10 @@ class YouTubeConnector(BaseConnector):
                 f"Failed to fetch YouTube RSS '{rss_url}': {type(e).__name__}: {e}"
             ) from e
         except Exception as e:
+            logger.error(
+                f"Unexpected error fetching YouTube RSS '{rss_url}': "
+                f"{type(e).__name__}: {e}"
+            )
             raise ConnectorError(
                 f"Failed to fetch YouTube RSS '{rss_url}': {type(e).__name__}: {e}"
             ) from e
@@ -340,8 +362,8 @@ class YouTubeConnector(BaseConnector):
                     tzinfo=UTC,
                 )
                 return dt
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as e:
+                logger.debug(f"Failed to parse published_parsed: {e}")
 
         # Try published string
         published = entry.get("published") or entry.get("pubDate")
@@ -351,8 +373,8 @@ class YouTubeConnector(BaseConnector):
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=UTC)
                 return parsed
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as e:
+                logger.debug(f"Failed to parse date string '{published}': {e}")
 
         # Fallback to current time
         logger.debug("No valid publication date found, using current UTC time")
@@ -432,14 +454,21 @@ class YouTubeConnector(BaseConnector):
                     api.fetch, video_id, ["en"], preserve_formatting=True
                 )
                 return self._format_transcript(transcript_list)
-            except (TranscriptsDisabled, NoTranscriptFound):
+            except (TranscriptsDisabled, NoTranscriptFound) as e:
+                logger.debug(
+                    f"No transcript available for video {video_id}: "
+                    f"{type(e).__name__}"
+                )
                 return None
 
-        except TranscriptsDisabled:
-            logger.debug(f"Transcripts disabled for video {video_id}")
+        except TranscriptsDisabled as e:
+            logger.debug(f"Transcripts disabled for video {video_id}: {e}")
             return None
         except Exception as e:
-            logger.warning(f"Failed to fetch transcript for {video_id}: {e}")
+            logger.warning(
+                f"Unexpected error fetching transcript for {video_id}: "
+                f"{type(e).__name__}: {e}"
+            )
             return None
 
     def _format_transcript(self, transcript_list: Any) -> str:

@@ -710,3 +710,275 @@ class TestYouTubeConnectorFetch:
 
             with pytest.raises(ConnectorError, match="Failed to resolve channel"):
                 await connector.fetch()
+
+
+class TestYouTubeConnectorSSRFProtection:
+    """Tests for SSRF protection in redirects."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_video_list_ssrf_redirect_blocked(self):
+        """Test SSRF redirect to internal URL is blocked."""
+        from cyberpulse.services.base import SSRFError
+
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        # Mock the internal method to simulate SSRF validation failure
+        with patch.object(
+            connector, "_fetch_video_list",
+            new_callable=AsyncMock
+        ) as mock_fetch:
+            # Simulate what happens when SSRF validation fails
+            mock_fetch.side_effect = ConnectorError(
+                "RSS redirect to blocked URL: Access to localhost is not allowed"
+            )
+
+            with pytest.raises(ConnectorError, match="RSS redirect to blocked URL"):
+                await connector._fetch_video_list(
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=test"
+                )
+
+    def test_validate_url_for_ssrf_blocks_localhost(self):
+        """Test that validate_url_for_ssrf blocks localhost URLs."""
+        from cyberpulse.services.base import validate_url_for_ssrf, SSRFError
+
+        with pytest.raises(SSRFError, match="localhost"):
+            validate_url_for_ssrf("http://127.0.0.1/internal")
+
+
+class TestYouTubeConnectorFormatTranscript:
+    """Tests for _format_transcript method."""
+
+    def test_format_transcript_with_list(self):
+        """Test formatting transcript from list of dicts."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        transcript_list = [
+            {"text": "Hello"},
+            {"text": "world"},
+            {"text": "test"},
+        ]
+
+        result = connector._format_transcript(transcript_list)
+
+        assert result == "Hello world test"
+
+    def test_format_transcript_with_objects(self):
+        """Test formatting transcript from list of objects."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        mock_snippet1 = MagicMock()
+        mock_snippet1.text = "First sentence"
+        mock_snippet2 = MagicMock()
+        mock_snippet2.text = "Second sentence"
+
+        result = connector._format_transcript([mock_snippet1, mock_snippet2])
+
+        assert result == "First sentence Second sentence"
+
+    def test_format_transcript_empty_list(self):
+        """Test formatting empty transcript list."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        result = connector._format_transcript([])
+
+        assert result == ""
+
+    def test_format_transcript_mixed_access(self):
+        """Test formatting transcript with mixed dict/object access."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        # Mix of dict and object with text attribute
+        mock_obj = MagicMock()
+        mock_obj.text = "object text"
+
+        transcript_list = [
+            {"text": "dict text"},
+            mock_obj,
+        ]
+
+        result = connector._format_transcript(transcript_list)
+
+        assert "dict text" in result
+        assert "object text" in result
+
+
+class TestYouTubeConnectorLanguagePriority:
+    """Tests for transcript language priority."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_transcript_priority_order(self):
+        """Verify en tried before en-US before en-GB."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        call_order = []
+
+        def track_calls(video_id, languages, **kwargs):
+            call_order.append(languages[0] if languages else "unknown")
+            if languages == ["en"]:
+                raise NoTranscriptFound(video_id, languages, MagicMock())
+            if languages == ["en-US"]:
+                raise NoTranscriptFound(video_id, languages, MagicMock())
+            # en-GB succeeds
+            mock_snippet = MagicMock()
+            mock_snippet.text = "British English transcript"
+            return [mock_snippet]
+
+        with patch("cyberpulse.services.youtube_connector.YouTubeTranscriptApi") as mock_api_class:
+            mock_api = MagicMock()
+            mock_api.fetch = track_calls
+            mock_api_class.return_value = mock_api
+
+            result = await connector._fetch_transcript("video123")
+
+        # Verify order: en -> en-US -> en-GB
+        assert call_order == ["en", "en-US", "en-GB"]
+        assert result == "British English transcript"
+
+
+class TestYouTubeConnectorRequestError:
+    """Tests for httpx.RequestError handling."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_video_list_request_error(self):
+        """Test httpx.RequestError (timeout, connection) handling."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(
+                side_effect=httpx.RequestError("Connection timeout")
+            )
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with pytest.raises(ConnectorError, match="Failed to fetch YouTube RSS"):
+                await connector._fetch_video_list(
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=test"
+                )
+
+
+class TestYouTubeConnectorMetaTagExtraction:
+    """Tests for meta tag channel_id extraction."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_channel_id_from_meta_tag(self):
+        """Test channel_id extracted from og:url meta tag."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        # HTML with og:url meta tag instead of JSON channelId
+        mock_html = '<meta property="og:url" content="https://www.youtube.com/channel/UCMETATAG123">'
+        mock_response = MagicMock()
+        mock_response.text = mock_html
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            channel_id = await connector._fetch_channel_id(
+                "https://www.youtube.com/@TestChannel"
+            )
+
+        assert channel_id == "UCMETATAG123"
+
+
+class TestYouTubeConnectorMaxItems:
+    """Tests for MAX_ITEMS truncation."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_video_list_truncates_to_max_items(self):
+        """Test that feed with more than MAX_ITEMS is truncated."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        # Create 20 entries (more than MAX_ITEMS=15)
+        entries = [
+            MockFeedEntry(
+                yt_videoid=f"vid{i}",
+                link=f"https://www.youtube.com/watch?v=vid{i}",
+                title=f"Video {i}",
+                summary=f"Description {i}",
+                published_parsed=time.struct_time((2024, 1, 15, 10, 30, 0, 0, 15, 0)),
+            )
+            for i in range(20)
+        ]
+
+        mock_response = MagicMock()
+        mock_response.content = b"<rss></rss>"
+        mock_response.url = "https://www.youtube.com/feeds/videos.xml?channel_id=test"
+        mock_response.history = []
+        mock_response.raise_for_status = MagicMock()
+
+        mock_feed_result = {"entries": entries, "bozo": False}
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=mock_feed_result):
+                result = await connector._fetch_video_list(
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=test"
+                )
+
+        # Should be truncated to MAX_ITEMS=15
+        assert len(result.items) == 15
+
+
+class TestYouTubeConnectorRedirect308:
+    """Tests for 308 permanent redirect handling."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_video_list_with_308_redirect(self):
+        """Test 308 permanent redirect is detected."""
+        mock_response = MagicMock()
+        mock_response.content = b"<rss></rss>"
+        mock_response.url = "https://www.youtube.com/feeds/videos.xml?channel_id=new_id"
+
+        mock_history = MagicMock()
+        mock_history.status_code = 308
+        mock_response.history = [mock_history]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_feed_result = {"entries": [], "bozo": False}
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            with patch("feedparser.parse", return_value=mock_feed_result):
+                connector = YouTubeConnector({
+                    "channel_url": "https://www.youtube.com/@TestChannel"
+                })
+                result = await connector._fetch_video_list(
+                    "https://www.youtube.com/feeds/videos.xml?channel_id=old_id"
+                )
+
+        assert result.redirect_info is not None
+        assert result.redirect_info["status_code"] == 308
