@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -137,6 +137,9 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
         if not items_data:
             logger.info(f"No items fetched from source: {source.name}")
             source.last_ingested_at = datetime.now(UTC).replace(tzinfo=None)
+            # Update next_ingest_at based on schedule_interval
+            interval = source.schedule_interval or 14400  # Default 4 hours
+            source.next_ingest_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=interval)
             # Mark job as COMPLETED (no items is still a successful run)
             if job_id and job:
                 job.status = JobStatus.COMPLETED
@@ -203,6 +206,9 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
 
         # Update source statistics
         source.last_ingested_at = datetime.now(UTC).replace(tzinfo=None)
+        # Update next_ingest_at based on schedule_interval
+        interval = source.schedule_interval or 14400  # Default 4 hours
+        source.next_ingest_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=interval)
         source.total_items = (source.total_items or 0) + len(new_items)
         db.commit()
 
