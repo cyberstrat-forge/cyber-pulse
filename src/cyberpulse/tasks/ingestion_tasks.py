@@ -136,14 +136,29 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
 
         if not items_data:
             logger.info(f"No items fetched from source: {source.name}")
-            source.last_ingested_at = datetime.now(UTC).replace(tzinfo=None)
-            # Update next_ingest_at based on schedule_interval
-            interval = source.schedule_interval or 14400  # Default 4 hours
-            source.next_ingest_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=interval)
+            # Use single timestamp for consistency
+            now = datetime.now(UTC).replace(tzinfo=None)
+            source.last_ingested_at = now
+            # Validate interval with defensive minimum
+            raw_interval = source.schedule_interval
+            if raw_interval is None:
+                interval = 14400  # Default 4 hours
+            elif raw_interval < 300:
+                logger.warning(
+                    f"Invalid schedule_interval for {source_id}: "
+                    f"{raw_interval}s, using minimum 300s"
+                )
+                interval = 300
+            else:
+                interval = raw_interval
+            source.next_ingest_at = now + timedelta(seconds=interval)
+            logger.debug(
+                f"Updated next_ingest_at for source {source_id}: interval={interval}s"
+            )
             # Mark job as COMPLETED (no items is still a successful run)
             if job_id and job:
                 job.status = JobStatus.COMPLETED
-                job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+                job.completed_at = now
                 job.result = {"new_items": 0, "duplicates": 0, "failed": 0}
             db.commit()
             return
@@ -205,10 +220,25 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
                 raise
 
         # Update source statistics
-        source.last_ingested_at = datetime.now(UTC).replace(tzinfo=None)
-        # Update next_ingest_at based on schedule_interval
-        interval = source.schedule_interval or 14400  # Default 4 hours
-        source.next_ingest_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=interval)
+        # Use single timestamp for consistency
+        now = datetime.now(UTC).replace(tzinfo=None)
+        source.last_ingested_at = now
+        # Validate interval with defensive minimum
+        raw_interval = source.schedule_interval
+        if raw_interval is None:
+            interval = 14400  # Default 4 hours
+        elif raw_interval < 300:
+            logger.warning(
+                f"Invalid schedule_interval for {source_id}: "
+                f"{raw_interval}s, using minimum 300s"
+            )
+            interval = 300
+        else:
+            interval = raw_interval
+        source.next_ingest_at = now + timedelta(seconds=interval)
+        logger.debug(
+            f"Updated next_ingest_at for source {source_id}: interval={interval}s"
+        )
         source.total_items = (source.total_items or 0) + len(new_items)
         db.commit()
 
