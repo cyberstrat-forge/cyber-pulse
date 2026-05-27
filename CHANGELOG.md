@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-05-27
+
+### Fixed
+
+- `next_ingest_at` 字段在采集完成后正确更新 (#122)
+  - 修复采集任务完成后 `next_ingest_at` 未更新的 bug
+  - 添加 `schedule_interval` 防御性验证（最小值 300 秒）
+  - 使用单一时间基准确保 `last_ingested_at` 和 `next_ingest_at` 一致
+  - 添加 DEBUG/WARNING 日志便于调试调度问题
+
 ## [1.10.1] - 2026-04-06
 
 ### Added
