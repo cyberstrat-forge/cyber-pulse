@@ -47,6 +47,19 @@ class YouTubeConnector(BaseConnector):
         """
         super().__init__(config)
         self._transcript_extractor: TranscriptExtractor | None = None
+        self._existing_video_ids: set[str] | None = None
+
+    def set_existing_video_ids(self, video_ids: set[str]) -> None:
+        """Set known video IDs to skip transcript extraction.
+
+        If a video_id is already in this set, the connector will
+        skip the expensive Playwright transcript extraction and
+        use the video description as content instead.
+
+        Args:
+            video_ids: Set of video IDs already in the database.
+        """
+        self._existing_video_ids = video_ids
 
     def validate_config(self) -> bool:
         """Validate that channel_url is present and valid.
@@ -103,6 +116,10 @@ class YouTubeConnector(BaseConnector):
         Uses YouTube Data API v3 (primary) with RSS Feed fallback for video list.
         Uses Playwright for transcript extraction.
 
+        If `existing_video_ids` has been set via `set_existing_video_ids()`,
+        transcripts will only be extracted for NEW videos (not in the set).
+        Known videos will use description as content, saving Playwright overhead.
+
         Returns:
             FetchResult with items and optional redirect_info
 
@@ -116,8 +133,8 @@ class YouTubeConnector(BaseConnector):
         # Step 1: Try YouTube Data API first, fallback to RSS
         videos = await self._fetch_video_list(channel_url)
 
-        # Step 2: Extract transcripts for each video
-        items = await self._process_videos(videos)
+        # Step 2: Filter out existing videos before transcript extraction
+        items = await self._process_videos(videos, self._existing_video_ids)
 
         return FetchResult(items=items)
 
@@ -610,14 +627,21 @@ class YouTubeConnector(BaseConnector):
         return self.get_current_utc_time()
 
     async def _process_videos(
-        self, video_entries: list[dict[str, Any]]
+        self,
+        video_entries: list[dict[str, Any]],
+        existing_video_ids: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Process video entries: fetch transcripts and build items.
+
+        When `existing_video_ids` is provided, videos whose ID is in that set
+        will skip the expensive Playwright transcript extraction and use
+        the description as content instead.
 
         Adds random delay between transcript requests to avoid rate limiting.
 
         Args:
             video_entries: List of parsed video entries
+            existing_video_ids: Set of video_ids already in the database
 
         Returns:
             List of standardized items with content (transcript or description)
@@ -627,6 +651,29 @@ class YouTubeConnector(BaseConnector):
         for i, entry in enumerate(video_entries):
             video_id = entry["video_id"]
 
+            # Skip transcript extraction for already-known videos
+            if existing_video_ids and video_id in existing_video_ids:
+                logger.debug(
+                    f"Skipping transcript for existing video {video_id}"
+                )
+                items.append(
+                    {
+                        "external_id": video_id,
+                        "url": entry["url"],
+                        "title": entry["title"],
+                        "published_at": entry["published_at"],
+                        "content": entry["description"],
+                        "author": entry["author"],
+                        "tags": entry["tags"],
+                        "raw_metadata": {
+                            "has_transcript": False,
+                            "video_id": video_id,
+                            "skipped_existing": True,
+                        },
+                    }
+                )
+                continue
+
             # Add random delay before fetching transcript (except first video)
             # This helps avoid YouTube's rate limiting and IP blocking
             if i > 0:
@@ -635,7 +682,8 @@ class YouTubeConnector(BaseConnector):
                     settings.youtube_transcript_delay_max,
                 )
                 logger.debug(
-                    f"Waiting {delay:.1f}s before fetching transcript for {video_id}"
+                    f"Waiting {delay:.1f}s before fetching transcript for "
+                    f"{video_id}"
                 )
                 await asyncio.sleep(delay)
 

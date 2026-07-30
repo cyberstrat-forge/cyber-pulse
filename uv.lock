@@ -569,7 +569,7 @@ wheels = [
 
 [[package]]
 name = "cyber-pulse"
-version = "1.10.2"
+version = "1.10.3"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

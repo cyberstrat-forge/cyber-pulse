@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- YouTube 频道采集跳过已有视频的字幕提取，大幅减少 Playwright 开销
+  - 采集前查询数据库已有 video_id，仅对新视频执行 Playwright 字幕提取
+  - 已有视频使用 description 作为内容，单次采集耗时从 30-75 秒降至接近瞬时
+  - 新增 `set_existing_video_ids()` 方法和 `existing_video_ids` 参数
+
 ## [1.10.3] - 2026-07-30
 
 ### Fixed
