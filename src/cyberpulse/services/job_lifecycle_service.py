@@ -153,8 +153,11 @@ class JobLifecycleService:
     ) -> dict:
         """Clean up old jobs by status.
 
+        For COMPLETED/FAILED: uses completed_at as threshold column.
+        For PENDING: uses created_at as threshold column (orphaned pending jobs).
+
         Args:
-            days: Delete jobs completed before this many days ago.
+            days: Delete jobs older than this many days ago.
             status: Job status to clean up.
 
         Returns:
@@ -162,10 +165,16 @@ class JobLifecycleService:
         """
         threshold = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
 
+        # For PENDING jobs, use created_at since they have no completed_at
+        if status == JobStatus.PENDING:
+            threshold_column = Job.created_at
+        else:
+            threshold_column = Job.completed_at
+
         try:
             stmt = delete(Job).where(
                 Job.status == status,
-                Job.completed_at < threshold
+                threshold_column < threshold
             )
             result = self.db.execute(stmt)
             self.db.commit()
@@ -184,6 +193,54 @@ class JobLifecycleService:
             self.db.rollback()
             logger.error(f"Failed to cleanup jobs: {e}")
             raise ValueError(f"Failed to cleanup jobs: {e}") from e
+
+    def cleanup_orphaned_pending(self, hours: int = 1) -> dict:
+        """Clean up orphaned PENDING jobs that are stuck.
+
+        PENDING jobs can become orphaned when:
+        - Dramatiq message was lost (e.g. Redis restart, system sleep)
+        - Race condition: Worker picked up message before Scheduler committed
+
+        These jobs are marked as FAILED with a descriptive error.
+
+        Args:
+            hours: Mark PENDING jobs older than this many hours as FAILED.
+
+        Returns:
+            Dict with failed_count and threshold_hours.
+        """
+        from datetime import timedelta as td
+        threshold = datetime.now(UTC).replace(tzinfo=None) - td(hours=hours)
+
+        try:
+            orphaned = self.db.query(Job).filter(
+                Job.status == JobStatus.PENDING,
+                Job.created_at < threshold
+            ).all()
+
+            for job in orphaned:
+                job.status = JobStatus.FAILED
+                job.error_type = "OrphanedPending"
+                job.error_message = (
+                    f"Job stuck in PENDING for > {hours}h. "
+                    f"Message likely lost due to race condition or system sleep."
+                )
+
+            self.db.commit()
+
+            logger.info(
+                f"Marked {len(orphaned)} orphaned PENDING jobs as FAILED "
+                f"(older than {hours}h)"
+            )
+
+            return {
+                "failed_count": len(orphaned),
+                "threshold_hours": hours,
+            }
+        except IntegrityError as e:
+            self.db.rollback()
+            logger.error(f"Failed to cleanup orphaned pending jobs: {e}")
+            raise ValueError(f"Failed to cleanup orphaned pending jobs: {e}") from e
 
     def cleanup_sources(self) -> dict:
         """Clean up REMOVED sources with cascade deletion.

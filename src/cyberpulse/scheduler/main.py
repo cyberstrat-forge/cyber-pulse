@@ -13,6 +13,7 @@ import signal
 import sys
 
 from .jobs import (
+    cleanup_orphaned_pending_jobs,
     retry_pending_full_fetch,
     run_scheduled_collection,
     update_source_scores,
@@ -94,6 +95,17 @@ async def async_main() -> None:
         replace_existing=True,
     )
     logger.info("Scheduled: pending full fetch retry job (every 30 minutes)")
+
+    # Clean up orphaned PENDING jobs every 30 minutes
+    scheduler.scheduler.add_job(
+        cleanup_orphaned_pending_jobs,
+        "interval",
+        minutes=30,
+        id="cleanup_orphaned_pending",
+        name="Cleanup Orphaned PENDING Jobs",
+        replace_existing=True,
+    )
+    logger.info("Scheduled: orphaned PENDING cleanup job (every 30 minutes)")
 
     logger.info("Scheduler started and running. Press Ctrl+C to stop.")
 

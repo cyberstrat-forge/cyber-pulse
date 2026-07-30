@@ -46,14 +46,10 @@ def collect_source(source_id: str) -> dict[str, Any]:
             trigger=JobTrigger.SCHEDULER,
         )
         db.add(job)
-        db.flush()  # Get job_id without committing
+        db.commit()  # Commit first so Worker can see the job
 
         # Send to Dramatiq task queue with job_id
-        # Do this before commit so if it fails, we can rollback
         ingest_source.send(source_id, job_id=job.job_id)
-
-        # Only commit after task is successfully queued
-        db.commit()
 
         logger.info(f"Created scheduler job {job.job_id} for source {source_id}")
 
@@ -102,31 +98,28 @@ def run_scheduled_collection() -> dict[str, Any]:
         source_ids = [s.source_id for s in sources]
 
         for source_id in source_ids:
-            # Use nested transaction (savepoint) for each source
-            # This ensures one failure doesn't rollback all previous work
+            # Commit each job individually before sending the Dramatiq message.
+            # This avoids a race condition where the Worker picks up the message
+            # before the Scheduler commits, causing the job to stay PENDING forever.
             try:
-                with db.begin_nested():
-                    job = Job(
-                        job_id=f"job_{secrets.token_hex(8)}",
-                        type=JobType.INGEST,
-                        status=JobStatus.PENDING,
-                        source_id=source_id,
-                        trigger=JobTrigger.SCHEDULER,
-                    )
-                    db.add(job)
-                    db.flush()  # Get job_id without committing
+                job = Job(
+                    job_id=f"job_{secrets.token_hex(8)}",
+                    type=JobType.INGEST,
+                    status=JobStatus.PENDING,
+                    source_id=source_id,
+                    trigger=JobTrigger.SCHEDULER,
+                )
+                db.add(job)
+                db.commit()  # Commit first so Worker can see the job
 
-                    # Queue task with job_id
-                    ingest_source.send(source_id, job_id=job.job_id)
-                    job_ids.append(job.job_id)
-                    queued_count += 1
+                # Queue task with job_id
+                ingest_source.send(source_id, job_id=job.job_id)
+                job_ids.append(job.job_id)
+                queued_count += 1
             except (OSError, ConnectionError) as e:
-                # Savepoint automatically rolled back, main transaction intact
+                db.rollback()
                 logger.error(f"Failed to queue source {source_id}: {e}")
                 failed_count += 1
-
-        # Commit all successfully queued jobs
-        db.commit()
 
         logger.info(
             f"Queued {queued_count} sources for collection "
@@ -262,5 +255,35 @@ def retry_pending_full_fetch() -> dict[str, Any]:
             "items_queued": queued_count,
             "message": f"Queued {queued_count} pending items for full fetch retry",
         }
+    finally:
+        db.close()
+
+
+def cleanup_orphaned_pending_jobs() -> dict[str, Any]:
+    """Clean up PENDING jobs that are stuck (orphaned).
+
+    PENDING jobs can become orphaned when:
+    - Dramatiq message was lost (Redis restart, system sleep, network interrupt)
+    - Race condition: Worker picked up message before Scheduler committed
+
+    Jobs stuck in PENDING for more than 1 hour are marked as FAILED.
+    This runs every 30 minutes to prevent indefinite accumulation.
+
+    Returns:
+        Dictionary with job result status.
+    """
+    from ..services.job_lifecycle_service import JobLifecycleService
+
+    logger.info("Cleaning up orphaned PENDING jobs")
+
+    db = SessionLocal()
+    try:
+        service = JobLifecycleService(db)
+        result = service.cleanup_orphaned_pending(hours=1)
+        logger.info(
+            f"Orphaned PENDING cleanup complete: "
+            f"{result['failed_count']} jobs marked FAILED"
+        )
+        return result
     finally:
         db.close()
