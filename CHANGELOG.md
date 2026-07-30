@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 调度器按 `next_ingest_at` 过滤到期源，`schedule_interval` 真正生效
+  - `run_scheduled_collection` 只采集 `next_ingest_at` 已到期的源（或未设置的新源）
+  - 每个源按各自的 `schedule_interval` 独立运行，不再统一每小时全部触发
+  - RSS / YouTube / Web 等所有源类型均受益
+
+### Fixed
+
 - YouTube 频道采集跳过已有视频的字幕提取，大幅减少 Playwright 开销
   - 采集前查询数据库已有 video_id，仅对新视频执行 Playwright 字幕提取
   - 已有视频使用 description 作为内容，单次采集耗时从 30-75 秒降至接近瞬时

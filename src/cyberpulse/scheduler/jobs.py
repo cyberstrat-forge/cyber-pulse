@@ -10,7 +10,10 @@ Import order note:
 
 import logging
 import secrets
+from datetime import UTC, datetime
 from typing import Any
+
+from sqlalchemy import or_
 
 from ..database import SessionLocal
 from ..models import Item, ItemStatus, Job, JobStatus, JobType, Source, SourceStatus
@@ -90,10 +93,15 @@ def run_scheduled_collection() -> dict[str, Any]:
     job_ids = []
 
     try:
-        # Query all active sources and extract IDs before processing
-        # This avoids DetachedInstanceError after rollback
+        # Query active sources whose next_ingest_at has arrived
+        # (or has never been set, e.g. newly created sources)
+        now = datetime.now(UTC).replace(tzinfo=None)
         sources = db.query(Source).filter(
-            Source.status == SourceStatus.ACTIVE
+            Source.status == SourceStatus.ACTIVE,
+            or_(
+                Source.next_ingest_at.is_(None),
+                Source.next_ingest_at <= now
+            )
         ).all()
         source_ids = [s.source_id for s in sources]
 
@@ -162,10 +170,15 @@ def update_source_scores() -> dict[str, Any]:
     failed_count = 0
 
     try:
-        # Query all active sources and extract IDs before processing
-        # This avoids DetachedInstanceError after rollback
+        # Query active sources whose next_ingest_at has arrived
+        # (or has never been set, e.g. newly created sources)
+        now = datetime.now(UTC).replace(tzinfo=None)
         sources = db.query(Source).filter(
-            Source.status == SourceStatus.ACTIVE
+            Source.status == SourceStatus.ACTIVE,
+            or_(
+                Source.next_ingest_at.is_(None),
+                Source.next_ingest_at <= now
+            )
         ).all()
         source_ids = [s.source_id for s in sources]
 

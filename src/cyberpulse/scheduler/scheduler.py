@@ -55,7 +55,10 @@ class SchedulerService:
             EVENT_JOB_EXECUTED | EVENT_JOB_ERROR,
         )
 
-        logger.info(f"SchedulerService initialized with database: {self._mask_url(self.database_url)}")
+        logger.info(
+            "SchedulerService initialized with database: "
+            f"{self._mask_url(self.database_url)}"
+        )
 
     def _mask_url(self, url: str) -> str:
         """Mask sensitive parts of database URL for logging.
