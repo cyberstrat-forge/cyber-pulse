@@ -13,7 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from ..config import settings
 from ..database import SessionLocal
-from ..models import Job, JobStatus, Source, SourceStatus
+from ..models import Item, Job, JobStatus, Source, SourceStatus
 from ..models.item import ItemStatus
 from ..services.connector_factory import get_connector_for_source
 from ..services.item_service import ItemService
@@ -127,6 +127,19 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
         # Create connector for this source
         connector = get_connector_for_source(source)
 
+        # For YouTube sources, pre-filter known video IDs to skip
+        # expensive Playwright transcript extraction for old videos
+        if source.connector_type == "youtube":
+            existing_ids = (
+                db.query(Item.external_id)
+                .filter(
+                    Item.source_id == source_id,
+                    Item.external_id.isnot(None),
+                )
+                .all()
+            )
+            connector.set_existing_video_ids({r[0] for r in existing_ids})
+
         # Fetch items using async connector
         result = asyncio.run(_fetch_items(connector, None))
 
@@ -141,7 +154,9 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
         # Handle permanent redirect (only 301/308)
         if redirect_info and redirect_info.get("status_code") in (301, 308):
             logger.info(
-                f"Updating source URL: {redirect_info['original_url']} -> {redirect_info['final_url']}"
+                "Updating source URL: "
+                f"{redirect_info['original_url']} -> "
+                f"{redirect_info['final_url']}"
             )
             source.config["feed_url"] = redirect_info["final_url"]
             flag_modified(source, "config")
@@ -320,7 +335,8 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
                 source.status = SourceStatus.FROZEN
                 source.review_reason = f"连续采集失败: {str(e)[:100]}"
                 logger.warning(
-                    f"Source {source_id} frozen after {source.consecutive_failures} consecutive failures"
+                    f"Source {source_id} frozen after "
+                    f"{source.consecutive_failures} consecutive failures"
                 )
 
             # Commit the failure tracking
@@ -335,7 +351,9 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
         db.close()
 
 
-async def _fetch_items(connector: "BaseConnector", source_url: str | None = None) -> list:
+async def _fetch_items(
+    connector: "BaseConnector", source_url: str | None = None
+) -> list:
     """Fetch items from connector asynchronously.
 
     Args:

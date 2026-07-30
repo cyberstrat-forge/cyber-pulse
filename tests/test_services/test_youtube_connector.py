@@ -581,6 +581,218 @@ class TestYouTubeConnectorProcessVideos:
         assert "raw_metadata" in item
 
 
+class TestYouTubeConnectorExistingVideoFilter:
+    """Tests for existing_video_ids pre-filtering in _process_videos."""
+
+    @pytest.mark.asyncio
+    async def test_skips_transcript_for_existing_video(self):
+        """Existing video should skip transcript extraction and use description."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [{
+            "video_id": "existing_vid",
+            "url": "https://www.youtube.com/watch?v=existing_vid",
+            "title": "Existing Video",
+            "description": "Existing description",
+            "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            "author": "Test Channel",
+            "tags": ["security"],
+        }]
+
+        # _fetch_transcript should NOT be called for existing video
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+            mock_transcript.return_value = "Should not be called"
+
+            items = await connector._process_videos(
+                video_entries, existing_video_ids={"existing_vid"}
+            )
+
+        assert len(items) == 1
+        assert items[0]["external_id"] == "existing_vid"
+        assert items[0]["content"] == "Existing description"
+        assert items[0]["raw_metadata"]["has_transcript"] is False
+        assert items[0]["raw_metadata"]["skipped_existing"] is True
+        # Verify transcript was NOT fetched
+        mock_transcript.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_new_video_still_fetches_transcript(self):
+        """New video (not in existing_video_ids) should still fetch transcript."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [{
+            "video_id": "new_vid",
+            "url": "https://www.youtube.com/watch?v=new_vid",
+            "title": "New Video",
+            "description": "New description",
+            "published_at": datetime(2024, 1, 16, 10, 30, 0, tzinfo=UTC),
+            "author": "Test Channel",
+            "tags": [],
+        }]
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock) as mock_transcript:
+            mock_transcript.return_value = "New transcript"
+
+            items = await connector._process_videos(
+                video_entries, existing_video_ids={"existing_vid"}
+            )
+
+        assert len(items) == 1
+        assert items[0]["external_id"] == "new_vid"
+        assert items[0]["content"] == "New transcript"
+        assert items[0]["raw_metadata"]["has_transcript"] is True
+        mock_transcript.assert_called_once_with("new_vid")
+
+    @pytest.mark.asyncio
+    async def test_mixed_existing_and_new_videos(self):
+        """Mix of existing and new videos should only fetch transcript for new ones."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [
+            {
+                "video_id": "old1",
+                "url": "https://www.youtube.com/watch?v=old1",
+                "title": "Old Video 1",
+                "description": "Old description 1",
+                "published_at": datetime(2024, 1, 14, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+            {
+                "video_id": "new1",
+                "url": "https://www.youtube.com/watch?v=new1",
+                "title": "New Video 1",
+                "description": "New description 1",
+                "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+            {
+                "video_id": "old2",
+                "url": "https://www.youtube.com/watch?v=old2",
+                "title": "Old Video 2",
+                "description": "Old description 2",
+                "published_at": datetime(2024, 1, 13, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+            {
+                "video_id": "new2",
+                "url": "https://www.youtube.com/watch?v=new2",
+                "title": "New Video 2",
+                "description": "New description 2",
+                "published_at": datetime(2024, 1, 16, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+        ]
+
+        existing_ids = {"old1", "old2"}
+        called_videos = []
+
+        async def mock_fetch(video_id):
+            called_videos.append(video_id)
+            return f"Transcript for {video_id}"
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock, side_effect=mock_fetch):
+            items = await connector._process_videos(video_entries, existing_video_ids=existing_ids)
+
+        # Should have 4 items (none skipped)
+        assert len(items) == 4
+
+        # old1 and old2 should use description, skipped_existing=True
+        assert items[0]["external_id"] == "old1"
+        assert items[0]["content"] == "Old description 1"
+        assert items[0]["raw_metadata"]["skipped_existing"] is True
+
+        assert items[2]["external_id"] == "old2"
+        assert items[2]["content"] == "Old description 2"
+        assert items[2]["raw_metadata"]["skipped_existing"] is True
+
+        # new1 and new2 should use transcript
+        assert items[1]["external_id"] == "new1"
+        assert items[1]["content"] == "Transcript for new1"
+        assert "skipped_existing" not in items[1]["raw_metadata"]
+
+        assert items[3]["external_id"] == "new2"
+        assert items[3]["content"] == "Transcript for new2"
+        assert "skipped_existing" not in items[3]["raw_metadata"]
+
+        # Only new videos should have triggered transcript fetch
+        assert called_videos == ["new1", "new2"]
+
+    @pytest.mark.asyncio
+    async def test_no_existing_ids_still_fetches_all(self):
+        """When existing_video_ids is None, all videos should get transcript."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/@TestChannel"
+        })
+
+        video_entries = [
+            {
+                "video_id": "vid1",
+                "url": "https://www.youtube.com/watch?v=vid1",
+                "title": "Video 1",
+                "description": "Desc 1",
+                "published_at": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+            {
+                "video_id": "vid2",
+                "url": "https://www.youtube.com/watch?v=vid2",
+                "title": "Video 2",
+                "description": "Desc 2",
+                "published_at": datetime(2024, 1, 16, 10, 30, 0, tzinfo=UTC),
+                "author": "Test Channel",
+                "tags": [],
+            },
+        ]
+
+        called_videos = []
+
+        async def mock_fetch(video_id):
+            called_videos.append(video_id)
+            return f"Transcript for {video_id}"
+
+        with patch.object(connector, "_fetch_transcript", new_callable=AsyncMock, side_effect=mock_fetch):
+            items = await connector._process_videos(video_entries, existing_video_ids=None)
+
+        assert len(items) == 2
+        assert called_videos == ["vid1", "vid2"]
+        assert "skipped_existing" not in items[0]["raw_metadata"]
+
+    @pytest.mark.asyncio
+    async def test_set_existing_video_ids_connector(self):
+        """set_existing_video_ids should be passed through fetch to _process_videos."""
+        connector = YouTubeConnector({
+            "channel_url": "https://www.youtube.com/channel/UCJ6q9Ie29ajGqKApbLqfBOg"
+        })
+
+        connector.set_existing_video_ids({"existing1", "existing2"})
+        assert connector._existing_video_ids == {"existing1", "existing2"}
+
+        # Verify it flows through fetch() to _process_videos
+        with patch.object(connector, "_resolve_channel_url", new_callable=AsyncMock) as mock_resolve:
+            with patch.object(connector, "_fetch_video_list", new_callable=AsyncMock) as mock_fetch_list:
+                with patch.object(connector, "_process_videos", new_callable=AsyncMock) as mock_process:
+                    mock_resolve.return_value = "https://www.youtube.com/feeds/videos.xml?channel_id=test"
+                    mock_fetch_list.return_value = []  # _fetch_video_list returns list[dict]
+                    mock_process.return_value = []
+
+                    await connector.fetch()
+
+        # _process_videos should have been called with existing_ids
+        # _fetch_video_list returns list[dict], not FetchResult
+        mock_process.assert_called_once_with([], {"existing1", "existing2"})
+
+
 class TestYouTubeConnectorFetch:
     """Tests for main fetch method."""
 
