@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.3] - 2026-07-30
+
+### Fixed
+
+- 修复调度器与 Worker 之间的竞态条件导致任务永久 PENDING
+  - `run_scheduled_collection` 改为逐条 commit，确保 Dramatiq 消息入队前 job 已对 Worker 可见
+  - `ingest_source` 找不到 job 时增加 3 次重试（0.5s 退避），不再静默跳过
+- 新增 PENDING 孤儿任务自动清理机制
+  - `cleanup_orphaned_pending` 将超时 PENDING 标记为 FAILED
+  - `cleanup_jobs` 扩展支持 PENDING 状态
+  - 调度器每 30 分钟自动执行清理
+
 ## [1.10.2] - 2026-05-27
 
 ### Fixed

@@ -235,7 +235,7 @@ sources:
   - name: "Auth0 Blog"
     connector_type: rss
     config:
-      feed_url: "http://feeds.feedburner.com/auth0"
+      feed_url: "https://auth0.com/blog/rss.xml"
     tier: T1
 
   - name: "Wiz Blog"

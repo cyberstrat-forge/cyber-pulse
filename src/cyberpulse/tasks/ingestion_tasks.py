@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -96,12 +97,26 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
 
         # Mark job as RUNNING and update source's last_job_id
         if job_id:
-            job = db.query(Job).filter(Job.job_id == job_id).first()
+            # Retry lookup in case the Scheduler hasn't committed yet
+            # (race condition: Scheduler sends Dramatiq message before DB commit)
+            for attempt in range(3):
+                job = db.query(Job).filter(Job.job_id == job_id).first()
+                if job:
+                    break
+                if attempt < 2:
+                    time.sleep(0.5)
+
             if job:
                 job.status = JobStatus.RUNNING
                 job.started_at = datetime.now(UTC).replace(tzinfo=None)
                 db.commit()
                 logger.info(f"Job {job_id} marked as RUNNING")
+            else:
+                logger.warning(
+                    f"Job {job_id} not found after 3 retries. "
+                    f"Source {source_id} will be ingested "
+                    f"but job status won't be updated."
+                )
 
         # Update source's last_job_id
         if job_id:
