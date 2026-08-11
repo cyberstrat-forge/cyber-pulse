@@ -34,6 +34,7 @@ from ....models import (
     SourceTier,
 )
 from ....services.source_quality_validator import SourceQualityValidator
+from ....services.web_connector import WebScraperConnector
 from ....tasks.import_tasks import process_import_job
 from ....tasks.ingestion_tasks import ingest_source
 from ...auth import ApiClient, require_permissions
@@ -237,6 +238,37 @@ async def create_source(
                 pending_review = True
                 review_reason = f"Validation error: {str(e)}"
 
+    elif source.connector_type == "web" and source.config:
+        # web 源创建时执行质量验证（容错：失败仅置 pending_review，不阻断创建）
+        base_url = source.config.get("base_url")
+        if base_url:
+            try:
+                validator = SourceQualityValidator()
+                validation_result = await validator.validate_web_source(source.config)
+
+                content_type = validation_result.content_type
+                avg_content_length = validation_result.avg_content_length
+
+                if not validation_result.is_valid:
+                    pending_review = True
+                    review_reason = validation_result.rejection_reason
+                    logger.warning(
+                        f"Web source quality validation failed for {source.name}: "
+                        f"{validation_result.rejection_reason}"
+                    )
+                else:
+                    logger.info(
+                        f"Web source quality validation passed for {source.name}: "
+                        f"content_type={content_type}, avg_length={avg_content_length}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Web quality validation error for {source.name}: {e}",
+                    exc_info=True,
+                )
+                pending_review = True
+                review_reason = f"Validation error: {str(e)}"
+
     new_source = Source(
         source_id=f"src_{secrets.token_hex(4)}",
         name=source.name,
@@ -289,7 +321,18 @@ async def create_source(
         logger.error(f"Failed to trigger initial ingestion: {e}", exc_info=True)
         warnings.append("源已创建，但初始采集任务触发失败，请手动检查")
 
-    return build_source_response(new_source, warnings if warnings else None)
+    # 无 link_pattern 提示走 SourceResponse.warnings（extra_warnings 机制）
+    create_warnings = list(warnings or [])
+    if (
+        source.connector_type == "web"
+        and source.config
+        and not source.config.get("link_pattern")
+    ):
+        create_warnings.append("未配置 link_pattern，建议配置文章链接正则")
+
+    return build_source_response(
+        new_source, create_warnings if create_warnings else None
+    )
 
 
 # ============ 静态路径端点（必须在动态路径之前）============
@@ -642,6 +685,8 @@ async def test_source(
     elif source.connector_type == "media":
         # media 类型也使用 channel_url
         return await _test_youtube_source(source)
+    elif source.connector_type == "web":
+        return await _test_web_source(source)
 
     # RSS 等类型使用 feed_url
     feed_url = config.get("feed_url")
@@ -655,6 +700,94 @@ async def test_source(
         )
 
     return await _test_rss_source(source, feed_url)
+
+
+async def _test_web_source(source: Source) -> TestResult:
+    """测试 web 源：抓 base_url，_extract_links 统计链接数（link_pattern 命中率）。"""
+    source_id = source.source_id
+    config = source.config or {}
+    base_url = config.get("base_url")
+    if not base_url:
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="config",
+            error_message="No base URL configured",
+            suggestion="Configure base_url in source config",
+        )
+
+    try:
+        start_time = time.time()
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(
+                base_url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; CyberPulse/1.0)"},
+            )
+            response.raise_for_status()
+            html = response.text
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        connector = WebScraperConnector(config)
+        links = connector._extract_links(html, base_url)
+
+        warnings: list[str] = []
+        if not config.get("link_pattern"):
+            warnings.append(
+                "未配置 link_pattern，将抓取页面全部链接，建议配置文章链接正则"
+            )
+
+        logger.info(
+            f"Web source {source_id} test passed: "
+            f"{len(links)} links found, {elapsed_ms}ms"
+        )
+
+        return TestResult(
+            source_id=source_id,
+            test_result="success",
+            response_time_ms=elapsed_ms,
+            items_found=len(links),
+            last_modified=None,
+            warnings=warnings,
+        )
+
+    except httpx.TimeoutException:
+        logger.warning(f"Web source {source_id} test failed: connection timeout")
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="timeout",
+            error_message="Connection timeout after 30s",
+            suggestion="检查网络连接或增加超时时间",
+        )
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            f"Web source {source_id} test failed: HTTP {e.response.status_code}"
+        )
+        error_type = f"http_{e.response.status_code}"
+        suggestion_map = {
+            403: "检查网站反爬策略，可能需要添加 User-Agent 或 IP 白名单",
+            404: "页面不存在，检查 base_url 是否有效",
+            429: "请求过于频繁，降低采集频率或添加请求间隔",
+        }
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type=error_type,
+            error_message=f"HTTP {e.response.status_code}: {e.response.reason_phrase}",
+            suggestion=suggestion_map.get(e.response.status_code, "检查网站访问权限"),
+        )
+    except Exception as e:
+        logger.error(
+            f"Web source {source_id} test failed with unexpected error: {e}",
+            exc_info=True,
+        )
+        return TestResult(
+            source_id=source_id,
+            test_result="failed",
+            error_type="connection",
+            error_message=str(e),
+            suggestion="检查 URL 是否正确，确认网络连接",
+        )
 
 
 async def _test_rss_source(source: Source, feed_url: str) -> TestResult:
@@ -838,6 +971,8 @@ async def validate_source_quality(
     # 根据 connector_type 分发验证
     if source.connector_type == "youtube" or source.connector_type == "media":
         return await _validate_youtube_source(source, db)
+    elif source.connector_type == "web":
+        return await _validate_web_source(source, db)
 
     # RSS 源验证
     feed_url = config.get("feed_url")
@@ -852,6 +987,75 @@ async def validate_source_quality(
         )
 
     return await _validate_rss_source(source, db)
+
+
+async def _validate_web_source(source: Source, db: Session) -> ValidationResponse:
+    """验证 web 源质量：结果写入 content_type/avg_content_length。"""
+    source_id = source.source_id
+    config = source.config or {}
+    base_url = config.get("base_url")
+    if not base_url:
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=False,
+            content_type="unknown",
+            sample_completeness=0.0,
+            avg_content_length=0,
+            rejection_reason="No base_url configured for this source",
+            samples_analyzed=0,
+        )
+
+    try:
+        validator = SourceQualityValidator()
+        result = await validator.validate_web_source(config)
+
+        # Update source with validation results
+        source.content_type = result.content_type
+        source.avg_content_length = result.avg_content_length
+
+        if not result.is_valid:
+            source.pending_review = True
+            source.review_reason = result.rejection_reason
+            logger.warning(
+                f"Source {source_id} web validation failed: {result.rejection_reason}"
+            )
+        else:
+            source.pending_review = False
+            source.review_reason = None
+            logger.info(
+                f"Source {source_id} web validation passed: "
+                f"content_type={result.content_type}, "
+                f"avg_length={result.avg_content_length}"
+            )
+
+        db.commit()
+
+        warnings: list[str] = []
+        if not config.get("link_pattern"):
+            warnings.append("未配置 link_pattern，candidates 会混入导航链接，建议配置")
+
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=result.is_valid,
+            content_type=result.content_type,
+            sample_completeness=result.sample_completeness,
+            avg_content_length=result.avg_content_length,
+            rejection_reason=result.rejection_reason,
+            samples_analyzed=result.samples_analyzed,
+            warnings=warnings,
+        )
+
+    except Exception as e:
+        logger.error(f"Web source {source_id} validation error: {e}", exc_info=True)
+        return ValidationResponse(
+            source_id=source_id,
+            is_valid=False,
+            content_type="unknown",
+            sample_completeness=0.0,
+            avg_content_length=0,
+            rejection_reason=f"Validation error: {str(e)}",
+            samples_analyzed=0,
+        )
 
 
 async def _validate_rss_source(source: Source, db: Session) -> ValidationResponse:

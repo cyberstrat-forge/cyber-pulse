@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from cyberpulse.models import Source, SourceStatus, SourceTier
+from cyberpulse.models import Item, Source, SourceStatus, SourceTier
 
 
 @pytest.fixture
@@ -49,6 +49,79 @@ def test_items_data():
             "tags": ["tag3"],
         },
     ]
+
+
+class TestIngestSourceWebPrecheck:
+    """Tests for web source URL pre-check (set_existing_ids)."""
+
+    def test_ingest_web_source_sets_existing_ids(self, test_source):
+        """web 源预查 Item.url 并注入 set_existing_ids（增量采集）。"""
+        test_source.connector_type = "web"
+        test_source.config = {"base_url": "https://example.com/"}
+
+        mock_db = MagicMock()
+        mock_source_query = MagicMock()
+        mock_source_query.filter.return_value = mock_source_query
+        mock_source_query.first.return_value = test_source
+        mock_url_query = MagicMock()
+        mock_url_query.filter.return_value = mock_url_query
+        mock_url_query.all.return_value = [
+            ("https://example.com/article/one",),
+            ("https://example.com/article/two",),
+        ]
+
+        def query_side_effect(model):
+            # 用身份比较（Column 的 == 会触发 SQLAlchemy 表达式构建）
+            if model is Source:
+                return mock_source_query
+            if model is Item.url:
+                return mock_url_query
+            return MagicMock()  # 其他查询不关心
+
+        mock_db.query.side_effect = query_side_effect
+
+        with patch(
+            "cyberpulse.tasks.ingestion_tasks.SessionLocal", return_value=mock_db
+        ):
+            with patch(
+                "cyberpulse.tasks.ingestion_tasks.get_connector_for_source"
+            ) as mock_get_connector:
+                mock_connector = MagicMock()
+                mock_connector.fetch = AsyncMock(return_value=[])
+                mock_get_connector.return_value = mock_connector
+
+                from cyberpulse.tasks.ingestion_tasks import ingest_source
+
+                ingest_source(test_source.source_id)
+
+        mock_connector.set_existing_ids.assert_called_once_with({
+            "https://example.com/article/one",
+            "https://example.com/article/two",
+        })
+
+    def test_ingest_non_web_source_skips_precheck(self, test_source):
+        """非 web 源不调用 set_existing_ids。"""
+        mock_db = MagicMock()
+        mock_source_query = MagicMock()
+        mock_source_query.filter.return_value = mock_source_query
+        mock_source_query.first.return_value = test_source
+        mock_db.query.return_value = mock_source_query
+
+        with patch(
+            "cyberpulse.tasks.ingestion_tasks.SessionLocal", return_value=mock_db
+        ):
+            with patch(
+                "cyberpulse.tasks.ingestion_tasks.get_connector_for_source"
+            ) as mock_get_connector:
+                mock_connector = MagicMock()
+                mock_connector.fetch = AsyncMock(return_value=[])
+                mock_get_connector.return_value = mock_connector
+
+                from cyberpulse.tasks.ingestion_tasks import ingest_source
+
+                ingest_source(test_source.source_id)
+
+        mock_connector.set_existing_ids.assert_not_called()
 
 
 class TestIngestSource:

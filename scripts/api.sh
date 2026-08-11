@@ -543,6 +543,7 @@ cmd_sources_create() {
     local connector_type=""
     local url=""
     local tier=""
+    local config_json=""
     local needs_full_fetch=""
 
     while [[ $# -gt 0 ]]; do
@@ -551,6 +552,7 @@ cmd_sources_create() {
             --type)     connector_type="$2"; shift 2 ;;
             --url)      url="$2"; shift 2 ;;
             --tier)     tier="$2"; shift 2 ;;
+            --config)   config_json="$2"; shift 2 ;;
             --needs-full-fetch) needs_full_fetch="$2"; shift 2 ;;
             *)          shift ;;
         esac
@@ -563,7 +565,27 @@ cmd_sources_create() {
     local data
 
     # 根据 connector_type 使用不同的 config key
-    if [[ "$connector_type" == "youtube" ]]; then
+    if [[ "$connector_type" == "web" ]]; then
+        # Web 使用 base_url，透传 --config 的 link_pattern 等
+        if [[ -n "$config_json" ]]; then
+            data=$(jq -n \
+                --arg name "$name" \
+                --arg type "$connector_type" \
+                --arg url "$url" \
+                --arg tier "$tier" \
+                --argjson cfg "$config_json" \
+                '{name: $name, connector_type: $type, config: ({base_url: $url} + $cfg)} + if $tier != "" then {tier: $tier} else {} end'
+            )
+        else
+            data=$(jq -n \
+                --arg name "$name" \
+                --arg type "$connector_type" \
+                --arg url "$url" \
+                --arg tier "$tier" \
+                '{name: $name, connector_type: $type, config: {base_url: $url}} + if $tier != "" then {tier: $tier} else {} end'
+            )
+        fi
+    elif [[ "$connector_type" == "youtube" ]]; then
         # YouTube 使用 channel_url
         data=$(jq -n \
             --arg name "$name" \
@@ -898,6 +920,7 @@ print_sources_help() {
     echo "Connector types:"
     echo "  rss      - RSS/Atom feed (--url: feed URL)"
     echo "  youtube  - YouTube channel (--url: channel URL, supports @handle)"
+    echo "  web      - Web page scraping (--url: listing URL, supports --config JSON)"
     echo ""
     echo "Examples:"
     echo "  # RSS 源"
@@ -905,6 +928,9 @@ print_sources_help() {
     echo ""
     echo "  # YouTube 源"
     echo "  api.sh sources create --name \"Black Hat\" --type youtube --url \"https://www.youtube.com/@BlackHatOfficialYT\" --tier T1"
+    echo ""
+    echo "  # Web 源"
+    echo "  api.sh sources create --name \"TechOperators\" --type web --url \"https://www.techoperators.com/insights\" --config '{\"link_pattern\":\"\\\\.techoperators\\\\.com/insights/\"}' --tier T1"
 }
 
 # ============================================

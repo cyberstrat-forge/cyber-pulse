@@ -10,6 +10,468 @@ from cyberpulse.services import ConnectorError
 from cyberpulse.services.web_connector import WebScraperConnector
 
 
+class TestWebScraperConnectorDateValidation:
+    """Tests for date validation (future dates fall back to ingest time)."""
+
+    @pytest.mark.asyncio
+    async def test_future_date_falls_back(self):
+        """明显未来日期（> now + 7d）-> 回退收录时间。"""
+        with patch("trafilatura.extract", return_value="content " * 50), \
+             patch("trafilatura.extract_metadata") as mock_meta:
+            md = MagicMock()
+            md.title = "T"
+            md.author = ""
+            md.date = "2099-01-01"
+            mock_meta.return_value = md
+            connector = WebScraperConnector({"base_url": "https://example.com/"})
+            item = connector._extract_content_auto(
+                "<html></html>", "https://example.com/a"
+            )
+        # 未来日期 -> 回退到当前时间附近（非 2099）
+        assert item is not None
+        assert item["published_at"].year < 2099
+
+    @pytest.mark.asyncio
+    async def test_normal_date_kept(self):
+        """正常日期保持不变。"""
+        with patch("trafilatura.extract", return_value="content " * 50), \
+             patch("trafilatura.extract_metadata") as mock_meta:
+            md = MagicMock()
+            md.title = "T"
+            md.author = ""
+            md.date = "2026-06-08"
+            mock_meta.return_value = md
+            connector = WebScraperConnector({"base_url": "https://example.com/"})
+            item = connector._extract_content_auto(
+                "<html></html>", "https://example.com/a"
+            )
+        assert item["published_at"].year == 2026 and item["published_at"].month == 6
+
+
+class TestWebScraperConnectorArticleDetection:
+    """Tests for _is_article_page: pattern priority + URL shape rules."""
+
+    NAV_BLACKLIST = {"about", "contact", "team", "terms", "privacy",
+                     "policy", "careers", "tags", "category", "archive"}
+
+    def test_pattern_priority(self):
+        """配置 article_url_pattern 时完全信任 pattern。"""
+        connector = WebScraperConnector({
+            "base_url": "https://example.com/insights",
+            "article_url_pattern": r"/insights/",
+        })
+        assert connector._is_article_page("https://example.com/insights/post", "<html></html>")
+
+    def test_base_url_always_listing(self):
+        """base_url 恒按 listing：旧信号 3/4 命中也不得判为文章。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/insights"})
+        html = (
+            "<html><body><h1>Operator Insightsfor Cybersecurity Founders.</h1>"
+            + "<p>x</p>" * 300 + "</body></html>"
+        )
+        assert not connector._is_article_page("https://example.com/insights", html)
+
+    def test_same_path_excluded(self):
+        """与 base_url 同路径（分页/自身）-> 排除。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/insights"})
+        assert not connector._is_article_page("https://example.com/insights?page=2", "")
+
+    def test_numeric_segment_excluded(self):
+        """路径末段纯数字（分页）-> 排除。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/"})
+        assert not connector._is_article_page("https://example.com/articles/page/2", "")
+
+    def test_nav_word_excluded(self):
+        """导航词黑名单完全匹配 -> 排除。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/"})
+        for nav in self.NAV_BLACKLIST:
+            assert not connector._is_article_page(f"https://example.com/{nav}", "")
+
+    def test_nav_word_partial_match_not_excluded(self):
+        """黑名单完全匹配：/about-cybersecurity 不应被误杀。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/"})
+        assert connector._is_article_page("https://example.com/about-cybersecurity", "")
+
+    def test_article_slug_detected(self):
+        """正常文章 slug -> 判为文章。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/insights"})
+        assert connector._is_article_page(
+            "https://example.com/insights/the-endpoint-wars", ""
+        )
+
+    @pytest.mark.asyncio
+    async def test_content_below_min_length_skipped(self):
+        """正文裁决：提取内容 < min_content_length -> 跳过不入库。"""
+        listing_html = """<html><body>
+            <a href="https://example.com/article/short">Short</a>
+            <a href="https://example.com/article/long">Long</a>
+        </body></html>"""
+        short_article = "<html><body><p>tiny</p></body></html>"
+        long_article = (
+            "<html><body><article><h1>T</h1><p>" + "x" * 500 + "</p></article></body></html>"
+        )
+
+        def fake_get(url, headers=None):
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            url_str = str(url)
+            if "/short" in url_str:
+                r.text = short_article
+            elif "/article/" in url_str:
+                r.text = long_article
+            else:
+                r.text = listing_html
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            connector = WebScraperConnector({
+                "base_url": "https://example.com/",
+                "min_content_length": 150,
+            })
+            items = await connector.fetch()
+
+        assert len(items) == 1
+        assert items[0]["url"].endswith("/long")
+
+
+class TestWebScraperConnectorIncremental:
+    """Tests for incremental fetch via set_existing_ids."""
+
+    @pytest.fixture
+    def listing_html(self):
+        return """<html><body>
+            <a href="https://example.com/article/one">A1</a>
+            <a href="https://example.com/article/two">A2</a>
+            <a href="https://example.com/article/three">A3</a>
+        </body></html>"""
+
+    @pytest.fixture
+    def article_html(self):
+        return "<html><body><h1>T</h1><p>" + "x" * 500 + "</p></body></html>"
+
+    async def _fetch_with_existing(self, existing, listing_html, article_html):
+        calls = []
+
+        def fake_get(url, headers=None):
+            calls.append(str(url))
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            r.text = (
+                listing_html
+                if str(url).rstrip("/") == "https://example.com"
+                else article_html
+            )
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            connector = WebScraperConnector({"base_url": "https://example.com/"})
+            connector.set_existing_ids(existing)
+            items = await connector.fetch()
+        return items, calls
+
+    @pytest.mark.asyncio
+    async def test_skips_existing_urls(self, listing_html, article_html):
+        """已收录 URL 不抓正文，其余照抓。"""
+        items, calls = await self._fetch_with_existing(
+            {"https://example.com/article/one"}, listing_html, article_html
+        )
+        assert not any("/article/one" in c for c in calls)  # 已收录不抓
+        assert any("/article/two" in c for c in calls)
+        assert any("/article/three" in c for c in calls)
+        assert len(items) == 2
+
+    @pytest.mark.asyncio
+    async def test_all_existing_returns_empty(self, listing_html, article_html):
+        """全部已收录 -> 空列表（走 No items fetched 分支）。"""
+        items, calls = await self._fetch_with_existing(
+            {
+                "https://example.com/article/one",
+                "https://example.com/article/two",
+                "https://example.com/article/three",
+            },
+            listing_html,
+            article_html,
+        )
+        assert items == []
+
+    @pytest.mark.asyncio
+    async def test_no_existing_fetches_all(self, listing_html, article_html):
+        """未设置 existing（空集）-> 抓全部（兼容模式）。"""
+        items, calls = await self._fetch_with_existing(set(), listing_html, article_html)
+        assert len(items) == 3
+
+
+class TestWebScraperConnectorNormalizeUrl:
+    """Tests for URL normalization (quote non-ASCII, keep existing escapes)."""
+
+    def test_extract_links_normalizes_non_ascii(self):
+        """非 ASCII（curly apostrophe）被 quote 规范化。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/"})
+        html = '<a href="/articles/perplexity\u2019s-client">Post</a>'
+        links = connector._extract_links(html, "https://example.com/")
+        assert links == ["https://example.com/articles/perplexity%E2%80%99s-client"]
+
+    def test_normalize_url_keeps_existing_escapes(self):
+        """已有 %XX 转义不二次编码。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/"})
+        html = '<a href="/articles/perplexity%E2%80%99s">Post</a>'
+        links = connector._extract_links(html, "https://example.com/")
+        assert links == ["https://example.com/articles/perplexity%E2%80%99s"]
+
+    def test_normalize_url_stable_external_id(self):
+        """规范化后 external_id 稳定：原始形态与已转义形态同 ID。"""
+        connector = WebScraperConnector({"base_url": "https://example.com/"})
+        html = '<a href="/articles/perplexity\u2019s">Post</a>'
+        links = connector._extract_links(html, "https://example.com/")
+        eid1 = connector._generate_external_id(links[0])
+        html2 = '<a href="/articles/perplexity%E2%80%99s">Post</a>'
+        links2 = connector._extract_links(html2, "https://example.com/")
+        assert connector._generate_external_id(links2[0]) == eid1
+
+
+class TestWebScraperConnectorFetchTwoPhase:
+    """Tests for two-phase fetch (listing extraction -> article content)."""
+
+    @pytest.fixture
+    def listing_html(self):
+        """Listing page with an article link and a nav link."""
+        return """<html><body>
+            <a href="https://example.com/article/endpoint-wars">A1</a>
+            <a href="https://example.com/about">About</a>
+        </body></html>"""
+
+    @pytest.fixture
+    def article_html(self):
+        """Substantial article HTML."""
+        return "<html><body><article><h1>T1</h1><p>" + "x" * 500 + "</p></article></body></html>"
+
+    @pytest.mark.asyncio
+    async def test_fetch_two_phase_only_article_pages(self, listing_html, article_html):
+        """两阶段：请求前 URL 预筛，不请求导航页。"""
+        calls = []
+
+        def fake_get(url, headers=None):
+            calls.append(str(url))
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            r.text = article_html if "/article/" in str(url) else listing_html
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            connector = WebScraperConnector({"base_url": "https://example.com/"})
+            items = await connector.fetch()
+
+        # 断言：只请求了 listing + article/endpoint-wars（URL 预筛后未请求 /about）
+        assert any("/article/endpoint-wars" in c for c in calls)
+        assert not any("/about" in c for c in calls)
+        assert len(items) == 1
+        assert items[0]["url"].endswith("/article/endpoint-wars")
+
+    @pytest.mark.asyncio
+    async def test_fetch_two_phase_pagination_merged(self):
+        """分页页 candidates 合并：请求序列 = listing + 分页页 + 各文章页。"""
+        page1_html = """<html><body>
+            <a href="https://example.com/article/one">One</a>
+        </body></html>"""
+        page2_html = """<html><body>
+            <a href="https://example.com/article/two">Two</a>
+        </body></html>"""
+        article_html = (
+            "<html><body><article><h1>T</h1><p>" + "x" * 500 + "</p></article></body></html>"
+        )
+        calls = []
+
+        def fake_get(url, headers=None):
+            calls.append(str(url))
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            url_str = str(url)
+            if "page=2" in url_str:
+                r.text = page2_html
+            elif "/article/" in url_str:
+                r.text = article_html
+            else:
+                r.text = page1_html
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            connector = WebScraperConnector({
+                "base_url": "https://example.com/",
+                "pagination_type": "page",
+                "pagination_param": "page",
+                "max_pages": 2,
+            })
+            items = await connector.fetch()
+
+        # 请求序列：listing + 分页页 + 两篇文章页
+        assert len(calls) == 4
+        assert any("page=2" in c for c in calls)
+        assert any("/article/one" in c for c in calls)
+        assert any("/article/two" in c for c in calls)
+        assert len(items) == 2
+
+    @pytest.mark.asyncio
+    async def test_fetch_two_phase_compat_path_when_base_is_article(self):
+        """兼容路径：candidates 为空且 base_url 命中 article_url_pattern -> 抓 base_url。"""
+        base_url = "https://example.com/article/test"
+        article_html = (
+            "<html><body><article><h1>T</h1><p>" + "x" * 500 + "</p></article></body></html>"
+        )
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            r.text = article_html
+            mock_client.get.return_value = r
+            mock_cls.return_value = mock_client
+            connector = WebScraperConnector({
+                "base_url": base_url,
+                "article_url_pattern": r"/article/",
+            })
+            items = await connector.fetch()
+
+        assert len(items) == 1
+        assert items[0]["url"] == base_url
+
+    @pytest.mark.asyncio
+    async def test_fetch_two_phase_skip_failed_url(self):
+        """阶段二单 URL 抛 ConnectorError -> 跳过继续，其他文章仍入库。"""
+        listing_html = """<html><body>
+            <a href="https://example.com/article/good">Good</a>
+            <a href="https://example.com/article/bad">Bad</a>
+        </body></html>"""
+        article_html = (
+            "<html><body><article><h1>T</h1><p>" + "x" * 500 + "</p></article></body></html>"
+        )
+        calls = []
+
+        def fake_get(url, headers=None):
+            calls.append(str(url))
+            if "/bad" in str(url):
+                r = MagicMock(status_code=404)
+                r.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    "404", request=MagicMock(), response=r
+                )
+                return r
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            r.text = article_html if "/article/" in str(url) else listing_html
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            connector = WebScraperConnector({"base_url": "https://example.com/"})
+            items = await connector.fetch()
+
+        assert len(items) == 1
+        assert items[0]["url"].endswith("/article/good")
+
+    @pytest.mark.asyncio
+    async def test_render_js_fallback_used(self):
+        """render_js=true 且 httpx 正文不足 -> BrowserFetcher 降级重抓。"""
+        listing_html = """<html><body>
+            <a href="https://example.com/article/spa">SPA</a>
+        </body></html>"""
+        short_article = "<html><body><p>tiny</p></body></html>"
+        rendered_html = (
+            "<html><body><article><h1>T</h1><p>" + "x" * 500 + "</p></article></body></html>"
+        )
+
+        def fake_get(url, headers=None):
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            url_str = str(url)
+            r.text = short_article if "/article/" in url_str else listing_html
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            with patch.object(
+                WebScraperConnector, "_render_with_browser",
+                new=AsyncMock(return_value=rendered_html),
+            ) as mock_render:
+                connector = WebScraperConnector({
+                    "base_url": "https://example.com/",
+                    "render_js": True,
+                })
+                items = await connector.fetch()
+
+        assert len(items) == 1
+        assert mock_render.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_render_js_fallback_failure_uses_httpx_result(self):
+        """降级失败（None）-> 用 httpx 原始结果，流程不抛异常。"""
+        listing_html = """<html><body>
+            <a href="https://example.com/article/spa">SPA</a>
+        </body></html>"""
+        short_article = "<html><body><p>tiny</p></body></html>"
+
+        def fake_get(url, headers=None):
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            url_str = str(url)
+            r.text = short_article if "/article/" in url_str else listing_html
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            with patch.object(
+                WebScraperConnector, "_render_with_browser",
+                new=AsyncMock(return_value=None),
+            ) as mock_render:
+                connector = WebScraperConnector({
+                    "base_url": "https://example.com/",
+                    "render_js": True,
+                })
+                items = await connector.fetch()
+
+        assert items == []  # 内容不足不入库，但不抛异常
+        assert mock_render.await_count == 1
+
+
 class TestWebScraperConnectorValidateConfig:
     """Tests for validate_config method."""
 
@@ -96,8 +558,8 @@ class TestWebScraperConnectorFetchAutoMode:
                     ahead of emerging threats through training and awareness programs.</p>
                 </div>
             </article>
-            <a href="/article/1">Article 1</a>
-            <a href="/article/2">Article 2</a>
+            <a href="/article/endpoint-wars">Article 1</a>
+            <a href="/article/threat-landscape">Article 2</a>
         </body>
         </html>
         """
@@ -407,33 +869,42 @@ class TestWebScraperConnectorHandlePagination:
 
     @pytest.mark.asyncio
     async def test_handle_pagination_page_based(self):
-        """Test page-based pagination."""
+        """Test page-based pagination (two-phase: listing pages then articles)."""
         page1_html = """
         <html><body>
-            <a href="https://example.com/article/1">Article 1</a>
+            <a href="https://example.com/article/one">Article 1</a>
         </body></html>
         """
         page2_html = """
         <html><body>
-            <a href="https://example.com/article/2">Article 2</a>
+            <a href="https://example.com/article/two">Article 2</a>
         </body></html>
         """
+        article_html = (
+            "<html><body><article><h1>T</h1><p>" + "x" * 500 + "</p></article></body></html>"
+        )
 
-        mock_response1 = MagicMock()
-        mock_response1.status_code = 200
-        mock_response1.text = page1_html
-        mock_response1.raise_for_status = MagicMock()
+        calls = []
 
-        mock_response2 = MagicMock()
-        mock_response2.status_code = 200
-        mock_response2.text = page2_html
-        mock_response2.raise_for_status = MagicMock()
+        def fake_get(url, headers=None):
+            calls.append(str(url))
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            url_str = str(url)
+            if "page=2" in url_str:
+                r.text = page2_html
+            elif "/article/" in url_str:
+                r.text = article_html
+            else:
+                r.text = page1_html
+            return r
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
-            mock_client.get.side_effect = [mock_response1, mock_response2]
+            mock_client.get.side_effect = fake_get
             mock_client_class.return_value = mock_client
 
             connector = WebScraperConnector({
@@ -442,9 +913,11 @@ class TestWebScraperConnectorHandlePagination:
                 "pagination_param": "page",
                 "max_pages": 2,
             })
-            _ = await connector.fetch()
+            items = await connector.fetch()
 
-        assert mock_client.get.call_count >= 2
+        # 两阶段：listing + 分页页 + 两篇文章页，共 4 次请求
+        assert mock_client.get.call_count == 4
+        assert len(items) == 2
 
 
 class TestWebScraperConnectorRetry:
@@ -480,9 +953,11 @@ class TestWebScraperConnectorRetry:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
-            # First call times out, second succeeds
+            # First call times out, second succeeds (listing), third is the
+            # compat-path article fetch (two-phase: listing + article)
             mock_client.get.side_effect = [
                 httpx.TimeoutException("Connection timed out"),
+                mock_response,
                 mock_response,
             ]
             mock_client_class.return_value = mock_client
@@ -495,7 +970,7 @@ class TestWebScraperConnectorRetry:
             items = await connector.fetch()
 
         assert len(items) >= 1
-        assert mock_client.get.call_count == 2
+        assert mock_client.get.call_count == 3
 
     @pytest.mark.asyncio
     async def test_retry_on_server_error(self, substantial_html):
@@ -515,8 +990,11 @@ class TestWebScraperConnectorRetry:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
+            # First call 500, second succeeds (listing), third is the compat-path
+            # article fetch
             mock_client.get.side_effect = [
                 mock_error_response,
+                mock_success_response,
                 mock_success_response,
             ]
             mock_client_class.return_value = mock_client
@@ -751,11 +1229,11 @@ class TestWebScraperConnectorMaxItems:
 
     @pytest.mark.asyncio
     async def test_fetch_limits_to_max_items(self):
-        """Test that fetch respects MAX_ITEMS limit."""
-        # Create HTML with many links
+        """Test that fetch respects MAX_ITEMS limit (acts on new links)."""
+        # Create HTML with many links (slug-shaped to pass URL pre-filter)
         links_html = "<html><body>"
         for i in range(100):
-            links_html += f'<a href="https://example.com/article/{i}">Article {i}</a>'
+            links_html += f'<a href="https://example.com/article/post-{i}">Article {i}</a>'
         links_html += "</body></html>"
 
         article_html = """
@@ -768,22 +1246,25 @@ class TestWebScraperConnectorMaxItems:
         </body></html>
         """
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = article_html
-        mock_response.raise_for_status = MagicMock()
+        def fake_get(url, headers=None):
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            r.text = article_html if "/article/" in str(url) else links_html
+            return r
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
-            mock_client.get.return_value = mock_response
+            mock_client.get.side_effect = fake_get
             mock_client_class.return_value = mock_client
 
             connector = WebScraperConnector({"base_url": "https://example.com"})
             items = await connector.fetch()
 
         assert len(items) <= WebScraperConnector.MAX_ITEMS
+        assert len(items) == WebScraperConnector.MAX_ITEMS
 
 
 class TestWebScraperConnectorHandleError:
