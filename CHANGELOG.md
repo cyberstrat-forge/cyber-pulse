@@ -7,12 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Web 类型情报源采集功能完整支持（R01-R37）
+  - `fetch()` 重构为两阶段：listing 提取链接 -> 正文抓取；兼容直接配置文章 URL 的源
+  - 新增 `set_existing_ids()` 增量过滤：`ingest_source` 预查 `Item.url`，已收录文章跳过正文抓取
+  - URL 规范化：非 ASCII 字符 quote 编码（external_id 稳定），保留已有 `%XX` 转义
+  - `_is_article_page` 重写：`article_url_pattern` 优先、base_url 恒按 listing、URL 形态三规则 + 正文质量门（`min_content_length`，默认 150）
+  - 日期轻量校验：明显未来日期（> now+7d）回退收录时间
+  - 新增 `BrowserFetcher`（Playwright 渲染兜底，`render_js: true` 按源启用）
+  - 新增 `SourceQualityValidator.validate_web_source()`：抓文章样本评估质量（样本下限放宽至 ≥1 篇），创建/验证时执行
+  - API 层 `test`/`validate`/`create` 增加 web 分支；`ValidationResponse` 新增 `warnings` 字段；无 `link_pattern` 时提示配置
+  - `api.sh sources create` 支持 web 类型与 `--config` JSON 透传
+  - `docs/source-config-examples.md` Web 部分重写为实际配置键
+
+## [1.10.5] - 2026-07-30
+
 ### Fixed
 
 - 调度器按 `next_ingest_at` 过滤到期源，`schedule_interval` 真正生效
   - `run_scheduled_collection` 只采集 `next_ingest_at` 已到期的源（或未设置的新源）
   - 每个源按各自的 `schedule_interval` 独立运行，不再统一每小时全部触发
   - RSS / YouTube / Web 等所有源类型均受益
+
+## [1.10.4] - 2026-07-30
 
 ### Fixed
 

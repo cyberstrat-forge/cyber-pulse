@@ -5,7 +5,7 @@ import hashlib
 import logging
 import re
 import urllib.parse
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -30,6 +30,12 @@ class WebScraperConnector(BaseConnector):
     MAX_ITEMS = 50
     MAX_PAGES = 10  # Safety limit for pagination
 
+    # Navigation word blacklist (完全匹配排除，避免误杀 slug 含导航词的 URL)
+    NAV_BLACKLIST = frozenset({
+        "about", "contact", "team", "terms", "privacy",
+        "policy", "careers", "tags", "category", "archive",
+    })
+
     # Error handling configuration
     MAX_RETRIES = 3
     CONNECT_TIMEOUT = 60.0  # seconds (web pages may load slowly)
@@ -37,6 +43,17 @@ class WebScraperConnector(BaseConnector):
     RETRY_DELAYS = [10.0, 20.0, 40.0]  # exponential backoff in seconds
     SERVER_ERROR_DELAY = 30.0  # seconds to wait on server errors
     MAX_RATE_LIMIT_RETRIES = 3  # max consecutive 429 responses before giving up
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config)
+        self._existing_urls: set[str] | None = None
+
+    def set_existing_ids(self, urls: set[str]) -> None:
+        """注入已收录 URL 集合（内部统一规范化，保证与 _extract_links 输出同形态）。
+
+        fetch 阶段二跳过这些链接的正文抓取（增量采集）。
+        """
+        self._existing_urls = {self._normalize_url(u) for u in urls}
 
     def validate_config(self) -> bool:
         """Validate the connector configuration.
@@ -81,93 +98,131 @@ class WebScraperConnector(BaseConnector):
         return True
 
     async def fetch(self) -> list[dict[str, Any]]:
-        """Scrape web pages and extract content.
+        """Scrape web pages and extract content (two-phase).
+
+        Phase 1: fetch listing pages (base_url + pagination pages), extract
+        article links as candidates.
+        Phase 2: fetch content for new article URLs only (skip existing /
+        non-article URLs via URL shape pre-filter).
 
         Returns:
             List of item dictionaries with standardized fields
 
         Raises:
-            ConnectorError: If fetch fails after retries
+            ConnectorError: If listing fetch fails after retries
         """
         self.validate_config()
 
         base_url = self.config["base_url"]
         extraction_mode = self.config.get("extraction_mode", "auto")
 
-        all_items: list[dict[str, Any]] = []
-        visited_urls: set = set()
-        urls_to_fetch: list[str] = [base_url]
-
-        # Handle pagination if configured
-        pagination_type = self.config.get("pagination_type", "none")
-        pagination_param = self.config.get("pagination_param", "page")
-        max_pages = self.config.get("max_pages", self.MAX_PAGES)
-
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(self.CONNECT_TIMEOUT, read=self.READ_TIMEOUT),
             follow_redirects=True,
         ) as client:
-            page = 1
+            # 阶段一：抓 listing（base_url + 分页页），提取文章链接
+            listing_htmls = await self._fetch_listing_pages(client, base_url)
+            candidates: list[str] = []
+            for html in listing_htmls:
+                candidates.extend(self._extract_links(html, base_url))
+            candidates = list(dict.fromkeys(candidates))  # 跨页去重（保序）
 
-            while urls_to_fetch and page <= max_pages:
-                current_url = urls_to_fetch.pop(0)
+            # 兼容路径：candidates 为空且 base_url 命中 article_url_pattern
+            # （直接配置文章 URL 的源，base_url 本身即文章页）
+            compat_mode = False
+            if not candidates and listing_htmls and self._is_article_page(
+                base_url, listing_htmls[0]
+            ):
+                candidates = [base_url]
+                compat_mode = True
 
-                if current_url in visited_urls:
+            # 阶段二：抓正文（请求前 URL 预筛，避免无效请求）
+            min_content_length = self.config.get("min_content_length", 150)
+            items: list[dict[str, Any]] = []
+            for url in candidates:
+                if self._existing_urls is not None and url in self._existing_urls:
                     continue
-
-                visited_urls.add(current_url)
-
+                if not compat_mode and not self._looks_like_article_url(url):
+                    continue  # 导航页/分页/同路径：请求前排除
+                if len(items) >= self.MAX_ITEMS:
+                    logger.warning(
+                        f"Web scraper reached max items limit at {self.MAX_ITEMS} items"
+                    )
+                    break
                 try:
-                    # Fetch page HTML
-                    html = await self._fetch_page_with_retry(client, current_url)
-
-                    if not html:
-                        logger.warning(f"Empty response from '{current_url}'")
-                        continue
-
-                    # Extract article links from page
-                    if pagination_type != "none" or page == 1:
-                        links = self._extract_links(html, base_url)
-                        for link in links:
-                            if link not in visited_urls and link not in urls_to_fetch:
-                                urls_to_fetch.append(link)
-
-                    # Extract content from this page if it's an article page
-                    # (not just a listing page)
-                    if self._is_article_page(current_url, html):
-                        item = self._extract_content(html, current_url, extraction_mode)
-                        if item:
-                            all_items.append(item)
-
-                    # Handle pagination for listing pages
-                    if pagination_type == "page" and page < max_pages:
-                        next_page_url = self._get_next_page_url(
-                            base_url, page + 1, pagination_param
-                        )
-                        if next_page_url not in visited_urls:
-                            urls_to_fetch.insert(0, next_page_url)
-
-                    page += 1
-
-                    # Safety check for max items
-                    if len(all_items) >= self.MAX_ITEMS:
-                        logger.warning(
-                            f"Web scraper reached max items limit at {len(all_items)} items"
-                        )
-                        break
-
-                except ConnectorError:
-                    raise
-                except (ValueError, KeyError, TypeError) as e:
-                    # Parsing/data extraction errors - skip this URL but continue
-                    logger.warning(f"Data error processing '{current_url}': {e}")
+                    html = await self._fetch_page_with_retry(client, url)
+                except ConnectorError as e:
+                    # 单 URL 失败：跳过继续（listing 是源健康信号，单篇是局部问题）
+                    logger.warning(f"Skipping article '{url}': {e}")
                     continue
-                except Exception as e:
-                    # Unexpected errors - log and re-raise for debugging
-                    logger.error(f"Unexpected error processing '{current_url}': {e}")
-                    raise
+                item = self._extract_content(html, url, extraction_mode)
+                # JS 渲染降级：render_js=true 且正文不足时用浏览器重抓
+                if (
+                    not item or len(item["content"]) < min_content_length
+                ) and self.config.get("render_js"):
+                    rendered = await self._render_with_browser(url)
+                    if rendered:
+                        html = rendered
+                        item = self._extract_content(html, url, extraction_mode)
+                # 正文裁决：提取内容 >= min_content_length 才入库（内容质量门）
+                if item and len(item["content"]) >= min_content_length:
+                    items.append(item)
 
-        return all_items[: self.MAX_ITEMS]
+        return items
+
+    async def _render_with_browser(self, url: str) -> str | None:
+        """Playwright 渲染页面（render_js=true 时降级用）。"""
+        from .browser_fetcher import BrowserFetcher
+
+        fetcher = BrowserFetcher(headless=True)
+        return await fetcher.render(url)
+
+    async def _fetch_listing_pages(
+        self, client: httpx.AsyncClient, base_url: str
+    ) -> list[str]:
+        """Fetch listing pages (base_url + pagination pages), return HTML list.
+
+        Args:
+            client: httpx AsyncClient instance
+            base_url: Listing page URL
+
+        Returns:
+            List of listing page HTML strings
+
+        Raises:
+            ConnectorError: If a listing page fails to fetch
+        """
+        pagination_type = self.config.get("pagination_type", "none")
+        pagination_param = self.config.get("pagination_param", "page")
+        max_pages = self.config.get("max_pages", self.MAX_PAGES)
+
+        pages: list[str] = []
+        for page_num in range(1, max_pages + 1):
+            if pagination_type != "page" and page_num > 1:
+                break  # 非 page 分页：只抓第一页
+            url = base_url if page_num == 1 else self._get_next_page_url(
+                base_url, page_num, pagination_param
+            )
+            try:
+                html = await self._fetch_page_with_retry(client, url)
+            except ConnectorError:
+                raise  # listing 失败 = 源健康信号，整体失败
+            if html:
+                pages.append(html)
+        return pages
+
+    def _looks_like_article_url(self, url: str) -> bool:
+        """URL 形态三规则预筛：与 base_url 同路径 -> 排除；末段纯数字 -> 排除；导航词黑名单完全匹配 -> 排除。"""
+        base_path = urllib.parse.urlparse(self.config["base_url"]).path.rstrip("/")
+        path = urllib.parse.urlparse(url).path.rstrip("/")
+        if base_path and path == base_path:
+            return False
+        last_segment = path.rsplit("/", 1)[-1] if path else ""
+        if last_segment.isdigit():
+            return False
+        if last_segment.lower() in self.NAV_BLACKLIST:
+            return False
+        return True
 
     async def _fetch_page_with_retry(self, client: httpx.AsyncClient, url: str) -> str:
         """Fetch page HTML with retry logic.
@@ -279,7 +334,7 @@ class WebScraperConnector(BaseConnector):
             base_url: Base URL for resolving relative links
 
         Returns:
-            List of absolute URLs
+            List of absolute URLs (URL-normalized, deduplicated)
         """
         links: list[str] = []
 
@@ -312,6 +367,9 @@ class WebScraperConnector(BaseConnector):
                 # Resolve relative URLs
                 absolute_url = urllib.parse.urljoin(base_url, href)
 
+                # URL 规范化（quote 非 ASCII，safe 含 % 防二次编码）
+                absolute_url = self._normalize_url(absolute_url)
+
                 # Apply pattern filter if configured
                 if link_pattern:
                     if not re.search(link_pattern, absolute_url):
@@ -333,6 +391,15 @@ class WebScraperConnector(BaseConnector):
                 unique_links.append(link)
 
         return unique_links
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """Normalize URL: percent-encode non-ASCII chars, keep existing escapes.
+
+        safe 含 '%' 防止对已有 %XX 转义二次编码；external_id 以规范化 URL 为
+        输入（R08），保证非 ASCII URL 的 external_id 稳定。
+        """
+        return urllib.parse.quote(url, safe="%/:#@?&=+~,;!$'()*_-")
 
     def _extract_content(
         self, html: str, url: str, extraction_mode: str = "auto"
@@ -397,6 +464,14 @@ class WebScraperConnector(BaseConnector):
             author = metadata.author or ""
             if metadata.date:
                 published_at = self._parse_date(metadata.date)
+                # 轻量校验：明显未来日期（> now + 7d）回退收录时间
+                # （实测部分站点 metadata.date 返回页面生成日期，偏差大）
+                if published_at > self.get_current_utc_time() + timedelta(days=7):
+                    logger.warning(
+                        f"Suspicious future date '{metadata.date}' for '{url}', "
+                        f"falling back to current UTC time"
+                    )
+                    published_at = self.get_current_utc_time()
 
         # Generate external_id from URL
         external_id = self._generate_external_id(url)
@@ -576,28 +651,29 @@ class WebScraperConnector(BaseConnector):
     def _is_article_page(self, url: str, html: str) -> bool:
         """Determine if the page is an article page vs listing page.
 
+        Article detection (R21):
+        1. article_url_pattern 优先（信任管理员配置）
+        2. base_url 恒按 listing
+        3. URL 形态三规则（与 base_url 同路径 / 末段纯数字 / 导航词黑名单）
+
         Args:
             url: URL of the page
-            html: HTML content
+            html: HTML content (kept for signature compatibility)
 
         Returns:
             True if this appears to be an article page
         """
-        # Check if URL matches article pattern
+        # 1. article_url_pattern 优先（信任管理员配置）
         article_pattern = self.config.get("article_url_pattern")
         if article_pattern:
             return bool(re.search(article_pattern, url))
 
-        # Heuristic: check if there's substantial content
-        # This is a simple check - pages with more text are likely articles
-        try:
-            text_content = trafilatura.extract(html, url=url, include_comments=False)
-            if text_content and len(text_content) > 100:
-                return True
-        except Exception as e:
-            logger.debug(f"Error checking if article page '{url}': {e}")
+        # 2. base_url 恒按 listing
+        if url == self.config["base_url"]:
+            return False
 
-        return False
+        # 3. URL 形态排除（Task 1 已实现三规则）
+        return self._looks_like_article_url(url)
 
     def _get_next_page_url(self, base_url: str, page: int, param: str) -> str:
         """Get URL for the next page in pagination.

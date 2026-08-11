@@ -2,8 +2,9 @@
 
 import io
 from datetime import UTC, datetime
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -21,6 +22,7 @@ from cyberpulse.models import (
     Source,
     SourceStatus,
 )
+from cyberpulse.services.source_quality_validator import SourceValidationResult
 
 
 @pytest.fixture
@@ -332,6 +334,292 @@ class TestSourceTest:
             app.dependency_overrides.clear()
 
         assert response.status_code == 404
+
+
+class TestSourceTestWeb:
+    """Tests for web source test endpoint."""
+
+    def _create_web_source(self, db_session, source_id, config):
+        source = Source(
+            source_id=source_id,
+            name=f"Web-{source_id}",
+            connector_type="web",
+            config=config,
+        )
+        db_session.add(source)
+        db_session.commit()
+        return source
+
+    def test_web_source_test_success(self, client, db_session, mock_admin_client):
+        """web test 成功：items_found = _extract_links 链接数 + 无 link_pattern warning。"""
+        source = self._create_web_source(
+            db_session, "src_a1000001", {"base_url": "https://example.com/"}
+        )
+        html = '<html><body><a href="https://example.com/a">A</a></body></html>'
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            r.text = html
+            mock_client.get.return_value = r
+            mock_cls.return_value = mock_client
+            app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+            app.dependency_overrides[get_db] = lambda: db_session
+            try:
+                resp = client.post(f"/api/v1/admin/sources/{source.source_id}/test")
+            finally:
+                app.dependency_overrides.clear()
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["test_result"] == "success"
+        assert data["items_found"] == 1
+        assert any("link_pattern" in w for w in data["warnings"])
+
+    def test_web_source_test_http_403(self, client, db_session, mock_admin_client):
+        """web test 403 -> error_type=http_403 + 反爬建议。"""
+        source = self._create_web_source(
+            db_session, "src_a1000002", {"base_url": "https://example.com/"}
+        )
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            r = MagicMock()
+            r.status_code = 403
+            r.reason_phrase = "Forbidden"
+            r.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "403", request=MagicMock(), response=r
+            )
+            mock_client.get.return_value = r
+            mock_cls.return_value = mock_client
+            app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+            app.dependency_overrides[get_db] = lambda: db_session
+            try:
+                resp = client.post(f"/api/v1/admin/sources/{source.source_id}/test")
+            finally:
+                app.dependency_overrides.clear()
+
+        assert resp.status_code == 200
+        assert resp.json()["test_result"] == "failed"
+        assert resp.json()["error_type"] == "http_403"
+        assert "反爬" in resp.json()["suggestion"]
+
+    def test_web_source_test_missing_base_url(self, client, db_session, mock_admin_client):
+        """web test 缺 base_url -> config 错误。"""
+        source = self._create_web_source(db_session, "src_a1000003", {})
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            resp = client.post(f"/api/v1/admin/sources/{source.source_id}/test")
+        finally:
+            app.dependency_overrides.clear()
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["test_result"] == "failed"
+        assert data["error_type"] == "config"
+
+
+class TestSourceValidateWeb:
+    """Tests for web source validate endpoint."""
+
+    def test_web_source_validate_success(self, client, db_session, mock_admin_client):
+        """web validate 成功：写入 content_type/avg_content_length，有 link_pattern 无 warning。"""
+        source = Source(
+            source_id="src_a1000004",
+            name="WebValidate",
+            connector_type="web",
+            config={"base_url": "https://example.com/", "link_pattern": r"/a"},
+        )
+        db_session.add(source)
+        db_session.commit()
+        with patch(
+            "cyberpulse.api.routers.admin.sources.SourceQualityValidator"
+        ) as mock_vc:
+            instance = mock_vc.return_value
+            result = SourceValidationResult(
+                is_valid=True,
+                content_type="article",
+                sample_completeness=1.0,
+                avg_content_length=500,
+                samples_analyzed=2,
+            )
+            instance.validate_web_source = AsyncMock(return_value=result)
+            app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+            app.dependency_overrides[get_db] = lambda: db_session
+            try:
+                resp = client.post(f"/api/v1/admin/sources/{source.source_id}/validate")
+            finally:
+                app.dependency_overrides.clear()
+
+        data = resp.json()
+        assert data["is_valid"] is True
+        assert data["content_type"] == "article"
+        assert data["warnings"] == []  # 有 link_pattern -> 无 warning
+        db_session.refresh(source)
+        assert source.content_type == "article"
+        assert source.avg_content_length == 500
+
+    def test_web_source_validate_sets_pending_review(self, client, db_session, mock_admin_client):
+        """web validate 失败 -> 置 pending_review。"""
+        source = Source(
+            source_id="src_a1000005",
+            name="WebValidateBad",
+            connector_type="web",
+            config={"base_url": "https://example.com/"},
+        )
+        db_session.add(source)
+        db_session.commit()
+        with patch(
+            "cyberpulse.api.routers.admin.sources.SourceQualityValidator"
+        ) as mock_vc:
+            instance = mock_vc.return_value
+            result = SourceValidationResult(
+                is_valid=False,
+                content_type="empty",
+                sample_completeness=0.0,
+                avg_content_length=0,
+                rejection_reason="Could not fetch any article samples from listing",
+            )
+            instance.validate_web_source = AsyncMock(return_value=result)
+            app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+            app.dependency_overrides[get_db] = lambda: db_session
+            try:
+                resp = client.post(f"/api/v1/admin/sources/{source.source_id}/validate")
+            finally:
+                app.dependency_overrides.clear()
+
+        data = resp.json()
+        assert data["is_valid"] is False
+        assert any("link_pattern" in w for w in data["warnings"])  # 无 pattern -> warning
+        db_session.refresh(source)
+        assert source.pending_review is True
+        assert source.review_reason is not None
+
+
+class TestSourceCreateWeb:
+    """Tests for web source create with quality validation (R18)."""
+
+    def test_create_web_source_validation_passed(self, client, db_session, mock_admin_client):
+        """验证通过：content_type 写入，无 pending_review，有 link_pattern 无 warning。"""
+        with patch(
+            "cyberpulse.api.routers.admin.sources.SourceQualityValidator"
+        ) as mock_vc:
+            instance = mock_vc.return_value
+            result = SourceValidationResult(
+                is_valid=True,
+                content_type="article",
+                sample_completeness=1.0,
+                avg_content_length=500,
+            )
+            instance.validate_web_source = AsyncMock(return_value=result)
+            app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+            app.dependency_overrides[get_db] = lambda: db_session
+            try:
+                resp = client.post(
+                    "/api/v1/admin/sources",
+                    json={
+                        "name": "Web Create Pass",
+                        "connector_type": "web",
+                        "tier": "T1",
+                        "config": {
+                            "base_url": "https://example.com/",
+                            "link_pattern": r"/a",
+                        },
+                    },
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["content_type"] == "article"
+        assert data["pending_review"] is False
+        assert data["warnings"] == []
+
+    def test_create_web_source_validation_failure_tolerated(self, client, db_session, mock_admin_client):
+        """验证失败仅置 pending_review，不阻断创建。"""
+        with patch(
+            "cyberpulse.api.routers.admin.sources.SourceQualityValidator"
+        ) as mock_vc:
+            instance = mock_vc.return_value
+            result = SourceValidationResult(
+                is_valid=False,
+                content_type="empty",
+                sample_completeness=0.0,
+                avg_content_length=0,
+                rejection_reason="Could not fetch any article samples from listing",
+            )
+            instance.validate_web_source = AsyncMock(return_value=result)
+            app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+            app.dependency_overrides[get_db] = lambda: db_session
+            try:
+                resp = client.post(
+                    "/api/v1/admin/sources",
+                    json={
+                        "name": "Web Create Fail",
+                        "connector_type": "web",
+                        "tier": "T1",
+                        "config": {"base_url": "https://example.com/"},
+                    },
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["pending_review"] is True
+        assert data["review_reason"] is not None
+        assert any("link_pattern" in w for w in data["warnings"])  # 无 pattern -> warning
+
+    def test_create_web_source_validation_error_tolerated(self, client, db_session, mock_admin_client):
+        """验证异常也容错：pending_review 但创建成功。"""
+        with patch(
+            "cyberpulse.api.routers.admin.sources.SourceQualityValidator"
+        ) as mock_vc:
+            instance = mock_vc.return_value
+            instance.validate_web_source = AsyncMock(side_effect=Exception("boom"))
+            app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+            app.dependency_overrides[get_db] = lambda: db_session
+            try:
+                resp = client.post(
+                    "/api/v1/admin/sources",
+                    json={
+                        "name": "Web Create Error",
+                        "connector_type": "web",
+                        "tier": "T1",
+                        "config": {"base_url": "https://example.com/"},
+                    },
+                )
+            finally:
+                app.dependency_overrides.clear()
+
+        assert resp.status_code == 201
+        assert resp.json()["pending_review"] is True
+
+    def test_create_web_source_without_base_url_skips_validation(self, client, db_session, mock_admin_client):
+        """无 base_url -> 跳过验证，直接创建（无 pending_review）。"""
+        app.dependency_overrides[get_current_client] = lambda: mock_admin_client
+        app.dependency_overrides[get_db] = lambda: db_session
+        try:
+            resp = client.post(
+                "/api/v1/admin/sources",
+                json={
+                    "name": "Web Create NoUrl",
+                    "connector_type": "web",
+                    "tier": "T1",
+                    "config": {},
+                },
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+        assert resp.status_code == 201
+        assert resp.json()["pending_review"] is False
 
 
 class TestSourceDefaults:
