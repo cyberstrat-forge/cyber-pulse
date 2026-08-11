@@ -471,6 +471,82 @@ class TestWebScraperConnectorFetchTwoPhase:
         assert items == []  # 内容不足不入库，但不抛异常
         assert mock_render.await_count == 1
 
+    @pytest.mark.asyncio
+    async def test_fetch_with_pattern_keeps_numeric_id_urls(self):
+        """#129：配置 article_url_pattern 时，数字 ID 文章 URL 不被形态预筛误杀。"""
+        listing_html = """<html><body>
+            <a href="https://example.com/news/12345">A</a>
+            <a href="https://example.com/news/67890">B</a>
+        </body></html>"""
+        article_html = (
+            "<html><body><article><h1>T</h1><p>" + "x" * 500 + "</p></article></body></html>"
+        )
+
+        def fake_get(url, headers=None):
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            r.text = article_html if "/news/" in str(url) else listing_html
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            connector = WebScraperConnector({
+                "base_url": "https://example.com/news",
+                "link_pattern": r"example\.com/news/",
+                "article_url_pattern": r"example\.com/news/",
+            })
+            items = await connector.fetch()
+
+        # pattern 优先：数字 ID 链接全部收录，不因"末段纯数字"被排除
+        assert len(items) == 2
+        assert all("/news/" in it["url"] for it in items)
+
+    @pytest.mark.asyncio
+    async def test_fetch_pagination_second_page_404_stops_gracefully(self):
+        """#130：分页页 404（无更多页）静默停止，不整体失败。"""
+        page1_html = """<html><body>
+            <a href="https://example.com/news/one">One</a>
+        </body></html>"""
+        article_html = (
+            "<html><body><article><h1>T</h1><p>" + "x" * 500 + "</p></article></body></html>"
+        )
+
+        def fake_get(url, headers=None):
+            if "page=2" in str(url):
+                r = MagicMock(status_code=404)
+                r.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    "404", request=MagicMock(), response=r
+                )
+                return r
+            r = MagicMock()
+            r.status_code = 200
+            r.raise_for_status = MagicMock()
+            r.text = article_html if "/news/" in str(url) else page1_html
+            return r
+
+        with patch("httpx.AsyncClient") as mock_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.get.side_effect = fake_get
+            mock_cls.return_value = mock_client
+            connector = WebScraperConnector({
+                "base_url": "https://example.com/news",
+                "pagination_type": "page",
+                "pagination_param": "page",
+                "max_pages": 5,
+            })
+            items = await connector.fetch()
+
+        # 分页页 404 静默停止：第 1 页文章正常入库
+        assert len(items) == 1
+        assert items[0]["url"].endswith("/news/one")
+
 
 class TestWebScraperConnectorValidateConfig:
     """Tests for validate_config method."""

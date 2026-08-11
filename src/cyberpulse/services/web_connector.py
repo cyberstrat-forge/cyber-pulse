@@ -142,8 +142,9 @@ class WebScraperConnector(BaseConnector):
             for url in candidates:
                 if self._existing_urls is not None and url in self._existing_urls:
                     continue
-                if not compat_mode and not self._looks_like_article_url(url):
-                    continue  # 导航页/分页/同路径：请求前排除
+                # 统一候选判定（#129）：pattern 优先 -> 形态三规则
+                if not compat_mode and not self._is_article_page(url, ""):
+                    continue
                 if len(items) >= self.MAX_ITEMS:
                     logger.warning(
                         f"Web scraper reached max items limit at {self.MAX_ITEMS} items"
@@ -205,8 +206,14 @@ class WebScraperConnector(BaseConnector):
             )
             try:
                 html = await self._fetch_page_with_retry(client, url)
-            except ConnectorError:
-                raise  # listing 失败 = 源健康信号，整体失败
+            except ConnectorError as e:
+                if page_num > 1:
+                    # 分页页失败（常见 404 = 没有更多页）：静默停止，不整体失败（#130）
+                    logger.warning(
+                        f"Pagination page {page_num} failed for '{base_url}': {e}"
+                    )
+                    break
+                raise  # base_url 失败 = 源健康信号，整体失败
             if html:
                 pages.append(html)
         return pages
