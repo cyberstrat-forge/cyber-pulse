@@ -99,8 +99,8 @@ Admin API Key 在首次部署时自动生成并显示在终端。如果需要重
 # 查看当前版本
 cat .version
 
-# 在 main 分支（有 tag）: v1.5.0
-# 在特性分支: v1.5.0-25-gb596d0b (git describe 格式)
+# 在 main 分支（有 tag）: v1.10.7
+# 在特性分支: v1.10.7-25-gb596d0b (git describe 格式)
 ```
 
 ### 端口分配
