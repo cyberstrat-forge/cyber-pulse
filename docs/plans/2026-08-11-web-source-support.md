@@ -33,7 +33,7 @@ created: 2026-08-11
 
 **目标：** 将 `WebScraperConnector.fetch()` 从 BFS 单阶段重构为"listing 提取 → 正文抓取"两阶段，适配现有测试断言。
 
-**Covers:** R02, R03, R04, R13, R14, R28, R34
+**Covers:** R02, R03, R04, R11, R13, R14, R28, R34
 **TDD 策略：** 🟢 纯逻辑（fetch 流程重构，mock httpx 全流程验证）
 
 **涉及文件：** `src/cyberpulse/services/web_connector.py`、`tests/test_services/test_web_connector.py`
@@ -163,7 +163,7 @@ created: 2026-08-11
 
 **目标：** `_extract_links` 对 urljoin 结果做 URL 规范化（quote 非 ASCII），保证 external_id 稳定（实测 Perplexity curly apostrophe 坑）。
 
-**Covers:** R07, R08, R25
+**Covers:** R07, R08, R15, R25
 **TDD 策略：** 🟢 纯逻辑
 
 **涉及文件：** `src/cyberpulse/services/web_connector.py`、`tests/test_services/test_web_connector.py`
