@@ -7,6 +7,7 @@ created: 2026-08-11
 
 > 基于已审批 spec `docs/specs/2026-08-11-web-source-support-design.md`（R01-R37，经两轮评审修订）
 > 执行顺序：Task 1 → 2 → 3 → 4/5/6（可并行）→ 7 → 8 → 9 → 10/11（可并行）→ 12
+> Task 1 已包含 `_looks_like_article_url`（URL 预筛，供 task-4 编排复用）
 
 ## File Structure Map
 
@@ -33,7 +34,7 @@ created: 2026-08-11
 
 **目标：** 将 `WebScraperConnector.fetch()` 从 BFS 单阶段重构为"listing 提取 → 正文抓取"两阶段，适配现有测试断言。
 
-**Covers:** R02, R03, R04, R11, R13, R14, R28, R34
+**Covers:** R02, R03, R04, R11, R13, R14, R21（URL 形态排除部分）, R28, R34
 **TDD 策略：** 🟢 纯逻辑（fetch 流程重构，mock httpx 全流程验证）
 
 **涉及文件：** `src/cyberpulse/services/web_connector.py`、`tests/test_services/test_web_connector.py`
@@ -43,17 +44,21 @@ created: 2026-08-11
       ```python
       @pytest.mark.asyncio
       async def test_fetch_two_phase_only_article_pages(self):
-          """两阶段：只抓 listing + 文章页，不抓导航页。"""
+          """两阶段：请求前 URL 预筛，不请求导航页。"""
           listing_html = """<html><body>
               <a href="https://example.com/article/1">A1</a>
               <a href="https://example.com/about">About</a>
           </body></html>"""
           article_html = "<html><body><article><h1>T1</h1><p>" + "x" * 500 + "</p></article></body></html>"
           calls = []
-          async def fake_get(url, headers=None):
+          def fake_get(url, headers=None):
               calls.append(str(url))
               r = MagicMock(); r.status_code = 200; r.raise_for_status = MagicMock()
-              r.text = listing_html if "example.com/" == str(url).rstrip("/") + "/" or "/article/" not in str(url) else article_html
+              url_str = str(url)
+              if "/article/" in url_str:
+                  r.text = article_html
+              else:
+                  r.text = listing_html  # listing（base_url）返回 listing HTML
               return r
           with patch("httpx.AsyncClient") as mock_cls:
               mock_client = AsyncMock(); mock_client.__aenter__.return_value = mock_client
@@ -61,13 +66,37 @@ created: 2026-08-11
               mock_cls.return_value = mock_client
               connector = WebScraperConnector({"base_url": "https://example.com/"})
               items = await connector.fetch()
-          # 断言：只请求了 listing + article/1（未请求 /about）
+          # 断言：只请求了 listing + article/1（URL 预筛后未请求 /about）
           assert any("/article/1" in c for c in calls)
           assert not any("/about" in c for c in calls)
+          assert len(items) == 1
       ```
-      运行 `uv run pytest tests/test_services/test_web_connector.py -k FetchTwoPhase` → RED（新方法不存在或行为不符）
+      运行 `uv run pytest tests/test_services/test_web_connector.py -k FetchTwoPhase` → RED（`_looks_like_article_url` 不存在）
 
-- [ ] Step 2: 重构 `fetch()` 为两阶段
+- [ ] Step 2: 实现 `_looks_like_article_url`（URL 形态预筛，提前自 task-4）
+      **本步骤提前实现 task-4 的 URL 三规则**——fetch 阶段二请求前预筛依赖它，Task 4 只保留 `_is_article_page` 编排重写。
+      ```python
+      # 类常量（与 task-4 共用）
+      NAV_BLACKLIST = frozenset({
+          "about", "contact", "team", "terms", "privacy",
+          "policy", "careers", "tags", "category", "archive",
+      })
+
+      def _looks_like_article_url(self, url: str) -> bool:
+          """URL 形态三规则：与 base_url 同路径 → 排除；末段纯数字 → 排除；导航词黑名单完全匹配 → 排除。"""
+          base_path = urllib.parse.urlparse(self.config["base_url"]).path.rstrip("/")
+          path = urllib.parse.urlparse(url).path.rstrip("/")
+          if base_path and path == base_path:
+              return False
+          last_segment = path.rsplit("/", 1)[-1] if path else ""
+          if last_segment.isdigit():
+              return False
+          if last_segment.lower() in self.NAV_BLACKLIST:
+              return False
+          return True
+      ```
+
+- [ ] Step 3: 重构 `fetch()` 为两阶段（阶段二请求前 URL 预筛）
       替换 `fetch()` 主体（保持 `validate_config()` 与 `httpx.AsyncClient` 配置不变）：
       ```python
       async def fetch(self) -> list[dict[str, Any]]:
@@ -92,11 +121,13 @@ created: 2026-08-11
               ):
                   candidates = [base_url]
 
-              # 阶段二：抓正文
+              # 阶段二：抓正文（请求前 URL 预筛，避免无效请求）
               items: list[dict[str, Any]] = []
               for url in candidates:
                   if self._existing_urls is not None and url in self._existing_urls:
                       continue
+                  if not self._looks_like_article_url(url):
+                      continue  # 导航页/分页/同路径：请求前排除
                   if len(items) >= self.MAX_ITEMS:
                       logger.warning(
                           f"Web scraper reached max items limit at {self.MAX_ITEMS} items"
@@ -108,8 +139,6 @@ created: 2026-08-11
                       # 单 URL 失败：跳过继续（listing 是源健康信号，单篇是局部问题）
                       logger.warning(f"Skipping article '{url}': {e}")
                       continue
-                  if not self._is_article_page(url, html):
-                      continue
                   item = self._extract_content(html, url, extraction_mode)
                   if item:
                       items.append(item)
@@ -117,7 +146,7 @@ created: 2026-08-11
           return items
       ```
 
-- [ ] Step 3: 新增 `_fetch_listing_pages` 私有方法（含分页）
+- [ ] Step 4: 新增 `_fetch_listing_pages` 私有方法（含分页）
       ```python
       async def _fetch_listing_pages(
           self, client: httpx.AsyncClient, base_url: str
@@ -144,17 +173,17 @@ created: 2026-08-11
       ```
       注意：`pagination_type != "page"` 时只抓 base_url 本身（第一页）；`pagination_type == "page"` 时按 `pagination_param` 递增直到 `max_pages`。
 
-- [ ] Step 4: 运行新增测试 → GREEN
+- [ ] Step 5: 运行新增测试 → GREEN
       `uv run pytest tests/test_services/test_web_connector.py -k FetchTwoPhase` → 全部通过
 
-- [ ] Step 5: 适配现有 fetch 测试（R34）
+- [ ] Step 6: 适配现有 fetch 测试（R34）
       运行 `uv run pytest tests/test_services/test_web_connector.py` → 记录失败用例
       逐用例适配：
       - `TestWebScraperConnectorFetchAutoMode.test_fetch_auto_mode`：fixture 中 base_url 是 `https://example.com/article/test`（直接配文章 URL），需在 fixture 或断言层调整——兼容路径（candidates 为空 + article_url_pattern 命中）已覆盖此场景；若仍失败，检查 `_extract_links` 对 fixture 的提取结果
       - `test_fetch_with_custom_user_agent` 等：断言请求序列/items 数量按两阶段语义修正
       目标：`uv run pytest tests/test_services/test_web_connector.py` 全绿（含新增 + 既有）
 
-- [ ] Step 6: 验证全量服务层测试无回归
+- [ ] Step 7: 验证全量服务层测试无回归
       `uv run pytest tests/test_services/ -x` → 通过（Task 3 的 `set_existing_ids` 未实现前，`self._existing_urls` 需在 `__init__` 或 fetch 内初始化为 None，见 Step 2 前置：在 `fetch()` 开头加 `if not hasattr(self, "_existing_urls"): self._existing_urls = None`，Task 3 再正式初始化）
 
 ---
@@ -285,10 +314,11 @@ created: 2026-08-11
           self._existing_urls: set[str] | None = None
 
       def set_existing_ids(self, urls: set[str]) -> None:
-          """注入已收录的规范化 URL 集合；fetch 阶段二跳过这些链接的正文抓取。"""
-          self._existing_urls = set(urls)
+          """注入已收录 URL 集合（内部统一规范化，保证与 _extract_links 输出同形态）。"""
+          self._existing_urls = {self._normalize_url(u) for u in urls}
       ```
-      fetch 阶段二已含过滤逻辑（Task 1 Step 2 已写 `if self._existing_urls is not None and url in self._existing_urls: continue`），此处仅补 `__init__`，可移除 Task 1 Step 6 的临时 `hasattr` 兜底。
+      说明：**规范化收敛到 connector**（R08 不变量）——调用方（ingest_source）无需关心 URL 形态；存量非 ASCII URL（旧版本未规范化入库）经 `_normalize_url` 归一后与 candidates 可比对，增量不失效。
+      fetch 阶段二已含过滤逻辑（Task 1 Step 3 已写 `if self._existing_urls is not None and url in self._existing_urls: continue`），此处仅补 `__init__`，可移除 Task 1 Step 7 的临时 `hasattr` 兜底。
 
 - [ ] Step 3: 运行测试 → GREEN
       `uv run pytest tests/test_services/test_web_connector.py -k Incremental` → 通过
@@ -350,16 +380,11 @@ created: 2026-08-11
       ```
       `uv run pytest tests/test_services/test_web_connector.py -k ArticleDetection` → RED
 
-- [ ] Step 2: 重写 `_is_article_page` + 新增 `_looks_like_article_url`
+- [ ] Step 2: 重写 `_is_article_page`（编排：pattern 优先 → base_url 恒 listing → _looks_like_article_url）
+      `_looks_like_article_url` 与 `NAV_BLACKLIST` 已在 Task 1 Step 2 实现，此处不重复定义，直接编排调用：
       ```python
-      # 类常量
-      NAV_BLACKLIST = frozenset({
-          "about", "contact", "team", "terms", "privacy",
-          "policy", "careers", "tags", "category", "archive",
-      })
-
       def _is_article_page(self, url: str, html: str) -> bool:
-          """文章判定：pattern 优先；base_url 恒 listing；URL 形态三规则。"""
+          """文章判定：pattern 优先；base_url 恒 listing；URL 形态三规则（委托 _looks_like_article_url）。"""
           # 1. article_url_pattern 优先（信任管理员配置）
           article_pattern = self.config.get("article_url_pattern")
           if article_pattern:
@@ -367,22 +392,10 @@ created: 2026-08-11
           # 2. base_url 恒按 listing
           if url == self.config["base_url"]:
               return False
-          # 3. URL 形态排除
+          # 3. URL 形态排除（Task 1 已实现三规则）
           return self._looks_like_article_url(url)
-
-      def _looks_like_article_url(self, url: str) -> bool:
-          """URL 形态三规则：同路径 → 排除；末段纯数字 → 排除；导航词黑名单完全匹配 → 排除。"""
-          base_path = urllib.parse.urlparse(self.config["base_url"]).path.rstrip("/")
-          path = urllib.parse.urlparse(url).path.rstrip("/")
-          if base_path and path == base_path:
-              return False
-          last_segment = path.rsplit("/", 1)[-1] if path else ""
-          if last_segment.isdigit():
-              return False
-          if last_segment.lower() in self.NAV_BLACKLIST:
-              return False
-          return True
       ```
+      注意：`html` 参数保留（签名兼容现有调用方，判定不再依赖 HTML）。
 
 - [ ] Step 3: fetch 阶段二接入正文裁决（min_content_length 内容质量门）
       在 `fetch()` 阶段二 item 生成后加长度过滤：
@@ -1114,21 +1127,30 @@ created: 2026-08-11
       echo "  api.sh sources create --name \"TechOperators\" --type web --url \"https://www.techoperators.com/insights\" --config '{\"link_pattern\":\"\\\\.techoperators\\\\.com/insights/\"}' --tier T1"
       ```
 
-- [ ] Step 4: 更新 `tests/test_api_sh.sh` 增加 web create 用例
-      参照现有 create 用例模式，断言请求 body 含 `base_url` 与透传的 link_pattern：
+- [ ] Step 4: 更新 `tests/test_api_sh.sh` 增加 web 分支静态断言
+      **现有 test_api_sh.sh 是静态检查模式**（bash -n + grep 命令存在性 + help 输出，不实际调用 API）——新增 web 断言沿用该模式，不引入 api_post/mock：
       ```bash
-      test_sources_create_web() {
-          local response
-          response=$(api_post "/api/v1/admin/sources" \
-              "$(jq -n --arg name "TO" --arg type "web" --arg url "https://example.com/" \
-                  --argjson cfg '{"link_pattern":"\\.example\\.com/a"}' \
-                  '{name: $name, connector_type: $type, config: ({base_url: $url} + $cfg)}')")
-          echo "$response" | jq -e '.config.base_url == "https://example.com/" and .config.link_pattern == "\\.example\\.com/a"' >/dev/null
-      }
+      # 测试: sources create web 分支存在
+      echo -n "Test: sources create web 分支... "
+      if grep -q 'connector_type == "web"' "$SCRIPT_PATH"; then
+          echo "PASS"
+      else
+          echo "FAIL - web 分支不存在"
+          exit 1
+      fi
+
+      # 测试: --config 参数解析存在
+      echo -n "Test: sources create --config 参数... "
+      if grep -q -- "--config)" "$SCRIPT_PATH"; then
+          echo "PASS"
+      else
+          echo "FAIL - --config 参数不存在"
+          exit 1
+      fi
       ```
 
 - [ ] Step 5: 运行脚本测试
-      `bash tests/test_api_sh.sh` → 通过（若测试需要 mock API 环境，按现有模式运行）
+      `bash tests/test_api_sh.sh` → 全部 PASS（含 bash -n 语法检查 + 既有 grep 断言）
 
 ---
 
@@ -1214,9 +1236,10 @@ created: 2026-08-11
 
 ## 自审记录
 
-- **需求覆盖**：R01-R37 全部映射（见各 Task Covers；R06/R10/R12→task-6，R16-R18/R31/R37→task-9，R19/R33→task-10，R23→task-11，R35/R36→task-12）；P1 项（R06/R10/R22/R37）均纳入对应 Task 而非延后
+- **需求覆盖**：R01-R37 全部映射（见各 Task Covers；R06/R10/R12→task-6，R16-R18/R31/R37→task-9，R19/R33→task-10，R23→task-11，R35/R36→task-12）；P1 项（R06/R10/R22/R37）均纳入对应 Task 而非延后；R21 拆分——URL 形态排除部分在 task-1（`_looks_like_article_url`），编排部分在 task-4（`_is_article_page`）
 - **Placeholder 扫描**：无 TBD/TODO
-- **类型一致性**：`set_existing_ids`/`_normalize_url`/`_looks_like_article_url`/`validate_web_source`/`BrowserFetcher.render` 跨 Task 引用签名一致；`_existing_urls` 初始化在 task-3 完成（task-1 用 `hasattr` 兜底）
-- **可构建性**：每步含精确代码块/命令
-- **可测试性**：🟢 Task 均先写 RED 测试；🔵 Task（10/11/12）含显式验证命令
-- **依赖序**：1→2→3→(4|5|6)→7→8→9→(10|11)→12；task-4 的正文裁决依赖 task-1 的 fetch 结构；task-6 降级逻辑依赖 task-4 的 min_content_length 读取位置
+- **类型一致性**：`set_existing_ids`/`_normalize_url`/`_looks_like_article_url`/`validate_web_source`/`BrowserFetcher.render` 跨 Task 引用签名一致；`_existing_urls` 初始化在 task-3 完成（task-1 用 `hasattr` 兜底）；`set_existing_ids` 内部统一 `_normalize_url` 归一化（R08 收敛到 connector）
+- **可构建性**：每步含精确代码块/命令；task-1 测试 fixture 用清晰 URL 分支判断（无死条件）
+- **可测试性**：🟢 Task 均先写 RED 测试；🔵 Task（10/11/12）含显式验证命令；task-10 测试沿用 test_api_sh.sh 静态断言模式（bash -n + grep，不引入 API mock）
+- **依赖序**：1→2→3→(4|5|6)→7→8→9→(10|11)→12；task-4 的正文裁决依赖 task-1 的 fetch 结构；task-6 降级逻辑依赖 task-4 的 min_content_length 读取位置；task-4 的 `_is_article_page` 依赖 task-1 的 `_looks_like_article_url`
+- **P2 可选（未纳入，YAGNI）**：① BrowserFetcher 浏览器实例复用（当前每次 render 冷启动，降级场景少可接受）② validate_web_source 样本混入导航页（正文长 about 页拉高 avg，warning 兜底可接受）
