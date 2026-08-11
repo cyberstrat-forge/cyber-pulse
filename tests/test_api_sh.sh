@@ -113,5 +113,23 @@ else
     exit 1
 fi
 
+# 测试 13: 有 sources create web 分支
+echo -n "Test 13: 有 sources create web 分支... "
+if grep -q '== "web"' "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL - web 分支不存在"
+    exit 1
+fi
+
+# 测试 14: 有 sources create --config 参数
+echo -n "Test 14: 有 sources create --config 参数... "
+if grep -q -- "--config)" "$SCRIPT_PATH"; then
+    echo "PASS"
+else
+    echo "FAIL - --config 参数不存在"
+    exit 1
+fi
+
 echo ""
 echo "=== 所有测试通过 ==="

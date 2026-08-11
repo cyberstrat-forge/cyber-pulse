@@ -322,3 +322,7 @@ class ValidationResponse(BaseModel):
         0,
         description="Number of samples analyzed"
     )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="附加提示（如未配置 link_pattern）"
+    )

@@ -140,6 +140,19 @@ def ingest_source(source_id: str, job_id: str | None = None) -> None:
             )
             connector.set_existing_video_ids({r[0] for r in existing_ids})
 
+        # For web sources, pre-filter existing article URLs to skip
+        # content fetching for already-collected articles
+        if source.connector_type == "web":
+            existing_urls = (
+                db.query(Item.url)
+                .filter(
+                    Item.source_id == source_id,
+                    Item.url.isnot(None),
+                )
+                .all()
+            )
+            connector.set_existing_ids({r[0] for r in existing_urls})  # type: ignore[attr-defined]
+
         # Fetch items using async connector
         result = asyncio.run(_fetch_items(connector, None))
 

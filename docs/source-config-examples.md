@@ -96,66 +96,45 @@ cyber-pulse source add "Enterprise API" api "https://api.enterprise.com/v2" \
 ### 基础 Web 源
 
 ```bash
-cyber-pulse source add "Security Blog" web "https://example-security-blog.com/articles" \
-  --tier T2 --yes
+./scripts/api.sh sources create --name "Security Blog" --type web \
+  --url "https://example-security-blog.com/articles" --tier T2
 ```
 
 ### Web 源配置参数
 
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `selector` | string | 文章列表 CSS 选择器 |
-| `link_selector` | string | 链接 CSS 选择器 |
-| `title_selector` | string | 标题 CSS 选择器 |
-| `content_selector` | string | 正文 CSS 选择器 |
-| `date_selector` | string | 日期 CSS 选择器 |
-| `author_selector` | string | 作者 CSS 选择器 |
-| `pagination` | object | 分页配置 |
-| `exclude_selectors` | array | 排除元素选择器 |
-| `timeout` | int | 请求超时时间（秒） |
-| `user_agent` | string | 自定义 User-Agent |
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `base_url` | string | 必填 | listing 页 URL（决定收录范围，如 Perplexity `/` 5 篇 vs `/articles` 9 篇） |
+| `extraction_mode` | string | `auto` | `auto`（trafilatura）/ `manual`（selectors） |
+| `link_pattern` | string | 无 | 文章链接正则过滤（强烈建议配置，避免混入导航链接） |
+| `link_selector` | string | 无 | 文章链接 XPath |
+| `article_url_pattern` | string | 无 | 文章页 URL 判定正则（配置后完全信任） |
+| `selectors` | object | 无 | manual 模式：title/content/author/date XPath |
+| `pagination_type` | string | `none` | `none` / `page` |
+| `pagination_param` | string | `page` | 分页查询参数名 |
+| `max_pages` | int | 10 | 分页上限 |
+| `user_agent` / `headers` | string/object | 内置浏览器头 | 请求伪装 |
+| `render_js` | bool | `false` | httpx 失败或正文不足时降级 Playwright 渲染 |
+| `min_content_length` | int | 150 | 正文质量门：提取 ≥ 阈值才入库 |
 
 ### 复杂 Web 抓取配置
 
 ```bash
-cyber-pulse source add "Tech Security News" web "https://tech-security-news.com/latest" \
-  --tier T1 --yes
+# api.sh 创建 web 源，--config 透传 link_pattern 等配置
+./scripts/api.sh sources create --name "Tech Security News" --type web \
+  --url "https://tech-security-news.com/latest" --tier T1 \
+  --config '{"link_pattern":"\\.tech-security-news\\.com/latest/","article_url_pattern":"\\.tech-security-news\\.com/latest/"}'
 ```
 
 ### 分页配置选项
 
-**下一页链接模式**：
+**页码模式**（`pagination_type=page`，按 `pagination_param` 递增直到 `max_pages`）：
 
 ```json
 {
-  "pagination": {
-    "type": "next_link",
-    "selector": "a.next-page"
-  }
-}
-```
-
-**页码模式**：
-
-```json
-{
-  "pagination": {
-    "type": "page_number",
-    "param": "page",
-    "max_pages": 10
-  }
-}
-```
-
-**无限滚动模式**：
-
-```json
-{
-  "pagination": {
-    "type": "scroll",
-    "api_url": "https://example.com/api/articles",
-    "param": "offset"
-  }
+  "pagination_type": "page",
+  "pagination_param": "page",
+  "max_pages": 10
 }
 ```
 
@@ -295,16 +274,32 @@ curl -s "https://www.googleapis.com/youtube/v3/channels?part=snippet&id=UCJ6q9Ie
 
 ```json
 {
-  "selector": "article",
-  "link_selector": "a.title",
-  "title_selector": "h1",
-  "content_selector": "div.content",
-  "date_selector": "time",
-  "author_selector": "span.author",
-  "exclude_selectors": ["div.ads", "nav"],
-  "timeout": 30
+  "base_url": "https://example.com/articles",
+  "extraction_mode": "auto",
+  "link_pattern": "\\.example\\.com/articles/",
+  "article_url_pattern": "\\.example\\.com/articles/",
+  "pagination_type": "none",
+  "pagination_param": "page",
+  "max_pages": 10,
+  "user_agent": "Mozilla/5.0 (compatible; CyberPulse/1.0)",
+  "render_js": false,
+  "min_content_length": 150
 }
 ```
+
+> **manual 模式示例**（使用 `selectors` 精确定位，`extraction_mode` 必须为 `manual`）：
+>
+> ```json
+> {
+>   "extraction_mode": "manual",
+>   "selectors": {
+>     "title": "//h1[@class='title']",
+>     "content": "//div[@class='article-body']",
+>     "author": "//span[@class='author']",
+>     "date": "//time/@datetime"
+>   }
+> }
+> ```
 
 ### YouTube 源模板
 
@@ -368,39 +363,64 @@ cyber-pulse source test src_xxx
 
 ### Web 源常见问题
 
-**问题：选择器不匹配**
+**问题：采集混入导航/无关页面**
 
-```bash
-# 调试选择器
-# 使用浏览器开发者工具检查页面结构
-# 或使用 curl 获取页面源码分析
-curl -s "https://example.com/articles" | grep -o '<article[^>]*>'
-```
-
-**问题：内容提取不完整**
-
-调整 `content_selector` 或添加 `exclude_selectors`：
+配置 `link_pattern` 限定文章链接形态，正文质量门（`min_content_length`）兜底：
 
 ```json
 {
-  "content_selector": "div.article-body",
-  "exclude_selectors": [
-    "div.related-articles",
-    "div.comments"
-  ]
+  "link_pattern": "\\.example\\.com/articles/"
+}
+```
+
+**问题：链接选择器不匹配（需要精确定位文章链接）**
+
+配置 `link_selector`（XPath）限定链接范围：
+
+```json
+{
+  "link_selector": "//div[@class='post-list']//a[@href]"
+}
+```
+
+**问题：内容提取不完整（auto 模式不准）**
+
+改用 manual 模式 + `selectors` 精确定位正文：
+
+```json
+{
+  "extraction_mode": "manual",
+  "selectors": {
+    "content": "//div[@class='article-body']"
+  }
+}
+```
+
+**问题：SPA 站点（React/Next.js）正文为空**
+
+开启 JS 渲染兜底（Playwright 渲染后重抓）：
+
+```json
+{
+  "render_js": true
 }
 ```
 
 **问题：网站禁止爬虫**
 
-设置 `user_agent` 或添加延迟：
+设置 `user_agent` 或自定义 `headers`：
 
 ```json
 {
   "user_agent": "Mozilla/5.0 (compatible; CyberPulse/1.0)",
-  "delay": 1
+  "headers": {
+    "Accept-Language": "en-US,en;q=0.9"
+  }
 }
 ```
+
+> **已知限制**：web 源的文章发布日期取自页面元数据（`metadata.date`），部分站点返回页面生成日期而非真实发布时间（存在偏差）。
+> 系统仅做轻量校验（明显未来日期回退收录时间）。精确场景请使用 manual 模式的 `selectors.date` 选择器自行定位。
 
 ---
 
