@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- web 源阶段二候选判定遵守 `article_url_pattern` 优先（#129）
+  - 阶段二预筛收敛为 `_is_article_page`（pattern 优先 -> base_url 恒 listing -> URL 形态三规则）
+  - 数字 ID / 日期形态文章站点（`/news/123`）配 pattern 后不再被"末段纯数字"规则误杀
+- web 源分页页 404 静默停止，不再整体失败（#130）
+  - `_fetch_listing_pages` 分页页（page>1）`ConnectorError` 仅告警并停止翻页；base_url 失败仍整体报错
+
 ## [1.10.6] - 2026-08-11
 
 ### Added

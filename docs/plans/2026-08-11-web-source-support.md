@@ -121,13 +121,19 @@ created: 2026-08-11
               ):
                   candidates = [base_url]
 
-              # 阶段二：抓正文（请求前 URL 预筛，避免无效请求）
+              # 阶段二：抓正文（请求前候选判定，避免无效请求）
+              # 判定顺序：base_url（兼容路径）恒放行 → article_url_pattern 优先 → 无 pattern 用 URL 形态预筛
+              article_pattern = self.config.get("article_url_pattern")
               items: list[dict[str, Any]] = []
               for url in candidates:
                   if self._existing_urls is not None and url in self._existing_urls:
                       continue
-                  if not self._looks_like_article_url(url):
-                      continue  # 导航页/分页/同路径：请求前排除
+                  if url != base_url:
+                      if article_pattern:
+                          if not re.search(article_pattern, url):
+                              continue
+                      elif not self._looks_like_article_url(url):
+                          continue  # 导航页/分页/同路径：请求前排除
                   if len(items) >= self.MAX_ITEMS:
                       logger.warning(
                           f"Web scraper reached max items limit at {self.MAX_ITEMS} items"
@@ -165,8 +171,12 @@ created: 2026-08-11
                   break  # 非 page 分页：只抓第一页
               try:
                   html = await self._fetch_page_with_retry(client, url)
-              except ConnectorError:
-                  raise  # listing 失败 = 源健康信号，整体失败
+              except ConnectorError as e:
+                  if page_num > 1:
+                      # 分页页失败（常见 404 = 没有更多页）：静默停止，不整体失败
+                      logger.warning(f"Pagination page {page_num} failed for '{base_url}': {e}")
+                      break
+                  raise  # base_url 失败 = 源健康信号，整体失败
               if html:
                   pages.append(html)
           return pages
@@ -397,8 +407,17 @@ created: 2026-08-11
       ```
       注意：`html` 参数保留（签名兼容现有调用方，判定不再依赖 HTML）。
 
-- [ ] Step 3: fetch 阶段二接入正文裁决（min_content_length 内容质量门）
-      在 `fetch()` 阶段二 item 生成后加长度过滤：
+- [ ] Step 3: fetch 阶段二候选判定收敛为 `_is_article_page` + 接入正文裁决
+      将 Task 1 Step 3 的内联预筛替换为统一调用 `_is_article_page`（pattern 优先 → base_url 恒 listing → URL 形态），保证判定逻辑单一来源：
+      ```python
+      for url in candidates:
+          if self._existing_urls is not None and url in self._existing_urls:
+              continue
+          if not self._is_article_page(url, ""):
+              continue  # 统一判定：兼容路径 base_url（pattern 命中）→ True；其余按 pattern/形态
+          ...
+      ```
+      正文裁决（min_content_length 内容质量门）在 item 生成后加长度过滤：
       ```python
       min_content_length = self.config.get("min_content_length", 150)
       ...
@@ -406,7 +425,7 @@ created: 2026-08-11
       if item and len(item["content"]) >= min_content_length:
           items.append(item)
       ```
-      （`min_content_length` 在 fetch 开头读取一次，传入循环）
+      （`min_content_length` 在 fetch 开头读取一次，传入循环；`render_js` 降级在 Task 6 接入同一位置）
 
 - [ ] Step 4: 运行测试 → GREEN
       `uv run pytest tests/test_services/test_web_connector.py -k "ArticleDetection or FetchTwoPhase"` → 通过
@@ -497,6 +516,8 @@ created: 2026-08-11
                   mock_browser = AsyncMock()
                   mock_browser.pages = [mock_page]
                   mock_ctx.chromium.launch_persistent_context.return_value = mock_browser
+                  # async_playwright() 返回 AsyncMock：使 __aenter__ 是 coroutine（async context manager）
+                  mock_pw.return_value = AsyncMock()
                   mock_pw.return_value.__aenter__.return_value = mock_ctx
                   fetcher = BrowserFetcher()
                   html = await fetcher.render("https://example.com/")
@@ -508,6 +529,7 @@ created: 2026-08-11
               with patch("playwright.async_api.async_playwright") as mock_pw:
                   mock_ctx = AsyncMock()
                   mock_ctx.chromium.launch_persistent_context.side_effect = Exception("browser failed")
+                  mock_pw.return_value = AsyncMock()
                   mock_pw.return_value.__aenter__.return_value = mock_ctx
                   fetcher = BrowserFetcher()
                   html = await fetcher.render("https://example.com/")
@@ -614,12 +636,13 @@ created: 2026-08-11
           async def test_valid_web_source(self, validator):
               listing_html = '<html><body><a href="https://example.com/a">A</a><a href="https://example.com/b">B</a></body></html>'
               article_html = "<html><body><h1>T</h1><p>" + "x" * 2000 + "</p></body></html>"
-              def fake_get(url, follow_redirects=True):
+              async def fake_get(url, follow_redirects=True):
                   r = MagicMock(); r.status_code = 200; r.raise_for_status = MagicMock()
+                  r.url = str(url)  # 与请求一致，跳过 SSRF 重校验
                   r.text = listing_html if "/a" not in str(url) and "/b" not in str(url) else article_html
                   return r
               with patch("httpx.AsyncClient") as mock_cls:
-                  mock_client = MagicMock(); mock_client.__aenter__.return_value = mock_client
+                  mock_client = AsyncMock(); mock_client.__aenter__.return_value = mock_client
                   mock_client.__aexit__.return_value = None; mock_client.get.side_effect = fake_get
                   mock_cls.return_value = mock_client
                   result = await validator.validate_web_source({"base_url": "https://example.com/"})
@@ -629,11 +652,12 @@ created: 2026-08-11
 
           @pytest.mark.asyncio
           async def test_listing_fetch_failure(self, validator):
-              def fake_get(url, follow_redirects=True):
-                  r = MagicMock(); r.status_code = 500; r.raise_for_status.side_effect = httpx.HTTPStatusError("500", request=MagicMock(), response=r)
+              async def fake_get(url, follow_redirects=True):
+                  r = MagicMock(); r.status_code = 500; r.url = str(url)
+                  r.raise_for_status.side_effect = httpx.HTTPStatusError("500", request=MagicMock(), response=r)
                   return r
               with patch("httpx.AsyncClient") as mock_cls:
-                  mock_client = MagicMock(); mock_client.__aenter__.return_value = mock_client
+                  mock_client = AsyncMock(); mock_client.__aenter__.return_value = mock_client
                   mock_client.__aexit__.return_value = None; mock_client.get.side_effect = fake_get
                   mock_cls.return_value = mock_client
                   result = await validator.validate_web_source({"base_url": "https://example.com/"})
@@ -649,9 +673,10 @@ created: 2026-08-11
           @pytest.mark.asyncio
           async def test_no_links_returns_empty(self, validator):
               with patch("httpx.AsyncClient") as mock_cls:
-                  mock_client = MagicMock(); mock_client.__aenter__.return_value = mock_client
+                  mock_client = AsyncMock(); mock_client.__aenter__.return_value = mock_client
                   mock_client.__aexit__.return_value = None
                   r = MagicMock(); r.status_code = 200; r.raise_for_status = MagicMock()
+                  r.url = "https://example.com/"
                   r.text = "<html><body>no links</body></html>"
                   mock_client.get.return_value = r
                   mock_cls.return_value = mock_client
@@ -1240,6 +1265,13 @@ created: 2026-08-11
 - **Placeholder 扫描**：无 TBD/TODO
 - **类型一致性**：`set_existing_ids`/`_normalize_url`/`_looks_like_article_url`/`validate_web_source`/`BrowserFetcher.render` 跨 Task 引用签名一致；`_existing_urls` 初始化在 task-3 完成（task-1 用 `hasattr` 兜底）；`set_existing_ids` 内部统一 `_normalize_url` 归一化（R08 收敛到 connector）
 - **可构建性**：每步含精确代码块/命令；task-1 测试 fixture 用清晰 URL 分支判断（无死条件）
+- **执行前检查（2026-08-11，通读全文模拟执行）**：
+  - P0-1 修复：task-1 阶段二预筛与 pattern 冲突——`_looks_like_article_url` 的"末段纯数字"规则会排除 `/article/1` 型数字 ID 文章（test_fetch_auto_mode 的 fixture 正属此类，配了 pattern 也会被裸形态预筛误杀）→ 阶段二改为"base_url 恒放行 → pattern 优先 → 无 pattern 用形态预筛"
+  - P0-2 修复：兼容路径 candidates=[base_url] 会被 `_looks_like_article_url` 排除（path == base_path）→ 同上修复（base_url 恒放行）
+  - P0-3 修复：task-6 测试 `mock_pw.return_value.__aenter__.return_value = mock_ctx` 中 async_playwright 是 MagicMock，`async with` 会 await mock_ctx（AsyncMock）得到其 return_value（≠ mock_ctx），launch_persistent_context 配置错对象 → 加 `mock_pw.return_value = AsyncMock()`
+  - P0-4 修复：task-7 测试 `mock_client = MagicMock()` + `await client.get()` 失败（非 awaitable）→ 改 AsyncMock + async def fake_get；r.url 未设置会走 str(MagicMock) 进错误 SSRF 分支 → 各响应补 r.url
+  - P1-5 修复：task-4 Step 3 阶段二候选判定收敛为统一调用 `_is_article_page`（判定逻辑单一来源，pattern 优先语义落地）
+  - P1-6 修复：`_fetch_listing_pages` 分页页失败（常见 404 = 没有更多页）静默停止，仅 base_url 失败整体抛错
 - **可测试性**：🟢 Task 均先写 RED 测试；🔵 Task（10/11/12）含显式验证命令；task-10 测试沿用 test_api_sh.sh 静态断言模式（bash -n + grep，不引入 API mock）
 - **依赖序**：1→2→3→(4|5|6)→7→8→9→(10|11)→12；task-4 的正文裁决依赖 task-1 的 fetch 结构；task-6 降级逻辑依赖 task-4 的 min_content_length 读取位置；task-4 的 `_is_article_page` 依赖 task-1 的 `_looks_like_article_url`
 - **P2 可选（未纳入，YAGNI）**：① BrowserFetcher 浏览器实例复用（当前每次 render 冷启动，降级场景少可接受）② validate_web_source 样本混入导航页（正文长 about 页拉高 avg，warning 兜底可接受）
