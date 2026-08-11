@@ -171,10 +171,10 @@ curl "http://localhost:8000/api/v1/admin/sources" \
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | name | string | 是 | 情报源名称（唯一） |
-| connector_type | string | 是 | 连接器类型：rss, youtube, api, web_scraper, media_api |
+| connector_type | string | 是 | 连接器类型：rss, api, web, media, youtube |
 | tier | string | 否 | 层级：T0, T1, T2, T3（默认 T2） |
 | score | float | 否 | 质量评分 0-100（默认根据 tier 推导） |
-| config | object | 否 | 连接器配置（RSS 用 feed_url，YouTube 用 channel_url） |
+| config | object | 否 | 连接器配置（RSS 用 feed_url，YouTube 用 channel_url，web 用 base_url + link_pattern/article_url_pattern） |
 
 **api.sh (RSS):**
 ```bash
@@ -369,6 +369,7 @@ curl -X DELETE "http://localhost:8000/api/v1/admin/sources/src_a1b2c3d4" \
 
 - **RSS 源**：执行连接测试，返回响应时间和发现的条目数
 - **YouTube 源**：测试频道页面可访问性，返回响应时间
+- **Web 源**：抓取 `base_url`（listing 页），用 `_extract_links` 统计链接数（`items_found`）；未配置 `link_pattern` 时返回 warning 提示；403/404/429 返回针对性建议
 
 **api.sh:**
 ```bash
@@ -428,6 +429,7 @@ curl -X POST "http://localhost:8000/api/v1/admin/sources/src_a1b2c3d4/test" \
 
 - **RSS 源**：执行质量验证，检查内容完整性
 - **YouTube 源**：验证频道 URL 格式，支持 /channel/ID、/c/NAME、/user/NAME、/@HANDLE
+- **Web 源**：抓取文章样本评估正文质量（复用 RSS 阈值，样本下限放宽至 ≥1 篇），结果写入 `content_type`/`avg_content_length`，失败置 `pending_review`；未配置 `link_pattern` 时 `warnings` 返回提示
 
 **api.sh:**
 ```bash
@@ -449,7 +451,8 @@ curl -X POST "http://localhost:8000/api/v1/admin/sources/src_a1b2c3d4/validate" 
   "sample_completeness": 0.85,
   "avg_content_length": 1250,
   "rejection_reason": null,
-  "samples_analyzed": 5
+  "samples_analyzed": 5,
+  "warnings": []
 }
 ```
 

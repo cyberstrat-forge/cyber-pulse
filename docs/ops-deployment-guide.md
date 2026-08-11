@@ -11,7 +11,7 @@
 | **获取方式** | 下载部署包或使用安装脚本 |
 | **镜像来源** | 阿里云容器镜像仓库（国内加速） |
 | **本地构建** | 不需要 |
-| **版本管理** | 使用 tag 版本号（如 v1.5.0） |
+| **版本管理** | 使用 tag 版本号（如 v1.10.7） |
 | **升级方式** | `cyber-pulse.sh upgrade` |
 
 ## 前置条件
@@ -28,7 +28,7 @@
 curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --type ops
 
 # 安装指定版本
-curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --type ops --version v1.5.0
+curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --type ops --version v1.10.7
 
 # 安装到指定目录
 curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --type ops --dir /opt/cyber-pulse
@@ -47,10 +47,10 @@ cd cyber-pulse
 
 ```bash
 # 下载部署包
-wget https://github.com/cyberstrat-forge/cyber-pulse/releases/download/v1.5.0/cyber-pulse-deploy-v1.5.0.tar.gz
+wget https://github.com/cyberstrat-forge/cyber-pulse/releases/download/v1.10.7/cyber-pulse-deploy-v1.10.7.tar.gz
 
 # 解压
-tar -xzf cyber-pulse-deploy-v1.5.0.tar.gz
+tar -xzf cyber-pulse-deploy-v1.10.7.tar.gz
 
 # 进入目录
 cd cyber-pulse
@@ -139,7 +139,7 @@ cd deploy && docker compose config | grep project_name && cd ..
 ./scripts/cyber-pulse.sh upgrade
 
 # 升级到指定版本
-./scripts/cyber-pulse.sh upgrade --version v1.6.0
+./scripts/cyber-pulse.sh upgrade --version v1.10.7
 ```
 
 升级流程：
@@ -171,7 +171,7 @@ cd deploy && docker compose config | grep project_name && cd ..
 # 查看当前版本
 cat .version
 
-# 版本格式: v1.5.0（tag 版本号）
+# 版本格式: v1.10.7（tag 版本号）
 ```
 
 ### API 管理
@@ -465,6 +465,11 @@ ls deploy/logs/
 
 | 版本 | 说明 |
 |------|------|
+| v1.10.7 | web 源修复：阶段二 pattern 优先、分页页 404 容错 |
+| v1.10.6 | web 类型情报源完整支持（两阶段采集、增量、JS 渲染兜底） |
+| v1.10.0 | YouTube 频道字幕采集连接器 |
+| v1.9.0 | api.sh 多环境配置支持 |
+| v1.8.0 | 增量同步 API（Pull + Cursor） |
 | v1.5.0 | 两级全文采集、速率限制、调度重试 |
 | v1.4.0 | API 架构重构、Admin API、作业追踪 |
 | v1.3.0 | 基础功能稳定版 |

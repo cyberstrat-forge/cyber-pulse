@@ -4,7 +4,7 @@ Cyber Pulse 是一个内部战略情报采集与标准化系统，定位为"数�
 
 ## 项目状态
 
-**当前版本**: v1.5.0 (生产就绪)
+**当前版本**: v1.10.7 (生产就绪)
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
@@ -73,7 +73,7 @@ cd .worktrees/feature-xxx
 curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --type ops
 
 # 或指定版本
-curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --type ops --version v1.5.0
+curl -fsSL https://raw.githubusercontent.com/cyberstrat-forge/cyber-pulse/main/install.sh | bash -s -- --type ops --version v1.10.7
 ```
 
 > 💡 **加速提示**：镜像托管在阿里云容器镜像仓库，中国用户无需配置镜像加速即可快速拉取。
