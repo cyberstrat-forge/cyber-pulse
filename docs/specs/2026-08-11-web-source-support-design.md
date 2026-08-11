@@ -15,6 +15,8 @@
 - Perplexity listing 链接含 curly apostrophe `’`（`...perplexity’s-client-endpoints...`），urljoin 保留原始字符，httpx 请求自动编码 `%E2%80%99` → 同文两 MD5（URL 规范化缺口，新增）
 - 两源均无 `article:published_time` / JSON-LD / author meta，trafilatura `metadata.date` 不可靠（Perplexity 返回页面生成日期 2026-07-29，真实发布 Jun 8, 2026）→ 日期提取裁剪为轻量校验
 - 两源均为静态站（Framer），httpx 直接抓取成功，JS 渲染为可选兜底
+- **TechOperators 文章页与 listing 页在 HTML 结构信号上无区分度**（均无 `<article>`、h1 长度均在 10-200、链接密度均 <0.3、canonical 均指向自身）→ R21 信号打分方案废弃，改用 URL 形态 + 正文裁决
+- **Perplexity listing 存在两个 URL 形态**（`/` 5 篇 vs `/articles` 9 篇），base_url 选择决定收录范围
 
 ## 数据模型
 
@@ -42,7 +44,7 @@ self._existing_urls: set[str] | None = None   # set_existing_ids 注入的已收
 |---|---|---|---|
 | `services/web_connector.py` | 重构 | 两阶段 fetch、`set_existing_ids`、URL 规范化、article 判定增强、日期轻量校验 | httpx / trafilatura / browser_fetcher |
 | `services/browser_fetcher.py` | **新建** | Playwright 渲染 HTML 兜底 | playwright |
-| `services/source_quality_validator.py` | 扩展 | `validate_web_source`（抓 2-3 篇文章样本评估质量） | WebScraperConnector（复用提取代码） |
+| `services/source_quality_validator.py` | 扩展 | `validate_web_source`（抓文章样本评估质量，样本不足仅置 pending_review） | WebScraperConnector（复用提取代码） |
 | `tasks/ingestion_tasks.py` | 扩展 | web 分支预查 `Item.url` → `set_existing_ids` | Item 模型 |
 | `api/routers/admin/sources.py` | 扩展 | `_test_web_source` / `_validate_web_source` / create 分支 | connector + validator |
 | `scripts/api.sh` | 扩展 | `--config` 参数 + web 分支 + help | — |
@@ -57,11 +59,12 @@ ingest_source (web)
   → 预查 Item.url（按 source_id）→ set_existing_ids
   → connector.fetch()
       阶段一：抓 base_url + 分页页（max_pages 上限）→ _extract_links（规范化）→ candidates
-              ├─ 兼容路径：candidates 为空且 base_url 自身判定为文章 → [base_url]
+              ├─ 兼容路径：candidates 为空且 base_url 命中 article_url_pattern → [base_url]（直接配置文章 URL 的源）
               └─ 过滤 existing → 新链接列表（保持 listing 顺序，MAX_ITEMS 作用于新链接）
-      阶段二：逐个抓正文
+      阶段二：逐个抓正文（请求 URL 显式用规范化 URL，与 external_id 一致）
+              ├─ URL 形态排除：与 base_url 同路径且无 slug 特征（分页/分类/首页）→ 跳过
               ├─ httpx 抓取 → 正文 <200 字符 且 render_js=true → BrowserFetcher 降级重抓
-              └─ _is_article_page 判定 → _extract_content → item
+              └─ 正文裁决：trafilatura 提取 ≥200 字符 → item；<200 → 跳过不入库
   → create_item（external_id = md5(规范化URL)）→ IntegrityError 去重 → normalize → 下游
 ```
 
@@ -102,10 +105,10 @@ def set_existing_ids(self, urls: set[str]) -> None:
 
 ```python
 async def validate_web_source(self, source_config: dict[str, Any]) -> SourceValidationResult:
-    """抓取 2-3 篇文章样本评估正文质量，复用 _analyze_samples 与 RSS 同口径阈值。"""
+    """抓取文章样本评估正文质量，复用 _analyze_samples 与 RSS 同口径阈值。"""
 ```
 
-- **设计考量**：复用 `_analyze_samples` + MIN_SAMPLE_ITEMS=3 / MIN_AVG_CONTENT_LENGTH=50 / MAX_SAMPLE_ITEMS=10，与 RSS 判定口径统一；内部实例化 `WebScraperConnector(config)` 调用 `_extract_links`/`_extract_content`
+- **设计考量**：复用 `_analyze_samples` + MIN_AVG_CONTENT_LENGTH=50 / MAX_SAMPLE_ITEMS=10 阈值（口径与 RSS 统一）；**样本下限放宽**：web 分支 ≥1 篇内容达标即有效（小型博客 listing 可能仅 2 篇，沿用 RSS 的 MIN_SAMPLE_ITEMS=3 会误杀）；样本不足时仅置 pending_review 不判失败（与 create 容错语义一致）；内部实例化 `WebScraperConnector(config)` 调用 `_extract_links`/`_extract_content`
 - **错误处理**：listing 抓取失败 / 链接为 0 / 文章页提取失败 → `is_valid=False` + 具体 rejection_reason（与 RSS 分支同构，不抛异常）
 - **输入约束**：config 含 `base_url`；SSRF 校验 base_url 与每个样本 URL
 
@@ -149,7 +152,7 @@ class BrowserFetcher:
 |---|---|
 | `TestWebScraperConnectorIncremental`（web_connector 测试扩展） | ① existing 注入后只抓新链接（断言请求 URL 序列）② 全部已收录 → 空列表 ③ 未设置 → 抓全部 ④ MAX_ITEMS 作用于新链接 |
 | `TestWebScraperConnectorNormalizeUrl` | ① 非 ASCII → quote 规范化 ② 已有 `%XX` 不二次编码（safe 含 `%`）③ 规范化后 external_id 稳定 |
-| `TestWebScraperConnectorArticleDetection` | ① pattern 优先 ② base_url 特判 ③ 信号组合（`<article>`/h1 长度 10-200/链接密度 <0.3/canonical 指向自身，≥2 命中）④ 真实 listing fixture（861 字符）不误判 |
+| `TestWebScraperConnectorArticleDetection` | ① pattern 优先 ② base_url 特判（listing 恒非文章）③ URL 形态排除（与 base_url 同路径无 slug → 跳过）④ 正文裁决（提取 ≥200 → 文章，<200 → 跳过）⑤ 反向用例：TechOperators listing fixture（旧信号 3/4 命中）不得误判 |
 | `TestWebScraperConnectorDateValidation` | ① date > now+7d → 回退收录时间 ② 正常日期保持 |
 | `TestWebScraperConnectorFetchTwoPhase` | ① 分页 candidates 合并 ② candidates 空 + base_url 为文章页 → 兼容路径 ③ 阶段二单 URL 失败跳过 |
 | `test_browser_fetcher.py`（新建） | render 成功返回 HTML / 失败返回 None（mock playwright） |
@@ -159,8 +162,8 @@ class BrowserFetcher:
 | `test_api_sh.sh` 扩展 | web create 生成 base_url 配置、`--config` JSON 透传 |
 | **现有 fetch 测试适配** | `TestWebScraperConnectorFetchAutoMode` 等 fixture（listing 即文章页混合结构）两阶段重构后断言核对（请求序列/items 数量）——Task 1 内完成，非事后修复 |
 
-**E2E 验证**（真实源，验收标准）：
-- Perplexity：建源 → test → validate → 首次采集收 5 篇 → 二次采集增量归零 → 新文章出现时只收增量
+**E2E 验证**（真实源，验收标准；断言动态，不硬编码篇数）：
+- Perplexity：建源（base_url 选 `/` 或 `/articles`，收录范围分别为 5/9 篇）→ test → validate → 首次采集 ≥1 篇 → 二次采集增量归零 → 新文章出现时只收增量
 - TechOperators：存量 13 条去重（规范化后 external_id 不变）→ 二次采集 0 新文章
 
 **可测试边界检查**：所有逻辑均可通过现有 mock 模式直接调用（fetch 全流程 mock AsyncClient、内部方法直接调实例、validator 的 httpx 同样 mock），无需提取额外纯函数。
@@ -190,13 +193,13 @@ class BrowserFetcher:
 | --- | --- | --- | --- |
 | R01 | WebScraperConnector 新增 `_existing_urls` 状态与 `set_existing_ids(urls)` 注入方法 | 关键接口 | P0 |
 | R02 | `fetch()` 重构为两阶段：阶段一只抓 base_url + 分页页提取链接，阶段二只抓过滤 existing 后的新链接正文 | 架构 | P0 |
-| R03 | 兼容路径：candidates 为空且 base_url 自身判定为文章页时，将 base_url 作为唯一候选 | 架构 | P0 |
+| R03 | 兼容路径：candidates 为空且 base_url 命中 article_url_pattern 时，将 base_url 作为唯一候选（直接配置文章 URL 的源） | 架构 | P0 |
 | R04 | MAX_ITEMS 作用于新链接（已收录不占配额） | 架构 | P0 |
 | R05 | config 新增 `render_js` 键（默认 false） | 数据模型 | P0 |
 | R06 | 新建 `browser_fetcher.py`，`BrowserFetcher.render(url) -> str | None`，复用 persistent context 模式 | 架构 | P1 |
 | R07 | `_extract_links` 对 urljoin 结果做 URL 规范化（quote 非 ASCII，safe 含 `%` 防二次编码） | 关键接口 | P0 |
-| R08 | external_id = md5(规范化 URL)；Item.url 与预查注入同形态 | 关键接口 | P0 |
-| R09 | `SourceQualityValidator.validate_web_source(config)` 复用 `_analyze_samples` + RSS 阈值，内部实例化 WebScraperConnector 复用提取代码 | 关键接口 | P0 |
+| R08 | external_id = md5(规范化 URL)；Item.url 与预查注入同形态；阶段二请求 URL 显式用规范化 URL（请求与 ID 一致） | 关键接口 | P0 |
+| R09 | `SourceQualityValidator.validate_web_source(config)` 复用 `_analyze_samples` + 阈值，样本下限放宽（≥1 篇达标即有效），样本不足仅置 pending_review；内部实例化 WebScraperConnector 复用提取代码 | 关键接口 | P0 |
 | R10 | BrowserFetcher 按源启用（render_js=true 才实例化） | 关键接口 | P1 |
 | R11 | 阶段二单 URL 抓取失败 → 跳过继续；阶段一 listing 失败 → 整体 ConnectorError | 错误处理 | P0 |
 | R12 | render_js 降级失败 → 用 httpx 原始结果 | 错误处理 | P0 |
@@ -208,12 +211,12 @@ class BrowserFetcher:
 | R18 | `create_source` 对 web 源执行质量验证，失败仅置 pending_review 不阻断创建 | API 层 | P0 |
 | R19 | api.sh `cmd_sources_create` 增加 web 分支（config 用 base_url）+ `--config` JSON 透传 + help 更新 | 脚本 | P1 |
 | R20 | `ingest_source` 对 web 源预查 `Item.url`（按 source_id）注入 `set_existing_ids` | 任务层 | P0 |
-| R21 | `_is_article_page` 增强：article_url_pattern 优先；base_url 特判；无 pattern 时信号打分（≥2 命中） | 健壮性 | P0 |
-| R22 | 日期轻量校验：metadata.date > now+7d 回退收录时间 | 健壮性 | P1 |
+| R21 | `_is_article_page` 重写：article_url_pattern 优先；base_url 恒按 listing；无 pattern 时 URL 形态排除（与 base_url 同路径无 slug → 跳过）+ 正文裁决（提取 ≥200 字符 → 文章，<200 → 跳过）；废弃 HTML 信号打分（实测无区分度） | 健壮性 | P0 |
+| R22 | 日期轻量校验：metadata.date > now+7d 回退收录时间；文档注明 web 源日期可能偏差，精确场景用 manual selectors 的 date 选择器 | 健壮性 | P1 |
 | R23 | docs/source-config-examples.md Web 部分重写为实际配置键（base_url/extraction_mode/link_pattern/link_selector/article_url_pattern/selectors/pagination_*/max_pages/user_agent/headers/render_js） | 文档 | P0 |
 | R24 | TestWebScraperConnectorIncremental：增量过滤/空列表/兼容模式/MAX_ITEMS | 测试策略 | P0 |
 | R25 | TestWebScraperConnectorNormalizeUrl：quote 规范化/不二次编码/ID 稳定 | 测试策略 | P0 |
-| R26 | TestWebScraperConnectorArticleDetection：pattern 优先/base_url 特判/信号组合/真实 fixture 不误判 | 测试策略 | P0 |
+| R26 | TestWebScraperConnectorArticleDetection：pattern 优先/base_url 特判/URL 形态排除/正文裁决/反向用例（TechOperators listing 旧信号 3/4 命中不得误判） | 测试策略 | P0 |
 | R27 | TestWebScraperConnectorDateValidation：超期回退/正常保持 | 测试策略 | P0 |
 | R28 | TestWebScraperConnectorFetchTwoPhase：分页合并/兼容路径/单 URL 失败跳过 | 测试策略 | P0 |
 | R29 | test_browser_fetcher.py：render 成功/失败 | 测试策略 | P0 |
@@ -222,8 +225,9 @@ class BrowserFetcher:
 | R32 | test_ingestion_tasks.py：web 分支预查 | 测试策略 | P0 |
 | R33 | test_api_sh.sh：web create 与 --config | 测试策略 | P0 |
 | R34 | 现有 fetch 测试适配（TestWebScraperConnectorFetchAutoMode 等断言核对） | 测试策略 | P0 |
-| R35 | Perplexity E2E：建源/采集 5 篇/二次增量归零 | 测试策略 | P0 |
+| R35 | Perplexity E2E：建源（base_url 选 `/` 或 `/articles`）/首次采集 ≥1 篇/二次增量归零/新文章只收增量（断言动态） | 测试策略 | P0 |
 | R36 | TechOperators E2E：存量去重/二次 0 新 | 测试策略 | P0 |
+| R37 | 无 link_pattern 时 validate 返回 warning 提示配置（candidates 会混入导航链接，正文裁决兜底） | 风险与假设 | P1 |
 
 ## 替代方案（讨论过但未选的）
 
@@ -234,6 +238,7 @@ class BrowserFetcher:
 | 从 listing 文本提取日期 | 仅覆盖部分源（TechOperators 无日期文本）；成本高价值低，裁剪为已知限制 |
 | JS 渲染本次不做 | 不满足"全覆盖"；SPA 型源（Next.js/React 博客）无兜底 |
 | 新建独立 WebSourceValidator | validate_web_source 复用 `_analyze_samples` + 阈值更省，且与 RSS 口径统一 |
+| HTML 信号打分（`<article>`/h1/链接密度/canonical）判定文章 | 实测 TechOperators listing 与文章页无区分度（均无 `<article>`、链接密度均 <0.3、canonical 均指向自身），任何阈值组合均失效；改用 URL 形态 + 正文裁决 |
 
 ## 风险与假设
 
@@ -246,9 +251,11 @@ class BrowserFetcher:
 | 风险 | 缓解 |
 |---|---|
 | 非 ASCII 存量 URL 迁移（external_id 变化致重复） | 当前库仅 TechOperators（全 ASCII）无此风险；残余靠 create_item 去重兜底 |
-| metadata.date 偏差（Perplexity 返回页面生成日期） | 裁剪为已知限制：轻量校验拦截明显荒谬值，manual 模式提供精确手段 |
+| metadata.date 偏差（Perplexity 返回页面生成日期） | 裁剪为已知限制：轻量校验拦截明显荒谬值；文档注明精确场景用 manual selectors 的 date 选择器 |
+| 无 link_pattern 时 candidates 混入导航链接 | 正文裁决（<200 跳过）兜底 + validate 时 warning 提示配置 link_pattern |
+| Playwright chromium 未随部署镜像安装 | 实施时在 Docker 镜像验证（P1）；render_js 默认 false 不影响主链路 |
 | 现有 fetch 测试断言需适配 | Task 1 内完成核对（非事后修复），fixture 结构兼容 |
-| E2E 依赖真实网络与已部署环境 | 验收标准明确两个源的预期结果（Perplexity 5 篇/归零；TechOperators 去重/0 新） |
+| E2E 依赖真实网络与已部署环境 | 验收标准明确两个源的预期结果（Perplexity ≥1 篇/归零；TechOperators 去重/0 新），断言动态不硬编码 |
 
 ## 下一步
 
